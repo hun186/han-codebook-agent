@@ -9,8 +9,9 @@ const elData={knownEdit:{value:''}};
 const research={messages:[{id:'a',codes:['001','002']}],known_pairs:[],hypothesis_marks:{'001':{preferred:'甲',pinned:true,excluded:[],note:'trial'}}};
 const notices=[];
 const ctx={research,el:(id)=>elData[id]||(elData[id]={}),notice:(s,b)=>notices.push({s,b}),initializeMarks:()=>{},
-  Blob,markSnapshots:[],markActions:[],markCursor:0,copyMarks:(x)=>JSON.parse(JSON.stringify(x))};
+  Blob,markSnapshots:[{'001':{preferred:'甲',pinned:true,excluded:[],note:'trial'}},{}],markActions:['original','cleared'],markCursor:1,copyMarks:(x)=>JSON.parse(JSON.stringify(x))};
 vm.createContext(ctx);
+vm.runInContext(grab('function persistMarkHistory()', 'function initializeMarks()'),ctx);
 vm.runInContext(grab('function applyKnown()', 'function saveProfile()'),ctx);
 elData.knownEdit.value=JSON.stringify([{message_id:'a',segments:['已知甲','已知乙']}]);
 ctx.applyKnown();
@@ -21,7 +22,7 @@ delete research.hypothesis_marks['001'];
 ctx.applyKnown();
 assert.strictEqual(research.known_pairs.length,1,'non-conflicting known pair did not apply');
 assert.strictEqual(notices.at(-1).b,undefined,'successful edit reported as error');
-vm.runInContext(grab('function persistMarkHistory()', 'function initializeMarks()'),ctx);
+assert(ctx.markSnapshots.every(snapshot=>!('001' in snapshot)), 'old marks for newly verified code resurrect through undo');
 const snapshots=[];
 const words=Array.from({length:60},(_,i)=>String(i).padStart(3,'0'));
 for(let step=0;step<80;step++){

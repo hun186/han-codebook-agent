@@ -196,3 +196,17 @@ curl.exe --max-time 10 -i http://192.168.0.134:18080/v1/models
 開始真正執行時，程式會顯示目前輪次、呼叫的 API URL、模型名稱，每 10 秒提示仍在等待，並在返回後顯示成功接受幾個未驗證候選。`llm.timeout_seconds` 是底層 socket I/O 逾時而不是整輪 LLM 生成的硬性總時間上限；慢速模型生成仍可能超過此時間。可以用 Ctrl+C 中止。若端點是 nginx/Open WebUI 的一般網頁，而非 OpenAI-compatible API，請調整反向代理或改成實際提供 `/v1/chat/completions` 的端點。若 HTTP 401/403，檢查 Bearer token；404，檢查路由或模型；502/504，檢查代理與上游服務。
 
 不要把 API token、真實密文或敏感情報貼到公共 GitHub Issue。尚未在使用者的區網端點實測。
+
+### v0.3 Review hardening: failure diagnostics and editing consistency
+
+- **An unsuccessful analysis is not a verified decoding.** Its trace tab can still show available baseline and round events, including a previously captured LLM request/error response, without enabling result-only decoding and report download.
+- The browser applies cipher/metadata/observation changes as one validated unit. Invalid code groups or observation metadata do not partially save sender or receiver edits.
+- If the analysis output folder cannot be created, the job becomes `failed` instead of indefinitely occupying the single-job slot; fix filesystem permissions and retry.
+- With the **explicit** `capture_llm_io` checkbox enabled, responses from HTTP errors such as `400` and `422` are saved in the local SQLite audit with status and at most 64 KB of response body. Error bodies may themselves include sensitive data; do not enable this setting on sensitive research without reviewing local storage protections. Nothing is captured by default.
+- Additional regression coverage: `python -m unittest discover -s tests -p 'test_review_p2.py' -v` (browser JavaScript check uses Node.js if available).
+
+## 單一碼本下的 10／25／50／100 封密電比較
+
+使用者提出更貼近真實研究的固定碼本情境：**一個案件內所有密電使用同一份碼本**，先從大量未知電文累積模式，觀察更多密文能否改善推測。已加入三組合成案例，分別對同一批 100 封密電逐步取前 10、25、50、100 封；另外保留每組獨立 20 封探針。全部採零初始明文對照；**但已提供包含真正詞彙與干擾詞的固定候選詞池**。此實驗是離線統計求解對照，不包含 LLM。
+
+在 Windows 執行 `run_volume_study_windows.bat`，結束後開啟 `artifacts/volume_study.html`，即可比較收發元數據開／關下的三組實測曲線，或讀取 `artifacts/volume_study.json` 做更詳細分析。重建固定題庫使用 `python benchmarks/build_volume.py`。設計、限制與實測基線見 [`benchmarks/volume/README.md`](benchmarks/volume/README.md)。**更多資料不等於每次都會更準確；不能用目標函數上升冒充解密正確率。**

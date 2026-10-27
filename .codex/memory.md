@@ -96,3 +96,8 @@ v0.3 browser workbench implementation in progress on branch; GitHub main d602616
 - Added isolated `vercel-demo/` static deployment with synthetic seed-101 telegrams and a deterministic, explicitly labeled in-browser MOCK LLM. No network model calls, LAN host, secrets, persistent DB, or backend auth.
 - Samples 10/25/50/100 messages; shows cipher/initial/mock/current researcher candidate view, undo/redo mark trial, and opt-in reveal of separate public synthetic gold. This is a UI demonstration (NOT Python inference or true LLM model), and should not be used for cipher recovery benchmarks.
 - Vercel project Root Directory must be `vercel-demo`. Existing local Python web workbench remains authoritative for actual statistical runs and user-authorized Qwen calls. New CI/review/deployment statuses must be checked from GitHub/Vercel.
+
+
+## 2026-10-27 — Vercel researcher-feedback Mock work
+- Vercel static demo now provides deterministic, inspectable mock reranking after reversible researcher preferred/excluded/trial-pin marks. This is not real Qwen inference: original statistical and mock scores remain immutable historical baselines; a new post-mark simulation uses ciphertext adjacency and unverified precomputed lexical candidate transitions to rerank and list affected code groups. Undo/Redo recomputes from the same baseline. Gold is loaded only after explicit reveal and never enters the feedback solver.
+- Local reconstructed suite completed 86 unittest cases PASS and Node VM checks for mark propagation, exclusion, undo/redo, gold isolation. Hosted CI and deployed Vercel require independent verification.

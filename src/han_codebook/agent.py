@@ -110,6 +110,18 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
                 "elapsed_ms": round((time.monotonic() - started_at)*1000, 1),
                 "usage": meta.get("usage") if isinstance(meta, dict) else None})
     except error.HTTPError as exc:
+        # HTTPError is also a readable response. With explicit opt-in, retain its
+        # bounded body for diagnosing e.g. context-size errors from the LLM proxy.
+        if on_exchange:
+            limit = 64_000
+            raw_error = exc.read(limit + 1)
+            on_exchange("llm_response", {
+                "url": req.full_url, "http_status": exc.code,
+                "response": raw_error[:limit].decode("utf-8", errors="replace"),
+                "response_truncated": len(raw_error) > limit,
+                "elapsed_ms": round((time.monotonic() - started_at) * 1000, 1),
+                "usage": None,
+            })
         reason = {400: "request rejected or incompatible API parameters", 401: "authentication required (set llm.api_key_env)",
                   403: "forbidden by service or proxy", 404: "API path or model not found; check /v1/chat/completions route",
                   405: "HTTP method not allowed; check API proxy", 422: "request schema/model not accepted",

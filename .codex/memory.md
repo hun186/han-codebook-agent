@@ -42,3 +42,10 @@ v0.3 browser workbench implementation in progress on branch; GitHub main d602616
 - Web UI binds only loopback and disallows generic file serving/CORS writes. Browser sessions are not authenticated; never expose via public port.
 - LLM source prompts, raw responses, timings and returned token usage can be locally captured only with explicit user opt-in. Correctness not proven by a valid HTTP response.
 - Outstanding: independent period corpus, real LAN live inference validation, calibrated abstention, genuine variable-length superencipherment support.
+
+## PR #3 review P2 corrections (2026-10-27)
+- Hosted PR #3 head before this patch: `63d38ac24ac09f46e1ed35205d53036f14d538a5` (OPEN). Initial Codex review yielded four unresolved P2 findings: failed-job UI trace hidden, non-atomic evidence edit, job stuck queued after output mkdir failure, HTTPError response body missing from opt-in audit. Treat new head/review/CI as authoritative after push.
+- `static/index.html`: `renderTrace` now runs on queued/running/failed as well as completed; current job trace replaces prior trace, failure is labelled as partial; result-only statistics still require completed status. `applyEvidence` stages and validates cipher/observations/fields prior to mutating any message property; previous good record stays untouched on validation failure.
+- `web.py`: moving analysis target mkdir into guarded work try ensures failures transition jobs to `failed` and release single-job gate; audit load failures cannot leave job running indefinitely.
+- `agent.py`: on explicit capture opt-in, HTTPError response body recorded with status, elapsed time, truncation and strict 64,000-byte cap; without capture, no request/response body is logged. Secrets in Authorization headers are never copied.
+- Added `tests/test_review_p2.py` with Python simulated HTTP and background server jobs and `tests/js/test_ui_review.js` with Node VM DOM regression. Separate local targeted tests passed 5 tests. Full test run and Hosted CI/review must be confirmed before merge. Real user's LAN Ollama service still untested by these regression tests.

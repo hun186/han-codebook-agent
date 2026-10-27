@@ -224,13 +224,13 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                     input_case = copy.deepcopy(case)
                     def work():
                         target = root / "artifacts" / "web_runs" / job_id
-                        target.mkdir(parents=True, exist_ok=True)
                         with jobs_lock:
                             jobs[job_id]["status"] = "running"
                         def progress(message):
                             with jobs_lock:
                                 jobs[job_id]["logs"].append(str(message))
                         try:
+                            target.mkdir(parents=True, exist_ok=True)
                             cfg = load_settings(settings_path)
                             llm = cfg["llm"]
                             result = run_agent(input_case, rounds=rounds,
@@ -255,8 +255,10 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                             with jobs_lock:
                                 jobs[job_id]["status"] = "failed"
                                 jobs[job_id]["error"] = f"{type(exc).__name__}: {exc}"
-                                if (target / "audit.sqlite").exists():
+                                try:
                                     jobs[job_id]["events"] = audit_timeline(target / "audit.sqlite")
+                                except (OSError, sqlite3.Error, ValueError) as audit_error:
+                                    jobs[job_id]["logs"].append(f"[WARN] Audit could not be read: {audit_error}")
                     threading.Thread(target=work, daemon=True, name="codebook-job").start()
                     return self._json(202, {"job_id": job_id})
                 self._json(404, {"error": "Not found"})

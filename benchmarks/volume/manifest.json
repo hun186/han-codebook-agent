@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "assumption": "same codebook for all 100 messages within each seed, code mapping varies between seeds",
+  "sizes": [
+    10,
+    25,
+    50,
+    100
+  ],
+  "datasets": [
+    {
+      "seed": 101,
+      "case": "seed_101_case.json",
+      "gold": "seed_101_gold.json"
+    },
+    {
+      "seed": 202,
+      "case": "seed_202_case.json",
+      "gold": "seed_202_gold.json"
+    },
+    {
+      "seed": 303,
+      "case": "seed_303_case.json",
+      "gold": "seed_303_gold.json"
+    }
+  ]
+}

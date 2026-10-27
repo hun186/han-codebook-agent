@@ -21,7 +21,7 @@ MAX_BODY = 1_500_000
 
 def list_cases(root: Path) -> dict[str, Path]:
     result: dict[str, Path] = {}
-    for directory in (root / "examples", root / "benchmarks" / "cases", root / "artifacts" / "ui_cases"):
+    for directory in (root / "examples", root / "benchmarks" / "cases", root / "benchmarks" / "volume", root / "artifacts" / "ui_cases"):
         if directory.is_dir():
             for p in sorted(directory.glob("*.json")):
                 try:

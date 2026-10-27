@@ -196,3 +196,46 @@ curl.exe --max-time 10 -i http://192.168.0.134:18080/v1/models
 開始真正執行時，程式會顯示目前輪次、呼叫的 API URL、模型名稱，每 10 秒提示仍在等待，並在返回後顯示成功接受幾個未驗證候選。`llm.timeout_seconds` 是底層 socket I/O 逾時而不是整輪 LLM 生成的硬性總時間上限；慢速模型生成仍可能超過此時間。可以用 Ctrl+C 中止。若端點是 nginx/Open WebUI 的一般網頁，而非 OpenAI-compatible API，請調整反向代理或改成實際提供 `/v1/chat/completions` 的端點。若 HTTP 401/403，檢查 Bearer token；404，檢查路由或模型；502/504，檢查代理與上游服務。
 
 不要把 API token、真實密文或敏感情報貼到公共 GitHub Issue。尚未在使用者的區網端點實測。
+
+### v0.3 Review hardening: failure diagnostics and editing consistency
+
+- **An unsuccessful analysis is not a verified decoding.** Its trace tab can still show available baseline and round events, including a previously captured LLM request/error response, without enabling result-only decoding and report download.
+- The browser applies cipher/metadata/observation changes as one validated unit. Invalid code groups or observation metadata do not partially save sender or receiver edits.
+- If the analysis output folder cannot be created, the job becomes `failed` instead of indefinitely occupying the single-job slot; fix filesystem permissions and retry.
+- With the **explicit** `capture_llm_io` checkbox enabled, responses from HTTP errors such as `400` and `422` are saved in the local SQLite audit with status and at most 64 KB of response body. Error bodies may themselves include sensitive data; do not enable this setting on sensitive research without reviewing local storage protections. Nothing is captured by default.
+- Additional regression coverage: `python -m unittest discover -s tests -p 'test_review_p2.py' -v` (browser JavaScript check uses Node.js if available).
+
+## 單一碼本下的 10／25／50／100 封密電比較
+
+使用者提出更貼近真實研究的固定碼本情境：**一個案件內所有密電使用同一份碼本**，先從大量未知電文累積模式，觀察更多密文能否改善推測。已加入三組合成案例，分別對同一批 100 封密電逐步取前 10、25、50、100 封；另外保留每組獨立 20 封探針。全部採零初始明文對照；**但已提供包含真正詞彙與干擾詞的固定候選詞池**。此實驗是離線統計求解對照，不包含 LLM。
+
+在 Windows 執行 `run_volume_study_windows.bat`，結束後開啟 `artifacts/volume_study.html`，即可比較收發元數據開／關下的三組實測曲線，或讀取 `artifacts/volume_study.json` 做更詳細分析。重建固定題庫使用 `python benchmarks/build_volume.py`。設計、限制與實測基線見 [`benchmarks/volume/README.md`](benchmarks/volume/README.md)。**更多資料不等於每次都會更準確；不能用目標函數上升冒充解密正確率。**
+
+### 同碼本 10／25／50／100 封：增加內網 LLM 對照
+
+`run_volume_study_windows.bat` 僅跑純統計（不呼叫 LLM）。若要評估內網 Ollama 模型，請在 `main` 更新相應版本後使用新增的 `run_volume_llm_windows.bat`，它會明確以 `--enable-llm` 啟用私有網路模型，預設 seed 101、1 輪、每批 25 封，對 10、25、50、100 封合計 8 次聊天 API 請求。**100 封會全部分批提供，並非只送前 50 封。**
+
+輸出 `artifacts/volume_llm_study.html`、`.md`、`.json` 比較相同密文下純統計與 LLM 重排後的 Top-1、獨立探針正確率及 AI 造成的修正／錯誤。完整 Prompt／回覆預設不記錄，需用 `--capture-llm-io` 明確啟用。本測試仍是固定候選詞庫中的假設排名，不是無限制詞庫的完全自主破譯。Hosted CI 以模擬 API 確認流程，不代表用戶私有 Qwen 已完成真實推論驗證。詳見 `benchmarks/volume/README.md`。
+
+### 100 封實驗：檢視每一封密電的目前候選明文
+
+最新的內網 LLM 實驗 HTML 報表含「**密電候選解讀探索器**」，提供 10／25／50／100 封資料量切換、密電選取、數字碼組→候選中文對照，以及統計與 AI 候選之間的差異、理由及可追溯碼組。**中文皆屬未經確認的推測，不是已成功破解。**
+
+如果已用舊版 `run_volume_llm_windows.bat` 跑過 8 次模型呼叫，更新程式後可以改跑 `run_volume_view_windows.bat`：**純本機重算，不用再呼叫 Qwen**，產出 `artifacts/volume_llm_study_decipher.html`。它會核對新重算與原報告 Top-1 指標是否吻合；若不吻合，介面會註記這是重算而非原始碼本快照。詳見 [benchmarks/volume/README.md](benchmarks/volume/README.md)。
+
+### 可逆的研究員假說標註（實驗功能）
+
+本機 `run_web_windows.bat` 的「假說標註／復原」頁面支援對碼組設定「★偏好」、「×排除」、「📌試鎖」與來源備註；每個動作可按「復原」「重做」「全部重設」。在研究總覽中點候選解讀的數字碼組，也能直接跳至該碼組標註。研究員必須按「重新求解」才會把當前標註帶入統計／LLM 推理；先前猜測可在介面與新結果比較。
+
+**標註是工作假說，不是已驗證明密文**。即使使用「試鎖」，也只是暫時的候選搜尋約束，`verified_anchors` 不增加。所有編輯先留在瀏覽器記憶體；「另存案例」會保存目前標註，undo/redo 歷史只維持當次網頁使用階段。可開啟 `benchmarks/volume/seed_101_case.json` 進行 100 封實驗，但不會將金標答案交給模型。
+
+人工標註歷史依**序列化後位元組大小**自動裁剪最舊版本，讓案例另存保持在 1 MB 預算內；重跑分析只送目前標註、**不會把 Undo/Redo 的舊版本傳給求解器或 LLM**。若剛加入的已知明密文對涵蓋已標註碼組，會整筆拒絕這次修改；先在標註頁取消該碼組的人工假說，再套用已知對照。可點選每個「排除候選」標籤單獨恢復。
+
+新增已確認的逐碼明文後，系統會同步清理舊假說版本中涉及該已確認碼組的人工試鎖／偏好／排除，避免按「復原」重新帶回與真實已知明文衝突的標註；不受影響的其他碼組歷史仍可繼續使用。
+
+
+## Vercel 靜態 Mock 展示站
+
+- `vercel-demo/`：Vercel 專用公開合成資料 PoC，模型呼叫一律改為確定性 Mock，不連內網 Qwen／Ollama；`vercel-demo/vercel.json` 為靜態安全標頭設定。
+- 功能：10／25／50／100 封選擇、原始碼組／候選中文／可撤銷人工假說、分批模擬紀錄、手動揭曉合成明文。此版並非實際 Python 求解器，**不得把 Mock 成績當作真正 LLM 破譯成效**。
+- 新增 Vercel Project 請將 **Root Directory** 設為 `vercel-demo`，Framework 選 Other。公開版只應使用合成資料，沒有存放任何私有網路設定、LLM API Key 或 SQLite 審計庫。

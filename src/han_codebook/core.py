@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 import json
@@ -67,6 +68,11 @@ def validate_case(case: dict[str, Any]) -> None:
             if pair.get("plaintext") is not None and "".join(segments) != pair["plaintext"]:
                 raise CaseError(f"known pair {m_id}: segments do not concatenate to plaintext")
 
+
+    if 'hypothesis_marks' in case:
+        from .hypothesis_marks import normalize_marks
+        anchors, _, _ = anchors_and_review(case)
+        normalize_marks(case, anchors)
 
 def domain_for_message(message: dict[str, Any], profiles: dict[str, Any], use_metadata: bool) -> str | None:
     if not use_metadata:
@@ -162,11 +168,12 @@ class LanguageModel:
         return math.log(value / (n + 0.3 * (len(self.vocabulary) + 2)))
 
 
-def build_models(case: dict[str, Any], anchors: dict[str, str]) -> dict[str | None, LanguageModel]:
+def build_models(case: dict[str, Any], anchors: dict[str, str], extra_vocabulary: set[str] | None = None) -> dict[str | None, LanguageModel]:
     profiles = case["profiles"]
     vocab = {w for p in profiles.values() for w in p.get("lexicon", {})}
     vocab.update(w for p in profiles.values() for line in p.get("sentences", []) for w in line)
     vocab.update(anchors.values())
+    vocab.update(extra_vocabulary or set())
     models = {}
     for domain in [None, *profiles.keys()]:
         unigram = Counter()
@@ -189,31 +196,92 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
     """Local coordinate-ascent codebook hypotheses, with immutable verified anchors."""
     validate_case(case)
     anchors, reviews, vocab = anchors_and_review(case)
+    from .hypothesis_marks import normalize_marks
+    marks = normalize_marks(case, anchors)
+    extra_terms = {m["preferred"] for m in marks.values() if m["preferred"]}
+    vocab.update(extra_terms)
     if not vocab:
         raise CaseError("empty vocabulary; provide profile lexicon or sample sentences")
     messages = case["messages"]
-    models = build_models(case, anchors)
+    models = build_models(case, anchors, extra_terms)
     tagged = [(m, domain_for_message(m, case["profiles"], use_metadata)) for m in messages]
     all_codes = sorted({code for m in messages for code in m["codes"]})
     unknown_codes = [code for code in all_codes if code not in anchors]
     freq = Counter(code for m in messages for code in m["codes"])
     unknown_codes.sort(key=lambda c: (-freq[c], c))
     choices = sorted(vocab)
+    allowed_choices = {}
+    for code in unknown_codes:
+        mark = marks.get(code, {})
+        allowed = [mark['preferred']] if mark.get('pinned') else [w for w in choices if w not in mark.get('excluded', [])]
+        if not allowed:
+            raise CaseError(f'code {code}: researcher exclusions remove every candidate')
+        allowed_choices[code] = allowed
     hints = llm_hints or {}
+
+    # Cache vocabulary probabilities. The same domain/word pairs are queried
+    # repeatedly during coordinate search, particularly for 100+ telegrams.
+    @lru_cache(maxsize=None)
+    def unigram(domain: str | None, word: str) -> float:
+        return models[domain].unigram(word)
+
+    @lru_cache(maxsize=None)
+    def transition(domain: str | None, previous: str, word: str) -> float:
+        return models[domain].transition(previous, word)
+
+    # An assignment change only affects messages containing the target code.
+    # Preserve all adjacent transitions, including code -> same code edges.
+    occurrences: dict[str, list[tuple[str | None, str, str]]] = defaultdict(list)
+    for message, domain in tagged:
+        codes = message["codes"]
+        for pos, code in enumerate(codes):
+            prev = codes[pos - 1] if pos else "<S>"
+            nxt = codes[pos + 1] if pos + 1 < len(codes) else "</S>"
+            occurrences[code].append((domain, prev, nxt))
+
+    def change_delta(code: str, candidate: str, assignment: dict[str, str], *,
+                     distinct_counts: Counter[str] | None = None) -> float:
+        """Exact change in local lexical and transition terms, without rescoring every message."""
+        previous_word = assignment[code]
+        if previous_word == candidate:
+            return 0.0
+        delta = 0.0
+        for domain, previous_code, next_code in occurrences[code]:
+            old_left = previous_word if previous_code == code else ("<S>" if previous_code == "<S>" else assignment[previous_code])
+            new_left = candidate if previous_code == code else old_left
+            old_right = previous_word if next_code == code else ("</S>" if next_code == "</S>" else assignment[next_code])
+            new_right = candidate if next_code == code else old_right
+            delta += 0.55 * (unigram(domain, candidate) - unigram(domain, previous_word))
+            delta += 1.7 * (transition(domain, new_left, candidate) - transition(domain, old_left, previous_word))
+            # A repeated code immediately following itself is handled by the outgoing
+            # edge once; otherwise the next node's incoming edge is counted here.
+            if next_code != code:
+                multiplier = 0.9 if next_code == "</S>" else 1.7
+                delta += multiplier * (transition(domain, candidate, new_right) - transition(domain, previous_word, old_right))
+            delta += min(0.6, max(0.0, hints.get(code, {}).get(candidate, 0.0))) - min(0.6, max(0.0, hints.get(code, {}).get(previous_word, 0.0)))
+            preferred = marks.get(code, {}).get('preferred')
+            if preferred:
+                delta += 2.0 * (int(candidate == preferred) - int(previous_word == preferred))
+        if distinct and distinct_counts is not None:
+            a, b = distinct_counts[previous_word], distinct_counts[candidate]
+            # Distinct penalty is -7 for every repeated code->term mapping.
+            delta += 7.0 * (int(a >= 2) - int(b >= 1))
+        return delta
 
     distinct = bool(case.get("codebook_assumptions", {}).get("distinct_phrases", False))
     def score(assignment: dict[str, str]) -> float:
         out = 0.0
         for m, domain in tagged:
-            lm = models[domain]
             last = "<S>"
             for code in m["codes"]:
                 word = assignment[code]
-                out += 0.55 * lm.unigram(word)
-                out += 1.7 * lm.transition(last, word)
+                out += 0.55 * unigram(domain, word)
+                out += 1.7 * transition(domain, last, word)
                 out += min(0.6, max(0.0, hints.get(code, {}).get(word, 0.0)))
+                if marks.get(code, {}).get('preferred') == word:
+                    out += 2.0
                 last = word
-            out += 0.9 * lm.transition(last, "</S>")
+            out += 0.9 * transition(domain, last, "</S>")
         if distinct:
             counts = Counter(assignment.values())
             out -= 7.0 * sum(v - 1 for v in counts.values() if v > 1)
@@ -228,21 +296,20 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
         assignment = anchors.copy()
         for code in unknown_codes:
             # Good initializations with occasional non-greedy starts for escaping local maxima.
-            candidates = sorted(choices, key=lambda word: sum(
-                models[d].unigram(word) + hints.get(code, {}).get(word, 0.0)
+            candidates = sorted(allowed_choices[code], key=lambda word: sum(
+                unigram(d, word) + hints.get(code, {}).get(word, 0.0)
                 for m, d in tagged if code in m["codes"]), reverse=True)
             assignment[code] = candidates[0] if start == 0 else rng.choice(candidates[:min(8, len(candidates))])
         for sweep in range(iterations):
             change = False
             for code in rng.sample(unknown_codes, len(unknown_codes)):
                 current = assignment[code]
-                oldscore = score(assignment)
-                bestword, bestval = current, oldscore
-                for word in choices:
-                    assignment[code] = word
-                    value = score(assignment)
-                    if value > bestval + 1e-9 or (abs(value - bestval) < 1e-9 and word < bestword):
-                        bestword, bestval = word, value
+                counts = Counter(assignment.values()) if distinct else None
+                bestword, best_delta = current, 0.0
+                for word in allowed_choices[code]:
+                    value = change_delta(code, word, assignment, distinct_counts=counts)
+                    if value > best_delta + 1e-9 or (abs(value - best_delta) < 1e-9 and word < bestword):
+                        bestword, best_delta = word, value
                 assignment[code] = bestword
                 change |= bestword != current
             if distinct and len(unknown_codes) > 1:
@@ -250,6 +317,8 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
                 for ai, ca in enumerate(unknown_codes):
                     for cb in unknown_codes[ai + 1:]:
                         if assignment[ca] == assignment[cb]:
+                            continue
+                        if assignment[cb] not in allowed_choices[ca] or assignment[ca] not in allowed_choices[cb]:
                             continue
                         previous = score(assignment)
                         assignment[ca], assignment[cb] = assignment[cb], assignment[ca]
@@ -269,15 +338,16 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
             proposals[code] = {"term": anchors[code], "status": "verified_alignment", "alternatives": [], "evidence": "Explicit segmented known plaintext/ciphertext pair"}
             continue
         scores = []
-        for word in choices:
-            assignment = dict(best_assign)
-            assignment[code] = word
-            scores.append((round(score(assignment), 5), word))
+        counts = Counter(best_assign.values()) if distinct else None
+        for word in allowed_choices[code]:
+            value = best_score + change_delta(code, word, best_assign, distinct_counts=counts)
+            scores.append((round(value, 5), word))
         scores.sort(key=lambda item: (-item[0], item[1]))
         gap = scores[0][0] - scores[1][0] if len(scores) > 1 else 0
         proposals[code] = {
             "term": scores[0][1],
-            "status": "hypothesis_unverified",  # scores are NOT calibrated probabilities
+            "status": "hypothesis_unverified",  # research marks never become verified
+            "researcher_mark": marks.get(code),
             "score_gap_to_second": round(gap, 4),
             "alternatives": [{"term": w, "relative_score": round(s - scores[0][0], 4)} for s, w in scores[:5]],
             "evidence": "Metadata-conditioned lexical frequencies and phrase transitions; must be independently checked"
@@ -300,6 +370,7 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
         "verified_anchors": anchors,
         "pair_review": reviews,
         "code_frequency": dict(freq.most_common()),
+        "researcher_marks": marks,
         "known_code_count": len(anchors),
         "unknown_code_count": len(unknown_codes),
         "objective_score": round(best_score, 5),

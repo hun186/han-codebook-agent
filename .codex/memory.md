@@ -49,3 +49,55 @@ v0.3 browser workbench implementation in progress on branch; GitHub main d602616
 - `web.py`: moving analysis target mkdir into guarded work try ensures failures transition jobs to `failed` and release single-job gate; audit load failures cannot leave job running indefinitely.
 - `agent.py`: on explicit capture opt-in, HTTPError response body recorded with status, elapsed time, truncation and strict 64,000-byte cap; without capture, no request/response body is logged. Secrets in Authorization headers are never copied.
 - Added `tests/test_review_p2.py` with Python simulated HTTP and background server jobs and `tests/js/test_ui_review.js` with Node VM DOM regression. Separate local targeted tests passed 5 tests. Full test run and Hosted CI/review must be confirmed before merge. Real user's LAN Ollama service still untested by these regression tests.
+
+## 2026-10-27 — 單一碼本跨密文數量實驗（新工作分支）
+- 使用者明確要求「一個案例所有電文使用同一碼本」，不在同個測試集混用碼本。建三個獨立固定碼本種子，每個 100 封、巢狀取 10／25／50／100 封，另有 20 封獨立探針。
+- 初始無明密文對照、含固定公用候選詞庫（含部分正確詞與干擾詞），分別開／關收發者和低可信度觀察；整輪全離線不呼叫 LLM。
+- 改善 `core.analyze` 的統計查表快取和單碼組局部 delta 打分，避免對 100 封反覆全量重算。用已存在八組舊測試資料和 2 iterations/2 restarts 比對，預測碼本 0 差異；全部測試 52 項 PASS。
+- 新增 `benchmarks/build_volume.py`、`benchmarks/volume/` case 與分開 gold、`src/han_codebook/volume.py`、`tests/test_volume.py`、`run_volume_study_windows.bat` 及自包含 HTML/JSON/MD 圖表報告。
+- 三 seed × 10/25/50/100 × 有／無元數據，在 4 iterations/4 restarts 下共 24 runs。元數據開啟時未驗證碼組 Top-1 平均依序約 12.7%、5.0%、7.8%、10.0%；100 封並未單調進步。必須註明是合成試驗，不得宣稱真實破密成功。
+- 當前 GitHub main `a98f154`（PR #3 合併後），PR #1 尚 open，包含重複基準內容，不要重複合併。新內容尚須建立 PR、驗證 Hosted CI 與正式 Codex Review，不能先寫成已通過。
+
+## Single-codebook volume LLM extension (2026-10-27)
+- PR #4 initially implemented 3×(10/25/50/100) **offline-only** ablation; user correctly noticed no real LLM calls. Keep original `run_volume_study_windows.bat` as statistical baseline.
+- Added separate explicitly opt-in `run_volume_llm_windows.bat` / `han_codebook.volume_llm`: single fixed codebook per seed, zero known pairs, same statistical solver budget, nested prefixes, all messages supplied to model in non-overlapping <=25-message batches (100 messages = 4 model requests per round). Default seed 101, one model round, eight model requests total for the 10/25/50/100 comparison.
+- Recompute predictions with dictionary-constrained LLM hints, post-inference-only gold scoring, independent 20-message probe, correct-vs-broken mapping count, local HTML/JSON/Markdown comparison, optional raw Prompt/response capture. Metadata-off strips sender/recipient/observations; never promote LLM guesses to verified. No external/public API allowed; private-network exact allowlist retained.
+- Local full unittest 57 PASS after new regression tests, using mock calls, not a live user LAN endpoint. Do not claim actual Qwen improvements before user's real run.
+- Branch PR #4 and Hosted CI status must be checked afresh before claiming update complete or merging.
+
+## PR #4: decoded-message exploration and Codex review P2 (2026-10-27)
+- User requests to view each ciphertext telegram as code-group-aligned current Chinese hypotheses and understand individual AI contributions rather than final accuracy alone.
+- Added `src/han_codebook/volume_decode_view.py` and integrated `decoding_views` into LLM study reports, with standalone interactive HTML selector for seed/corpus size/message, side-by-side statistical/LLM guesses, top-five alternatives and LLM-provided reasons. All text is unverified hypothesis; no secret gold or holdout plaintext in explorer JSON. Use safely embedded inert JSON and DOM textContent.
+- Added offline replay of existing `artifacts/volume_llm_study.json` saved trace to avoid repeating previous eight live model calls: `run_volume_view_windows.bat` or `--rebuild-view-from`, producing non-overwriting `_decipher` output; compare recomputed metrics to original scores and clearly mark replay.
+- Review at PR #4 HEAD c7787e0 reported two P2s: within-response duplicate candidate/code inflates hints; opt-in audit trace lost on HTTP failure. Updated deduplication and failure handling, writing `.failed.json` only when explicit raw capture enabled and never reporting success for failed run. Add direct regression tests.
+- New work requires Hosted GitHub CI and a fresh formal Codex review before merge; preserve old PR #1 unchanged. Do not claim user LAN Qwen has been rerun after modifications.
+
+## PR #4 follow-up — truth reveal for synthetic training messages (2026-10-27)
+- User highlighted that `available_vocabulary` is a *pre-supplied* lexicon, not inferred from ciphertext; preserve disclosure of this methodological limitation.
+- Added post-inference-only `attach_evaluation_gold` for observed training ciphertext codes, with strict codebook/message consistency checks. Never feed gold, decoded evaluation view, or independent 20-message holdout into statistical analysis or LLM prompts.
+- Explorer adds opt-in **reveal** toggle, code-level correctness overlays, per-message correct counts and exact synthetic plaintext. Toggle is UI-only; completed HTML/JSON contains evaluation labels and must not be fed back to inference. Works for offline replay of saved trace without additional model calls.
+- Tests and hosted verification status must be determined from current PR head; do not claim results from unexecuted tools.
+
+## Current work (2026-10-27) — Reversible researcher annotations
+- Added `hypothesis_marks` to *case inputs* separately from known_pairs, with per-code preferred/experimental pinned/excluded/note; no mark can upgrade verified alignment. Solver supports soft preferences, trial pins and exclusions plus optional entirely new user terms without mutating the input case; undo or removal restores original inference deterministically.
+- Browser `假說標註／復原` tab supports user-selected code via clickable decoded pieces, reversible local undo/redo revision snapshots, reset, re-run and diff against prior result; case save retains current marks and bounded revision snapshots for reopening an earlier version later. Added 100-message synthetic case to browser discovery; no synthetic gold in UI model data.
+- Tests in tests/test_researcher_marks.py cover unverified pins, rollback, exclusion, contradictory marks and audit provenance. GitHub Hosted CI / Codex review still needed for this iteration.
+- Follow-up Codex P2 hardening: UI auto-prunes historical snapshots to keep serialized research <=1,000,000 bytes (Web POST limit 1.5 MB), run requests omit history entirely, and applying newly segmented known pairs atomically rejects marks on newly verified codes; added Node VM regression test invoked by Python unittest. Full local suite now 79 tests PASS; Hosted CI and review for newest commit must be verified.
+- Additional edge-case hardening: once an aligned known-plaintext pair becomes accepted, mark snapshots for that newly verified code are scrubbed so Undo cannot resurrect an invalid researcher hypothesis; preserve unrelated history. New test checks this. Latest local 79 unittest tests PASS; GitHub Hosted CI and review remain separately authoritative.
+
+## PR #4 follow-up Codex review P1/P2 hardening (2026-10-27)
+- Checked hosted HEAD 77a5d7a review, finding P1 nested observation fields (e.g. ground_truth) could reach LLM and cold-start prompts, plus P2 singleton undo snapshot duplicates large valid case beyond the Web POST maximum.
+- Shared strict primitive observation/message whitelist in `src/han_codebook/llm_evidence.py` for both `volume_llm._input_messages` and `auto_vocabulary.make_vocabulary_packet`. No unrecognized nested keys may be passed; metadata disabled omits all side information.
+- Browser `persistMarkHistory()` drops the *persisted* history when a single snapshot still exceeds the 1 MB history budget; in-memory undo state and current hypothesis marks survive. A saved case reinitializes undo history from its marks on reload.
+- Added Python nested-oracle leak tests and Node 500-code × 500-character sole-snapshot regression. Run fresh tests, hosted CI, and formally review updated HEAD before merging; no real Qwen test claimed.
+
+
+## Vercel public Mock PoC (2026-10-27)
+- Added isolated `vercel-demo/` static deployment with synthetic seed-101 telegrams and a deterministic, explicitly labeled in-browser MOCK LLM. No network model calls, LAN host, secrets, persistent DB, or backend auth.
+- Samples 10/25/50/100 messages; shows cipher/initial/mock/current researcher candidate view, undo/redo mark trial, and opt-in reveal of separate public synthetic gold. This is a UI demonstration (NOT Python inference or true LLM model), and should not be used for cipher recovery benchmarks.
+- Vercel project Root Directory must be `vercel-demo`. Existing local Python web workbench remains authoritative for actual statistical runs and user-authorized Qwen calls. New CI/review/deployment statuses must be checked from GitHub/Vercel.
+
+
+## 2026-10-27 — Vercel researcher-feedback Mock work
+- Vercel static demo now provides deterministic, inspectable mock reranking after reversible researcher preferred/excluded/trial-pin marks. This is not real Qwen inference: original statistical and mock scores remain immutable historical baselines; a new post-mark simulation uses ciphertext adjacency and unverified precomputed lexical candidate transitions to rerank and list affected code groups. Undo/Redo recomputes from the same baseline. Gold is loaded only after explicit reveal and never enters the feedback solver.
+- Local reconstructed suite completed 86 unittest cases PASS and Node VM checks for mark propagation, exclusion, undo/redo, gold isolation. Hosted CI and deployed Vercel require independent verification.

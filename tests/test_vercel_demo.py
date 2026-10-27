@@ -1,0 +1,81 @@
+"""Self-contained Vercel public mock demonstration is deterministic and isolated."""
+from pathlib import Path
+import json
+import unittest
+import shutil
+import subprocess
+
+BASE = Path(__file__).resolve().parents[1]
+DEMO = BASE / 'vercel-demo'
+
+
+class VercelMockDemoTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.data = json.loads((DEMO/'data/demo.json').read_text(encoding='utf-8'))
+        cls.gold = json.loads((DEMO/'data/gold.json').read_text(encoding='utf-8'))
+
+    def test_nested_identical_codebook_and_zero_known_plaintext(self):
+        data=self.data
+        self.assertEqual([x['size'] for x in data['records']], [10,25,50,100])
+        self.assertEqual(data['kind'], 'PUBLIC_SYNTHETIC_MOCK')
+        self.assertFalse(data['llm_used'])
+        full=data['records'][-1]['messages']
+        for entry in data['records']:
+            n=entry['size']
+            self.assertEqual(entry['messages'],full[:n])
+            self.assertEqual(set(entry['statistical']),set(entry['mock']))
+            self.assertTrue(all(c.isdecimal() for m in entry['messages'] for c in m['codes']))
+
+    def test_gold_does_not_leak_into_mock_solver_data(self):
+        data=self.data
+        self.assertNotIn('codebook',data)
+        self.assertNotIn('ground_truth',data)
+        self.assertNotIn('gold',data)
+        self.assertNotIn('probe_messages',data)
+        for row in data['records']:
+            for message in row['messages']:
+                self.assertTrue(set(message)<= {'id','codes','received_at','sender','recipient','observations'})
+                for ob in message.get('observations',[]):
+                    self.assertNotIn('ground_truth',ob)
+            for trace in row['trace']:
+                self.assertLessEqual(len(trace['accepted']),15)
+                for item in trace['accepted']:
+                    self.assertIn(item['code'],row['statistical'])
+
+    def test_post_inference_gold_and_metrics_are_consistent(self):
+        gold=self.gold
+        self.assertEqual(gold['kind'],'PUBLIC_SYNTHETIC_GOLD')
+        for row in self.data['records']:
+            for key in ('statistical','mock'):
+                measured=sum(guess['term']==gold['codebook'][code] for code,guess in row[key].items())
+                self.assertEqual(measured,row['metrics'][key]['correct'])
+                self.assertEqual(len(row[key]),row['metrics'][key]['total'])
+            for message in row['messages']:
+                full=''.join(gold['codebook'][c] for c in message['codes'])
+                self.assertEqual(full,gold['messages'][message['id']])
+
+    @unittest.skipUnless(shutil.which('node'), 'Node unavailable; skip browser-VM check')
+    def test_feedback_browser_interaction(self):
+        proc=subprocess.run(['node',str(BASE/'tests/js/test_vercel_demo.js')],capture_output=True,text=True,timeout=20,check=False)
+        self.assertEqual(proc.returncode,0,proc.stdout+'\n'+proc.stderr)
+
+    def test_static_only_never_calls_model_and_no_private_config(self):
+        js=(DEMO/'app.js').read_text(encoding='utf-8')
+        html=(DEMO/'index.html').read_text(encoding='utf-8')
+        self.assertNotIn('/v1/chat/completions',js+html)
+        self.assertNotIn('192.168.',js+html)
+        solver=(DEMO/'mock_solver.js').read_text(encoding='utf-8')
+        self.assertNotIn('/v1/chat/completions',solver)
+        self.assertNotIn('gold.json',solver)
+        self.assertIn('MockFeedback.solve',js)
+        self.assertNotIn('localStorage',js)
+        self.assertNotIn('sessionStorage',js)
+        self.assertIn('PUBLIC_SYNTHETIC_MOCK',js)
+        self.assertIn('MOCK LLM',html)
+        self.assertNotIn('gold.json',js.split('async function toggleGold')[0])
+        cfg=json.loads((DEMO/'vercel.json').read_text())
+        self.assertIn('Content-Security-Policy',str(cfg))
+
+
+if __name__=='__main__':unittest.main()

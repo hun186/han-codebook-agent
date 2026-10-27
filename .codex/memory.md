@@ -90,3 +90,9 @@ v0.3 browser workbench implementation in progress on branch; GitHub main d602616
 - Shared strict primitive observation/message whitelist in `src/han_codebook/llm_evidence.py` for both `volume_llm._input_messages` and `auto_vocabulary.make_vocabulary_packet`. No unrecognized nested keys may be passed; metadata disabled omits all side information.
 - Browser `persistMarkHistory()` drops the *persisted* history when a single snapshot still exceeds the 1 MB history budget; in-memory undo state and current hypothesis marks survive. A saved case reinitializes undo history from its marks on reload.
 - Added Python nested-oracle leak tests and Node 500-code × 500-character sole-snapshot regression. Run fresh tests, hosted CI, and formally review updated HEAD before merging; no real Qwen test claimed.
+
+
+## Vercel public Mock PoC (2026-10-27)
+- Added isolated `vercel-demo/` static deployment with synthetic seed-101 telegrams and a deterministic, explicitly labeled in-browser MOCK LLM. No network model calls, LAN host, secrets, persistent DB, or backend auth.
+- Samples 10/25/50/100 messages; shows cipher/initial/mock/current researcher candidate view, undo/redo mark trial, and opt-in reveal of separate public synthetic gold. This is a UI demonstration (NOT Python inference or true LLM model), and should not be used for cipher recovery benchmarks.
+- Vercel project Root Directory must be `vercel-demo`. Existing local Python web workbench remains authoritative for actual statistical runs and user-authorized Qwen calls. New CI/review/deployment statuses must be checked from GitHub/Vercel.

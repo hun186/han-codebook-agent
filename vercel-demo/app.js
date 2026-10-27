@@ -1,0 +1,36 @@
+"use strict";
+const el=id=>document.getElementById(id), make=(tag,text="",cls="")=>{let e=document.createElement(tag);e.textContent=text;e.className=cls;return e};
+const S={data:null,gold:null,size:100,id:null,selected:null,mock:false,busy:false,mapping:{},marks:{},snapshots:[{}],cursor:0,events:[]};
+const list=()=>S.data.messages.slice(0,S.size),codes=()=>[...new Set(list().flatMap(m=>m.codes))].sort();
+const terms=()=>S.data.vocabulary, idx=c=>codes().indexOf(c), base=c=>terms()[(idx(c)*17+5)%terms().length]||"？";
+const guess=c=>S.mapping[c]||base(c);
+const mark=c=>S.marks[c]||{preferred:"",excluded:[],pinned:"",note:""};
+const current=c=>{let x=mark(c);if(x.pinned)return x.pinned;if(x.preferred&&!x.excluded.includes(x.preferred))return x.preferred;const v=guess(c);return x.excluded.includes(v)?terms().find(w=>!x.excluded.includes(w))||"？":v};
+const rate=()=>{if(!S.gold)return"隱藏";let cc=codes(),n=cc.filter(c=>guess(c)===S.gold.codebook[c]).length;return n+"/"+cc.length+"（"+(n/cc.length*100).toFixed(1)+"%）"};
+const renderList=()=>{let root=el("list");root.replaceChildren();let q=el("search").value.trim().toLowerCase();for(let m of list()){if(![m.id,m.sender,m.recipient,...m.codes].join(" ").toLowerCase().includes(q))continue;let b=make("button",m.id+" · "+m.sender+" → "+m.recipient,"msg"+(S.id===m.id?" active":""));let x=make("span",m.codes.slice(0,11).join(" ")+" …","sub");b.append(x);b.onclick=()=>{S.id=m.id;render()};root.append(b)}};
+function chip(box,c,word,graded=false,changed=false){let b=make("button",word,"chip"+(c===S.selected?" selected":"")+(changed?" changed":"")+(graded?(word===S.gold.codebook[c]?" right":" wrong"):""));b.append(make("small",c));b.onclick=()=>{S.selected=c;el("code").value=c;loadMark();renderMessage()};box.append(b)}
+function renderMessage(){let m=list().find(m=>m.id===S.id)||list()[0];if(!m)return;
+el("messageTitle").textContent="密電 "+m.id+" · 候選解讀";el("meta").textContent=m.received_at+" ｜ "+m.sender+" → "+m.recipient+" ｜ "+m.codes.length+" 個碼組";
+for(let k of ["cipher","initial","mock","edited","correct"])el(k).replaceChildren();
+for(let c of m.codes){chip(el("cipher"),c,c);chip(el("initial"),c,base(c),!!S.gold);chip(el("mock"),c,S.mock?guess(c):"尚未模擬",!!S.gold&&S.mock,S.mock&&guess(c)!==base(c));chip(el("edited"),c,current(c));if(S.gold)chip(el("correct"),c,S.gold.codebook[c]||"？")}
+el("goldCard").classList.toggle("hidden",!S.gold);
+if(S.gold){let a=m.codes.filter(c=>base(c)===S.gold.codebook[c]).length,b=m.codes.filter(c=>guess(c)===S.gold.codebook[c]).length;el("compare").textContent="初始 "+a+"/"+m.codes.length+"｜Mock "+b+"/"+m.codes.length}
+if(!S.selected)el("detail").textContent="點選碼組，查看 Mock 理由及候選。";else{let c=S.selected,rs=S.events.filter(x=>x.code===c);el("detail").textContent="碼組 "+c+"\n初始候選："+base(c)+"\nMock 候選："+(S.mock?guess(c):"尚未模擬")+"\n研究員候選："+current(c)+(rs.length?"\nMock 說明："+rs.map(x=>x.reason).join(" / "):"")+(S.gold?"\n合成正解："+S.gold.codebook[c]:"")}}
+function loadMark(){let m=mark(S.selected);el("word").value=m.pinned||m.preferred||"";el("note").value=m.note||""}
+function renderMarks(){let v=el("code"),old=S.selected;v.replaceChildren();for(let c of codes()){let o=make("option",c);o.value=c;v.append(o)}if(!S.selected||!codes().includes(S.selected))S.selected=codes()[0];v.value=S.selected;if(old!==S.selected)loadMark();el("undo").disabled=S.cursor===0;el("redo").disabled=S.cursor>=S.snapshots.length-1;el("markState").textContent="目前 "+Object.keys(S.marks).length+" 個碼組標註，版本 "+(S.cursor+1)+"/"+S.snapshots.length}
+function render(){el("total").textContent=S.size;el("codes").textContent=codes().length;el("batches").textContent=S.mock?Math.ceil(S.size/25):"待模擬";el("rate").textContent=rate();renderList();renderMarks();renderMessage()}
+function chooseSize(n){S.size=n;S.id=list()[0]?.id;S.selected=null;S.mapping={};S.mock=false;S.events=[];S.marks={};S.snapshots=[{}];S.cursor=0;el("timeline").replaceChildren();el("status").textContent="已載入 "+n+" 封：目前僅供瀏覽，尚未執行 Mock 建議。";render()}
+function saveMark(next){S.snapshots=S.snapshots.slice(0,S.cursor+1);S.snapshots.push(JSON.parse(JSON.stringify(next)));if(S.snapshots.length>60)S.snapshots.shift();S.cursor=S.snapshots.length-1;S.marks=next;render();el("status").textContent="已更新可撤銷的研究員假說；不會變成已驗證明文。"}
+function action(type){let c=S.selected,value=el("word").value.trim(),x=JSON.parse(JSON.stringify(S.marks)),p=x[c]||{preferred:"",pinned:"",excluded:[],note:""};if(type!=="clear"&&!value){el("status").textContent="請先填寫候選詞";return}
+if(type==="clear")delete x[c];else{if(type==="pin"){p.pinned=value;p.preferred=value;p.excluded=p.excluded.filter(s=>s!==value)}if(type==="prefer"){p.preferred=value;p.pinned="";p.excluded=p.excluded.filter(s=>s!==value)}if(type==="exclude"){if(!p.excluded.includes(value))p.excluded.push(value);if(p.pinned===value)p.pinned="";if(p.preferred===value)p.preferred=""}p.note=el("note").value.slice(0,300);x[c]=p}saveMark(x)}
+function nav(k){let n=S.cursor+k;if(n<0||n>=S.snapshots.length)return;S.cursor=n;S.marks=JSON.parse(JSON.stringify(S.snapshots[n]));loadMark();render();el("status").textContent=k<0?"已復原":"已重做"}
+async function mock(){if(S.busy)return;S.busy=true;el("run").disabled=true;S.mapping={};S.events=[];el("timeline").replaceChildren();let count=Math.ceil(S.size/25);
+for(let i=0;i<count;i++){let batch=list().slice(i*25,(i+1)*25),freq={};for(let m of batch)for(let c of m.codes)freq[c]=(freq[c]||0)+1;let order=Object.keys(freq).sort((a,b)=>freq[b]-freq[a]||a.localeCompare(b)).slice(0,15);
+for(let c of order){let candidate=terms()[(idx(c)*13+i*11+7)%terms().length];S.mapping[c]=candidate;S.events.push({code:c,reason:"MOCK：在這批 "+batch.length+" 封電文出現 "+freq[c]+" 次；固定規則產生候選「"+candidate+"」，沒有真實 LLM 呼叫或獨立證據。"});}
+let e=make("div","第 "+(i+1)+" 批：密電 "+(i*25+1)+"～"+Math.min((i+1)*25,S.size)+"；Mock 產生 "+order.length+" 個詞組候選。","event");el("timeline").append(e);el("status").textContent="模擬批次 "+(i+1)+"/"+count+"（純瀏覽器運算）";await new Promise(ok=>setTimeout(ok,240))}
+S.mock=true;S.busy=false;el("run").disabled=false;el("status").textContent="完成 "+count+" 個 Mock 批次；結果非真實 LLM。";render()}
+async function reveal(){if(S.gold){S.gold=null;el("reveal").textContent="揭曉合成答案";render();return}let r=await fetch("/data/gold.json");if(!r.ok)throw Error("標準答案讀取失敗");S.gold=await r.json();el("reveal").textContent="隱藏正確答案";render()}
+function exportMarks(){let blob=new Blob([JSON.stringify({version:1,case:S.data.case_id,size:S.size,marks:S.marks},null,2)],{type:"application/json"}),url=URL.createObjectURL(blob),a=make("a");a.href=url;a.download="researcher-marks-mock.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),200)}
+async function boot(){let r=await fetch("/data/case.json");if(!r.ok)throw Error("案例讀取失敗");S.data=await r.json();el("volume").onchange=()=>chooseSize(Number(el("volume").value));el("run").onclick=mock;el("reveal").onclick=()=>reveal().catch(e=>el("status").textContent=e.message);
+el("undo").onclick=()=>nav(-1);el("redo").onclick=()=>nav(1);el("reset").onclick=()=>saveMark({});el("save").onclick=exportMarks;el("search").oninput=renderList;el("code").onchange=()=>{S.selected=el("code").value;loadMark();renderMessage()};document.querySelectorAll("[data-action]").forEach(x=>x.onclick=()=>action(x.dataset.action));chooseSize(100)}
+boot().catch(e=>el("status").textContent="初始化失敗："+e.message);

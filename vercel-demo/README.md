@@ -1,0 +1,6 @@
+# Han Codebook Agent — Vercel Mock PoC
+A **public synthetic-data-only** demonstration. Use Vercel **Root Directory \`vercel-demo\`**, framework **Other**. It makes no LLM calls, does not read the project's local \`config.yaml\`, stores no secrets, and never contacts the LAN endpoint. All data is synthetic from the existing single-codebook seed 101 fixture.
+
+Controls: 10/25/50/100 sample size, 25-message deterministic fake candidate batches, display each message's numeric codes, mock guesses and a reversible researcher annotation (prefer/exclude/try pin, undo/redo). Synthetic gold is served as a separate public file and only fetched on explicit reveal. This is a **UI mock**, not the Python solver or the real Qwen model. Do not use it as a cryptanalysis accuracy benchmark. True offline/real inference remains in the Python local workbench.
+
+Vercel uses only files in this folder. No SQL, SQLite, external runtime, authentication, secrets, Vercel Functions, or scheduled jobs. There is no server-side mutable state.

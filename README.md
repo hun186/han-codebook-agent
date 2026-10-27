@@ -210,3 +210,9 @@ curl.exe --max-time 10 -i http://192.168.0.134:18080/v1/models
 使用者提出更貼近真實研究的固定碼本情境：**一個案件內所有密電使用同一份碼本**，先從大量未知電文累積模式，觀察更多密文能否改善推測。已加入三組合成案例，分別對同一批 100 封密電逐步取前 10、25、50、100 封；另外保留每組獨立 20 封探針。全部採零初始明文對照；**但已提供包含真正詞彙與干擾詞的固定候選詞池**。此實驗是離線統計求解對照，不包含 LLM。
 
 在 Windows 執行 `run_volume_study_windows.bat`，結束後開啟 `artifacts/volume_study.html`，即可比較收發元數據開／關下的三組實測曲線，或讀取 `artifacts/volume_study.json` 做更詳細分析。重建固定題庫使用 `python benchmarks/build_volume.py`。設計、限制與實測基線見 [`benchmarks/volume/README.md`](benchmarks/volume/README.md)。**更多資料不等於每次都會更準確；不能用目標函數上升冒充解密正確率。**
+
+### 同碼本 10／25／50／100 封：增加內網 LLM 對照
+
+`run_volume_study_windows.bat` 僅跑純統計（不呼叫 LLM）。若要評估內網 Ollama 模型，請在 `main` 更新相應版本後使用新增的 `run_volume_llm_windows.bat`，它會明確以 `--enable-llm` 啟用私有網路模型，預設 seed 101、1 輪、每批 25 封，對 10、25、50、100 封合計 8 次聊天 API 請求。**100 封會全部分批提供，並非只送前 50 封。**
+
+輸出 `artifacts/volume_llm_study.html`、`.md`、`.json` 比較相同密文下純統計與 LLM 重排後的 Top-1、獨立探針正確率及 AI 造成的修正／錯誤。完整 Prompt／回覆預設不記錄，需用 `--capture-llm-io` 明確啟用。本測試仍是固定候選詞庫中的假設排名，不是無限制詞庫的完全自主破譯。Hosted CI 以模擬 API 確認流程，不代表用戶私有 Qwen 已完成真實推論驗證。詳見 `benchmarks/volume/README.md`。

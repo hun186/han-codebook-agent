@@ -40,3 +40,25 @@ python -m han_codebook.volume --out artifacts/volume_study.json
 這是合成資料、固定明確分段的數字碼組、假設同一碼本、未加第二層密碼；測試題模板與公用詞彙先驗都比現實更受控。這批 100 封最多出現約 60 個不同碼組，不能外推到 300–500 個未知詞組的完整碼本。三個 seed 樣本數仍不足以做可靠統計推論，且每次重新開始搜尋可能落入不同局部最佳值；**更多密文不保證單調提高 Top-1**。
 
 保留 `RESULTS.json`／`RESULTS.md` 作為這次實際離線運行的版本基線；`RESULTS.json` 的秒數屬執行環境觀測，不是效能 SLA。
+
+## 額外內網 LLM 對照組（需明確 opt-in）
+
+純統計測試 `run_volume_study_windows.bat` **故意不呼叫 LLM**，用於維持同一條基準線。
+新版 `run_volume_llm_windows.bat` 才是「純統計 vs 內網 LLM」比較：
+
+1. 先確認 `config.yaml` 內的 `llm.base_url`、`llm.model`、`allow_private_network` 和 `allowed_hosts` 正確；模型必須提供 `/v1/chat/completions`。
+2. 雙擊 `run_volume_llm_windows.bat`：採 seed 101、10/25/50/100 封、1 輪 LLM，最多 25 封／請求。依各封數所需的批數，總計最多 8 次成功模型請求；若中途失敗則會中止。
+3. 查看 `artifacts/volume_llm_study.html`／`.md`／`.json`，比較碼組 Top-1、20 封獨立探針、LLM 修正數與原正確對應被改錯數。
+
+手動命令：
+
+```cmd
+set "PYTHONPATH=%CD%\src"
+.venv\Scripts\python.exe -u -m han_codebook.volume_llm --enable-llm --llm-config config.yaml --seeds 101 --sizes 10,25,50,100 --rounds 1 --batch-size 25
+```
+
+如需三組 seed 與兩輪模型：將 `--seeds` 改為 `101,202,303`、`--rounds` 改為 `2`；請注意這會有約 48 次模型請求，且每次超時單獨計算。若要連 Prompt 與回覆都儲存於本機 JSON，另加 `--capture-llm-io`；**預設不保存完整原文**。
+
+LLM 模式會在每一輪把當前 subset **全部電文**分成不重複的 25 封批次送出，並把合法候選彙整後，以相同的統計求解預算重新計算全批。已明確禁止只將前 50 封交給模型卻宣稱測過 100 封。關閉元數據時，LLM 不會看到發／收單位及第三方觀察。**LLM 必須真的回覆合法 JSON；失敗不會假裝成功，也不會退回統計結果冒充模型結果。**
+
+本功能尚未直接連到使用者內網服務完成真正 Qwen/Ollama 實測，CI 的模型呼叫只用模擬 API；模擬回覆不計入實際正確率。演算法仍採詞庫約束候選排名，並非完整從零恢復未知詞彙的自主破譯 Agent。

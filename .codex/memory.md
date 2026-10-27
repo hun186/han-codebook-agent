@@ -57,3 +57,10 @@ v0.3 browser workbench implementation in progress on branch; GitHub main d602616
 - 新增 `benchmarks/build_volume.py`、`benchmarks/volume/` case 與分開 gold、`src/han_codebook/volume.py`、`tests/test_volume.py`、`run_volume_study_windows.bat` 及自包含 HTML/JSON/MD 圖表報告。
 - 三 seed × 10/25/50/100 × 有／無元數據，在 4 iterations/4 restarts 下共 24 runs。元數據開啟時未驗證碼組 Top-1 平均依序約 12.7%、5.0%、7.8%、10.0%；100 封並未單調進步。必須註明是合成試驗，不得宣稱真實破密成功。
 - 當前 GitHub main `a98f154`（PR #3 合併後），PR #1 尚 open，包含重複基準內容，不要重複合併。新內容尚須建立 PR、驗證 Hosted CI 與正式 Codex Review，不能先寫成已通過。
+
+## Single-codebook volume LLM extension (2026-10-27)
+- PR #4 initially implemented 3×(10/25/50/100) **offline-only** ablation; user correctly noticed no real LLM calls. Keep original `run_volume_study_windows.bat` as statistical baseline.
+- Added separate explicitly opt-in `run_volume_llm_windows.bat` / `han_codebook.volume_llm`: single fixed codebook per seed, zero known pairs, same statistical solver budget, nested prefixes, all messages supplied to model in non-overlapping <=25-message batches (100 messages = 4 model requests per round). Default seed 101, one model round, eight model requests total for the 10/25/50/100 comparison.
+- Recompute predictions with dictionary-constrained LLM hints, post-inference-only gold scoring, independent 20-message probe, correct-vs-broken mapping count, local HTML/JSON/Markdown comparison, optional raw Prompt/response capture. Metadata-off strips sender/recipient/observations; never promote LLM guesses to verified. No external/public API allowed; private-network exact allowlist retained.
+- Local full unittest 57 PASS after new regression tests, using mock calls, not a live user LAN endpoint. Do not claim actual Qwen improvements before user's real run.
+- Branch PR #4 and Hosted CI status must be checked afresh before claiming update complete or merging.

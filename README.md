@@ -216,3 +216,9 @@ curl.exe --max-time 10 -i http://192.168.0.134:18080/v1/models
 `run_volume_study_windows.bat` 僅跑純統計（不呼叫 LLM）。若要評估內網 Ollama 模型，請在 `main` 更新相應版本後使用新增的 `run_volume_llm_windows.bat`，它會明確以 `--enable-llm` 啟用私有網路模型，預設 seed 101、1 輪、每批 25 封，對 10、25、50、100 封合計 8 次聊天 API 請求。**100 封會全部分批提供，並非只送前 50 封。**
 
 輸出 `artifacts/volume_llm_study.html`、`.md`、`.json` 比較相同密文下純統計與 LLM 重排後的 Top-1、獨立探針正確率及 AI 造成的修正／錯誤。完整 Prompt／回覆預設不記錄，需用 `--capture-llm-io` 明確啟用。本測試仍是固定候選詞庫中的假設排名，不是無限制詞庫的完全自主破譯。Hosted CI 以模擬 API 確認流程，不代表用戶私有 Qwen 已完成真實推論驗證。詳見 `benchmarks/volume/README.md`。
+
+### 100 封實驗：檢視每一封密電的目前候選明文
+
+最新的內網 LLM 實驗 HTML 報表含「**密電候選解讀探索器**」，提供 10／25／50／100 封資料量切換、密電選取、數字碼組→候選中文對照，以及統計與 AI 候選之間的差異、理由及可追溯碼組。**中文皆屬未經確認的推測，不是已成功破解。**
+
+如果已用舊版 `run_volume_llm_windows.bat` 跑過 8 次模型呼叫，更新程式後可以改跑 `run_volume_view_windows.bat`：**純本機重算，不用再呼叫 Qwen**，產出 `artifacts/volume_llm_study_decipher.html`。它會核對新重算與原報告 Top-1 指標是否吻合；若不吻合，介面會註記這是重算而非原始碼本快照。詳見 [benchmarks/volume/README.md](benchmarks/volume/README.md)。

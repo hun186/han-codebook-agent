@@ -62,3 +62,20 @@ set "PYTHONPATH=%CD%\src"
 LLM 模式會在每一輪把當前 subset **全部電文**分成不重複的 25 封批次送出，並把合法候選彙整後，以相同的統計求解預算重新計算全批。已明確禁止只將前 50 封交給模型卻宣稱測過 100 封。關閉元數據時，LLM 不會看到發／收單位及第三方觀察。**LLM 必須真的回覆合法 JSON；失敗不會假裝成功，也不會退回統計結果冒充模型結果。**
 
 本功能尚未直接連到使用者內網服務完成真正 Qwen/Ollama 實測，CI 的模型呼叫只用模擬 API；模擬回覆不計入實際正確率。演算法仍採詞庫約束候選排名，並非完整從零恢復未知詞彙的自主破譯 Agent。
+
+## 瀏覽器查看每封密電的「目前候選解讀」
+
+從這個版本開始，`volume_llm_study.html` 新增**密電候選解讀探索器**：
+- 選擇 Seed、10／25／50／100 封與其中一封密電；同時檢視原始數字碼組、純統計猜測及內網 LLM 候選重新求解後的猜測。
+- 每個中文詞組都是未驗證的 Top-1 假說；按詞組可查看數字碼、其他候選、模型實際輸出的 `reason`（若有）、所屬批次。被 LLM 加權後改變的詞組以不同底色提示，但改變不等於正確。
+- 10／25／50／100 仍是**四次獨立求解**，不可誤稱為同一個 Agent 的連續記憶或已驗證的破譯結果。
+
+**已有舊版 `artifacts/volume_llm_study.json` 的使用者不需要重新送八次 LLM！** 只要更新 PR 分支並執行 `run_volume_view_windows.bat`，程式會根據原 JSON 已保存的 `trace[].accepted` 候選，在本機使用相同預設求解參數（iterations=2、restarts=2）重新計算，產出 `artifacts/volume_llm_study_decipher.html` 與 `.json`；不呼叫任何 LLM API，原檔不覆寫。此視圖標記為「依建議紀錄重算」，並與原始報告的 Top-1 分數核對。如果當初使用自訂 `--iterations`／`--restarts` 或後續求解器改變，可能出現重算不一致，畫面不是歷史上原封不動的模型輸出。
+
+無 Windows 批次檔時的命令：
+
+```bash
+PYTHONPATH=src python -m han_codebook.volume_llm --rebuild-view-from artifacts/volume_llm_study.json
+```
+
+本次另外修正兩個 Review P2：單一回覆中同碼組／候選詞重複不再放大加權；明確 `--capture-llm-io` 啟用時，LLM 批次失敗會保存部分 Prompt 與回覆到 `artifacts/volume_llm_study.failed.json`，保留非零結束碼且不生成該失敗批次的成功評分。此 `.failed.json` 可能包含敏感輸入，請勿放進公開 repo。

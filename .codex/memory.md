@@ -25,3 +25,11 @@ v0.2 YAML config and LAN endpoint support implemented; new project draft, awaiti
 - Private-network HTTP opt-in and literal-IP allowlist, public-host denial and optional env-key auth; existing localhost mode kept.
 - Windows `run_agent_windows.bat`, offline demo batch, setup installs PyYAML; Docker includes configs.
 - 19 local unittest tests passed, including a mocked endpoint. Actual Ollama compatibility remains unverified, and no GitHub push/Hosted CI has been performed.
+
+## Recent outcomes (2026-10-27 — LLM run responsiveness PR)
+- User reported `run_agent_windows.bat` apparently froze after successful offline run. Root cause in code: no status output before synchronous potentially slow LLM request; live LAN endpoint `192.168.0.134:18080` unverified.
+- Added `--check-llm` lightweight TCP + `GET /v1/models` preflight, with distinct network/auth/HTML and unsupported route interpretations; this check never sends ciphertext and does not establish chat compatibility.
+- `run_agent_windows.bat` now invokes preflight before processing, runs unbuffered Python and outputs staged progress. Core Agent loop emits stage/round/request progress plus 10-second wait heartbeats and a result summary.
+- HTTP failures 401/403/404/502/503/504 and HTML-instead-of-JSON are now diagnosed explicitly without leaking API tokens.
+- Existing v0.2 offline operation is unchanged; all local tests passed (28 tests) and a separate offline CLI smoke test passed. New tests mock the network; real Ollama service has **not** been verified.
+- This fix should be applied via dedicated PR branch; initial synthetic benchmark PR #1 remains open, independent of this fix.

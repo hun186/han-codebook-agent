@@ -60,7 +60,7 @@ python -m han_codebook --config config.yaml          # 呼叫區網 LLM
 
 1. 執行 `setup_windows.bat`：建立虛擬環境、安裝 PyYAML、執行測試。需事先安裝 Python 3.10+；首次安裝通常需要網路或離線 wheel。
 2. `run_demo_windows.bat`：只進行本機數字碼本求解，不會呼叫 LLM。
-3. `run_agent_windows.bat`：讀取 `config.yaml` 並向指定的區網模型服務發送研究案例。
+3. `run_agent_windows.bat`：讀取 `config.yaml` 並向指定的區網模型服務發送研究案例。 啟動時先做 TCP 與 `/v1/models` 輕量檢查，之後每輪呼叫 LLM 會即時顯示等待與執行進度。
 
 也可以從 PowerShell 執行：
 
@@ -167,3 +167,19 @@ git push -u origin main
 ```
 
 未來可在既有 Repository 擴充 MCP 工具服務、長時任務 Worker、真正的異碼同義模型、審查 UI、民國時期獨立語料與大型盲測。
+
+### LLM 在 Windows 看起來卡住怎麼辦？
+
+新版 `run_agent_windows.bat` 會先執行 `--check-llm`：只確認 TCP 可連與 `/v1/models` 路由（不送密文、不進行推理）。若路由不支援則提示警告，不能據此斷言聊天 API 正常；若回傳 HTML 則可能誤指向網頁入口。
+
+直接診斷：
+
+```cmd
+set PYTHONPATH=src
+.venv\Scripts\python.exe -u -m han_codebook --config config.yaml --check-llm
+curl.exe --max-time 10 -i http://192.168.0.134:18080/v1/models
+```
+
+開始真正執行時，程式會顯示目前輪次、呼叫的 API URL、模型名稱，每 10 秒提示仍在等待，並在返回後顯示成功接受幾個未驗證候選。`llm.timeout_seconds` 是底層 socket I/O 逾時而不是整輪 LLM 生成的硬性總時間上限；慢速模型生成仍可能超過此時間。可以用 Ctrl+C 中止。若端點是 nginx/Open WebUI 的一般網頁，而非 OpenAI-compatible API，請調整反向代理或改成實際提供 `/v1/chat/completions` 的端點。若 HTTP 401/403，檢查 Bearer token；404，檢查路由或模型；502/504，檢查代理與上游服務。
+
+不要把 API token、真實密文或敏感情報貼到公共 GitHub Issue。尚未在使用者的區網端點實測。

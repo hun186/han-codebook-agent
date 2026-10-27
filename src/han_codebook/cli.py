@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
-from .agent import run_agent
+from .agent import run_agent, probe_llm_service
 from .config import load_settings
 from .core import load_case, evaluate_demo, CaseError
 
@@ -12,6 +12,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="han-codebook", description="Offline-first research workbench for Chinese historical codebooks")
     parser.add_argument("case", nargs="?", default=None, help="JSON case path (overrides config project.case)")
     parser.add_argument("--config", help="YAML settings file; other CLI flags override it")
+    parser.add_argument("--check-llm", action="store_true", help="Check TCP and /v1/models without sending cipher data")
     parser.add_argument("--no-metadata", action="store_true", default=None, help="Ablation: ignore sender/recipient/domain")
     parser.add_argument("--rounds", type=int, default=None, help="LLM proposal rounds (0=offline)")
     parser.add_argument("--ollama-url", default=None, help="OpenAI-compatible base endpoint")
@@ -24,7 +25,7 @@ def main(argv=None) -> int:
         settings = load_settings(args.config) if args.config else {"project": {}, "analysis": {}, "llm": {}}
         project, analysis, llm = (settings[key] for key in ("project", "analysis", "llm"))
         case_path = args.case or project.get("case")
-        if not case_path:
+        if not case_path and not args.check_llm:
             parser.error("case JSON is required: provide a positional path or config project.case")
         rounds = args.rounds if args.rounds is not None else analysis.get("rounds", 0)
         if not 0 <= rounds <= 20:
@@ -36,12 +37,25 @@ def main(argv=None) -> int:
         model = args.model or llm.get("model", "qwen3:14b")
         out = args.out or project.get("output", "artifacts/result.json")
         db = args.db or project.get("audit_db", "artifacts/audit.sqlite")
+        if args.check_llm:
+            print(f"[check] API base: {url} | model configured: {model}", flush=True)
+            ok = probe_llm_service(url, timeout=min(timeout, 8),
+                                   allow_private_network=llm.get("allow_private_network", False),
+                                   allowed_hosts=llm.get("allowed_hosts", []),
+                                   api_key_env=llm.get("api_key_env"))
+            print("[check] Note: TCP/models checks do not validate actual chat inference.", flush=True)
+            return 0 if ok else 2
+        print(f"[start] Case: {case_path} | rounds: {rounds} | model: {model}", flush=True)
+        if rounds:
+            print(f"[start] Chat endpoint: {url.rstrip('/') + ('' if url.rstrip('/').endswith('/v1') else '/v1')}/chat/completions", flush=True)
+            print("[start] Waiting for LLM can take longer than an offline run. Ctrl+C cancels.", flush=True)
         case = load_case(case_path)
         result = run_agent(case, rounds=rounds, llm_url=url, model=model, db_path=db,
                            metadata=metadata, llm_timeout=timeout,
                            allow_private_network=llm.get("allow_private_network", False),
                            llm_allowed_hosts=llm.get("allowed_hosts", []),
-                           llm_api_key_env=llm.get("api_key_env"))
+                           llm_api_key_env=llm.get("api_key_env"),
+                           progress=lambda message: print(message, flush=True))
         if evaluate:
             result["evaluation"] = evaluate_demo(result, case)
         dest = Path(out)

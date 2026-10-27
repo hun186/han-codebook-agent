@@ -8,9 +8,12 @@ import ipaddress
 import json
 import os
 import sqlite3
+import socket
+import time
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib import request, error, parse
 from .core import analyze, anchors_and_review, CaseError
 
@@ -92,9 +95,18 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
     try:
         with request.urlopen(req, timeout=timeout) as response:
             raw = response.read(500_000)
-    except (error.URLError, TimeoutError) as e:
-        raise CaseError(f"LLM endpoint did not respond: {e}") from e
+    except error.HTTPError as exc:
+        reason = {400: "request rejected or incompatible API parameters", 401: "authentication required (set llm.api_key_env)",
+                  403: "forbidden by service or proxy", 404: "API path or model not found; check /v1/chat/completions route",
+                  405: "HTTP method not allowed; check API proxy", 422: "request schema/model not accepted",
+                  502: "reverse proxy cannot reach the LLM upstream", 503: "LLM service unavailable",
+                  504: "reverse proxy timed out"}.get(exc.code, "HTTP error")
+        raise CaseError(f"LLM HTTP {exc.code}: {reason} (URL: {req.full_url})") from exc
+    except (error.URLError, TimeoutError, ConnectionError) as exc:
+        raise CaseError(f"LLM network error on {req.full_url}: {exc}") from exc
     try:
+        if raw.lstrip().startswith((b"<!DOCTYPE", b"<html", b"<HTML")):
+            raise ValueError("HTML returned instead of JSON; check proxy/API path")
         data = json.loads(raw.decode("utf-8"))
         content = data["choices"][0]["message"]["content"]
         if not isinstance(content, str):
@@ -110,12 +122,71 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
         raise CaseError(f"Local LLM output not valid expected JSON: {e}") from e
 
 
+def probe_llm_service(base_url: str, *, timeout: int = 6,
+                      allow_private_network: bool = False,
+                      allowed_hosts: tuple[str, ...] | list[str] = (),
+                      api_key_env: str | None = None,
+                      report: Callable[[str], None] = print) -> bool:
+    """Lightweight transport + models-route diagnostics. No case data or LLM inference.
+
+    A missing /v1/models route is inconclusive: some gateways support only chat.
+    Return False for confirmed networking/authentication/proxy problems.
+    """
+    validate_llm_endpoint(base_url, allow_private_network=allow_private_network, allowed_hosts=allowed_hosts)
+    parsed = parse.urlparse(base_url)
+    host = parsed.hostname
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    report(f"[check] TCP {host}:{port} (timeout {timeout}s) ...")
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            pass
+    except (OSError, TimeoutError) as exc:
+        report(f"[ERROR] TCP connection failed: {exc}. Check network/firewall and service port.")
+        return False
+    report("[OK] TCP connected. Checking /v1/models (not a chat-model inference) ...")
+    api = base_url.rstrip("/")
+    if not api.endswith("/v1"):
+        api += "/v1"
+    headers = {"Accept": "application/json"}
+    if api_key_env:
+        token = os.environ.get(api_key_env)
+        if not token:
+            report(f"[ERROR] Missing authentication environment variable: {api_key_env}")
+            return False
+        headers["Authorization"] = f"Bearer {token}"
+    req = request.Request(api + "/models", headers=headers)
+    try:
+        with request.urlopen(req, timeout=timeout) as response:
+            content = response.read(100_000)
+        if content.lstrip().startswith(b"<"):
+            report("[WARN] /v1/models returned HTML, likely a web UI or reverse proxy page; chat API is unverified.")
+            return False
+        data = json.loads(content.decode("utf-8"))
+        models = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(models, list):
+            report("[WARN] /v1/models returned JSON but not an OpenAI-compatible model list; chat API is unverified.")
+            return True
+        available = [v.get("id") for v in models if isinstance(v, dict) and isinstance(v.get("id"), str)]
+        report(f"[OK] /v1/models listed {len(available)} model(s)" + (": " + ", ".join(available[:8]) if available else ""))
+        return True
+    except error.HTTPError as exc:
+        if exc.code in (404, 405, 501):
+            report(f"[WARN] /v1/models HTTP {exc.code} unsupported; chat endpoint may still work.")
+            return True
+        report(f"[ERROR] /v1/models HTTP {exc.code}; check authentication or reverse proxy.")
+        return False
+    except (error.URLError, TimeoutError, ConnectionError, ValueError) as exc:
+        report(f"[WARN] /v1/models check inconclusive: {exc}; chat endpoint may still work.")
+        return True
+
+
 def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://127.0.0.1:11434/v1",
               model: str = "qwen3:14b", db_path: str = "artifacts/audit.sqlite",
               metadata: bool = True, llm_timeout: int = 90,
               allow_private_network: bool = False,
               llm_allowed_hosts: tuple[str, ...] | list[str] = (),
-              llm_api_key_env: str | None = None) -> dict[str, Any]:
+              llm_api_key_env: str | None = None,
+              progress: Callable[[str], None] | None = None) -> dict[str, Any]:
     if rounds:
         validate_llm_endpoint(llm_url, allow_private_network=allow_private_network,
                               allowed_hosts=llm_allowed_hosts)
@@ -126,6 +197,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         log_event(conn, 0, "preflight", {"messages": len(case["messages"]), "known_anchors": len(anchors),
                                          "ambiguous_pairs": len(reviews), "domains": domains})
         hints: dict[str, dict[str, float]] = {}
+        if progress:
+            progress("[analysis] Computing local statistical baseline ...")
         current = analyze(case, use_metadata=metadata)
         log_event(conn, 0, "statistical_baseline", {"score": current["objective_score"],
                                                      "mapping": {c: p["term"] for c, p in current["proposals"].items()}})
@@ -143,10 +216,31 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 "messages": case["messages"][:50],
                 "unresolved": unresolved,
             }
-            reply = query_local_llm(llm_url, model, packet, timeout=llm_timeout,
-                                    allow_private_network=allow_private_network,
-                                    allowed_hosts=llm_allowed_hosts,
-                                    api_key_env=llm_api_key_env)
+            if progress:
+                progress(f"[agent] Round {num}/{rounds}: requesting {model} from {llm_url.rstrip('/')}/v1/chat/completions "
+                         f"(socket timeout {llm_timeout}s; {len(unresolved)} unresolved codes) ...")
+            start = time.monotonic()
+            done = threading.Event()
+            def heartbeat() -> None:
+                while not done.wait(10):
+                    if progress:
+                        progress(f"[agent] Round {num}/{rounds}: still waiting for LLM ({time.monotonic()-start:.0f}s elapsed); "
+                                 "model initialization or generation may be running ...")
+            worker = threading.Thread(target=heartbeat, daemon=True) if progress else None
+            if worker:
+                worker.start()
+            try:
+                reply = query_local_llm(llm_url, model, packet, timeout=llm_timeout,
+                                        allow_private_network=allow_private_network,
+                                        allowed_hosts=llm_allowed_hosts,
+                                        api_key_env=llm_api_key_env)
+            finally:
+                done.set()
+                if worker:
+                    worker.join(timeout=1)
+            if progress:
+                progress(f"[agent] Round {num}/{rounds}: API response received in {time.monotonic()-start:.1f}s; "
+                         "validating candidate proposals ...")
             accepted = []
             for entry in reply["hypotheses"][:15]:
                 if not isinstance(entry, dict):
@@ -161,6 +255,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                     hints.setdefault(code, {})[word] = min(0.6, hints.get(code, {}).get(word, 0.0) + 0.25 / (rank + 1))
                 accepted.append({"code": code, "candidates": allowed, "reason": str(entry.get("reason", ""))[:250]})
             log_event(conn, num, "llm_proposals_unverified", {"accepted": accepted})
+            if progress:
+                progress(f"[agent] Round {num}/{rounds}: accepted {len(accepted)} unverified code hypotheses; reranking ...")
             current = analyze(case, use_metadata=metadata, llm_hints=hints)
             log_event(conn, num, "rescore", {"score": current["objective_score"],
                                               "mapping": {c: p["term"] for c, p in current["proposals"].items()}})

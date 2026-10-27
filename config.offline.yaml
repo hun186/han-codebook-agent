@@ -1,0 +1,14 @@
+# Self-contained offline diagnostic. Does not call LLM; runs without network.
+project:
+  case: examples/demo_case.json
+  output: artifacts/offline_demo.json
+  audit_db: artifacts/offline_audit.sqlite
+analysis:
+  use_metadata: true
+  rounds: 0
+  evaluate_demo: true
+llm:
+  base_url: "http://127.0.0.1:11434"
+  model: "qwen3:14b"
+  allow_private_network: false
+  allowed_hosts: []

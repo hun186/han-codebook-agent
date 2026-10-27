@@ -1,0 +1,23 @@
+# Han Codebook Agent — primary runtime configuration (UTF-8)
+# All relative project paths are resolved relative to this file, not your current directory.
+project:
+  case: examples/demo_case.json
+  output: artifacts/with_agent.json
+  audit_db: artifacts/audit.sqlite
+
+analysis:
+  use_metadata: true      # use sender/recipient/domain information
+  rounds: 2               # >0 sends case evidence to the configured LLM
+  evaluate_demo: false    # only turn on for fictional demo benchmark
+
+llm:
+  base_url: "http://192.168.0.134:18080"
+  # The client appends /v1/chat/completions. Confirm your proxy exposes this route.
+  model: "qwen3.6:latest-128k"
+  timeout_seconds: 90
+  allow_private_network: true
+  allowed_hosts:
+    - "192.168.0.134"
+  # If nginx requires a Bearer token, set e.g.:
+  # api_key_env: HAN_CODEBOOK_LLM_API_KEY
+  # and put the token in that environment variable, not in this file.

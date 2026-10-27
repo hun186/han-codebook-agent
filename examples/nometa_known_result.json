@@ -1,0 +1,777 @@
+{
+  "config": {
+    "metadata": false,
+    "known_pairs": true
+  },
+  "evaluation": {
+    "demo_only_not_real_world_accuracy": true,
+    "held_out_codes": 15,
+    "correct_top_1": 12,
+    "correct_top_5": 14,
+    "top_1_rate": 0.8,
+    "top_5_rate": 0.9333,
+    "note": "Ground truth was used for scoring after inference and not included in its inputs. This is one artificial case, not a scientific benchmark."
+  },
+  "codebook_proposals": {
+    "001": {
+      "term": "第三師",
+      "status": "verified_alignment",
+      "alternatives": [],
+      "evidence": "Explicit segmented known plaintext/ciphertext pair"
+    },
+    "002": {
+      "term": "兵力",
+      "status": "verified_alignment",
+      "alternatives": [],
+      "evidence": "Explicit segmented known plaintext/ciphertext pair"
+    },
+    "003": {
+      "term": "集結",
+      "status": "verified_alignment",
+      "alternatives": [],
+      "evidence": "Explicit segmented known plaintext/ciphertext pair"
+    },
+    "004": {
+      "term": "明日凌晨",
+      "status": "verified_alignment",
+      "alternatives": [],
+      "evidence": "Explicit segmented known plaintext/ciphertext pair"
+    },
+    "005": {
+      "term": "補給",
+      "status": "verified_alignment",
+      "alternatives": [],
+      "evidence": "Explicit segmented known plaintext/ciphertext pair"
+    },
+    "006": {
+      "term": "車隊",
+      "status": "verified_alignment",
+      "alternatives": [],
+      "evidence": "Explicit segmented known plaintext/ciphertext pair"
+    },
+    "007": {
+      "term": "糧食",
+      "status": "hypothesis_unverified",
+      "score_gap_to_second": 4.052,
+      "alternatives": [
+        {
+          "term": "糧食",
+          "relative_score": 0.0
+        },
+        {
+          "term": "港口",
+          "relative_score": -4.052
+        },
+        {
+          "term": "軍司令部",
+          "relative_score": -5.1011
+        },
+        {
+          "term": "增援",
+          "relative_score": -5.2638
+        },
+        {
+          "term": "抵達",
+          "relative_score": -5.6949
+        }
+      ],
+      "evidence": "Metadata-conditioned lexical frequencies and phrase transitions; must be independently checked"
+    },
+    "008": {
+      "term": "運抵",
+      "status": "verified_alignment",
+      "alternatives": [],
+      "evidence": "Explicit segmented known plaintext/ciphertext pair"
+    },
+    "009": {
+      "term": "倉庫",
+      "status": "verified_alignment",
+      "alternatives": [],
+      "evidence": "Explicit segmented known plaintext/ciphertext pair"
+    },
+    "010": {
+      "term": "請求",
+      "status": "hypothesis_unverified",
+      "score_gap_to_second": 6.3131,
+      "alternatives": [
+        {
+          "term": "請求",
+          "relative_score": 0.0
+        },
+        {
+          "term": "港口",
+          "relative_score": -6.3131
+        },
+        {
+          "term": "軍司令部",
+          "relative_score": -7.5293
+        },
+        {
+          "term": "火速",
+          "relative_score": -8.7475
+        },
+        {
+          "term": "已經",
+          "relative_score": -8.8059
+        }
+      ],
+      "evidence": "Metadata-conditioned lexical frequencies and phrase transitions; must be independently checked"
+    },
+    "011": {
+      "term": "增援",
+      "status": "hypothesis_unverified",
+      "score_gap_to_second": 3.8755,
+      "alternatives": [
+        {
+          "term": "增援",
+          "relative_score": 0.0
+        },
+        {
+          "term": "火速",
+          "relative_score": -3.8755
+        },
+        {
+          "term": "已經",
+          "relative_score": -3.9338
+        },
+        {
+          "term": "港口",
+          "relative_score": -3.9338
+        },
+        {
+          "term": "抵達",
+          "relative_score": -4.1687
+        }
+      ],
+      "evidence": "Metadata-conditioned lexical frequencies and phrase transitions; must be independently checked"
+    },
+    "012": {
+      "term": "前線",
+      "status": "hypothesis_unverified",
+      "score_gap_to_second": 4.2258,
+      "alternatives": [
+        {
+          "term": "前線",
+          "relative_score": 0.0
+        },
+        {
+          "term": "軍司令部",
+          "relative_score": -4.2258
+        },
+        {
+          "term": "抵達",
+          "relative_score": -5.4372
+        },
+        {
+          "term": "糧秣",
+          "relative_score": -6.2463
+        },
+        {
+          "term": "迫切",
+          "relative_score": -7.5043
+        }
+      ],
+      "evidence": "Metadata-conditioned lexical frequencies and phrase transitions; must be independently checked"
+    },
+    "013": {
+      "term": "奉令",
+      "status": "verified_alignment",
+      "alternatives": [],
+      "evidence": "Explicit segmented known plaintext/ciphertext pair"
+    },
+    "014": {
+      "term": "預定",
+      "status": "verified_alignment",
+      "alternatives": [],
+      "evidence": "Explicit segmented known plaintext/ciphertext pair"
+    },
+    "015": {
+      "term": "調整",
+      "status": "hypothesis_unverified",
+      "score_gap_to_second": 6.0418,
+      "alternatives": [
+        {
+          "term": "調整",
+          "relative_score": 0.0
+        },
+        {
+          "term": "火速",
+          "relative_score": -6.0418
+        },
+        {
+          "term": "已經",
+          "relative_score": -6.071
+        },
+        {
+          "term": "港口",
+          "relative_score": -6.071
+        },
+        {
+          "term": "抵達",
+          "relative_score": -6.1885
+        }
+      ],
+      "evidence": "Metadata-conditioned lexical frequencies and phrase transitions; must be independently checked"
+    },
+    "016": {
+      "term": "路線",
+      "status": "hypothesis_unverified",
+      "score_gap_to_second": 4.1189,
+      "alternatives": [
+        {
+          "term": "路線",
+          "relative_score": 0.0
+        },
+        {
+          "term": "抵達",
+          "relative_score": -4.1189
+        },
+        {
+          "term": "軍司令部",
+          "relative_score": -4.546
+        },
+        {
+          "term": "迫切",
+          "relative_score": -4.808
+        },
+        {
+          "term": "已經",
+          "relative_score": -5.3212
+        }
+      ],
+      "evidence": "Metadata-conditioned lexical frequencies and phrase transitions; must be independently checked"
+    },
+    "017": {
+      "term": "出發",
+      "status": "verified_alignment",
+      "alternatives": [],
+      "evidence": "Explicit segmented known plaintext/ciphertext pair"
+    },
+    "018": {
+      "term": "今晚",
+      "status": "verified_alignment",
+      "alternatives": [],
+      "evidence": "Explicit segmented known plaintext/ciphertext pair"
+    },
+    "019": {
+      "term": "運輸",
+      "status": "hypothesis_unverified",
+      "score_gap_to_second": 5.0018,
+      "alternatives": [
+        {
+          "term": "運輸",
+          "relative_score": 0.0
+        },
+        {
+          "term": "火速",
+          "relative_score": -5.0018
+        },
+        {
+          "term": "已經",
+          "relative_score": -5.031
+        },
+        {
+          "term": "港口",
+          "relative_score": -5.031
+        },
+        {
+          "term": "抵達",
+          "relative_score": -5.1485
+        }
+      ],
+      "evidence": "Metadata-conditioned lexical frequencies and phrase transitions; must be independently checked"
+    },
+    "020": {
+      "term": "確保",
+      "status": "hypothesis_unverified",
+      "score_gap_to_second": 2.6426,
+      "alternatives": [
+        {
+          "term": "確保",
+          "relative_score": 0.0
+        },
+        {
+          "term": "火速",
+          "relative_score": -2.6426
+        },
+        {
+          "term": "已經",
+          "relative_score": -2.6718
+        },
+        {
+          "term": "港口",
+          "relative_score": -2.6718
+        },
+        {
+          "term": "抵達",
+          "relative_score": -2.7892
+        }
+      ],
+      "evidence": "Metadata-conditioned lexical frequencies and phrase transitions; must be independently checked"
+    },
+    "021": {
+      "term": "安全",
+      "status": "hypothesis_unverified",
+      "score_gap_to_second": 2.707,
+      "alternatives": [
+        {
+          "term": "安全",
+          "relative_score": 0.0
+        },
+        {
+          "term": "抵達",
+          "relative_score": -2.707
+        },
+        {
+          "term": "軍司令部",
+          "relative_score": -3.1341
+        },
+        {
+          "term": "迫切",
+          "relative_score": -3.396
+        },
+        {
+          "term": "已經",
+          "relative_score": -3.9092
+        }
+      ],
+      "evidence": "Metadata-conditioned lexical frequencies and phrase transitions; must be independently checked"
+    },
+    "024": {
+      "term": "糧秣",
+      "status": "hypothesis_unverified",
+      "score_gap_to_second": 2.6255,
+      "alternatives": [
+        {
+          "term": "糧秣",
+          "relative_score": 0.0
+        },
+        {
+          "term": "火速",
+          "relative_score": -2.6255
+        },
+        {
+          "term": "已經",
+          "relative_score": -2.6547
+        },
+        {
+          "term": "港口",
+          "relative_score": -2.6547
+        },
+        {
+          "term": "抵達",
+          "relative_score": -2.7722
+        }
+      ],
+      "evidence": "Metadata-conditioned lexical frequencies and phrase transitions; must be independently checked"
+    },
+    "025": {
+      "term": "報告",
+      "status": "hypothesis_unverified",
+      "score_gap_to_second": 0.0,
+      "alternatives": [
+        {
+          "term": "報告",
+          "relative_score": 0.0
+        },
+        {
+          "term": "港口",
+          "relative_score": 0.0
+        },
+        {
+          "term": "軍司令部",
+          "relative_score": -0.6081
+        },
+        {
+          "term": "火速",
+          "relative_score": -2.4636
+        },
+        {
+          "term": "已經",
+          "relative_score": -2.4928
+        }
+      ],
+      "evidence": "Metadata-conditioned lexical frequencies and phrase transitions; must be independently checked"
+    },
+    "026": {
+      "term": "裝載",
+      "status": "hypothesis_unverified",
+      "score_gap_to_second": 2.5603,
+      "alternatives": [
+        {
+          "term": "裝載",
+          "relative_score": 0.0
+        },
+        {
+          "term": "火速",
+          "relative_score": -2.5603
+        },
+        {
+          "term": "已經",
+          "relative_score": -2.5895
+        },
+        {
+          "term": "港口",
+          "relative_score": -2.5895
+        },
+        {
+          "term": "抵達",
+          "relative_score": -2.707
+        }
+      ],
+      "evidence": "Metadata-conditioned lexical frequencies and phrase transitions; must be independently checked"
+    },
+    "027": {
+      "term": "完畢",
+      "status": "hypothesis_unverified",
+      "score_gap_to_second": 2.707,
+      "alternatives": [
+        {
+          "term": "完畢",
+          "relative_score": 0.0
+        },
+        {
+          "term": "抵達",
+          "relative_score": -2.707
+        },
+        {
+          "term": "軍司令部",
+          "relative_score": -3.1341
+        },
+        {
+          "term": "迫切",
+          "relative_score": -3.396
+        },
+        {
+          "term": "已經",
+          "relative_score": -3.9092
+        }
+      ],
+      "evidence": "Metadata-conditioned lexical frequencies and phrase transitions; must be independently checked"
+    },
+    "031": {
+      "term": "部署",
+      "status": "hypothesis_unverified",
+      "score_gap_to_second": 6.1619,
+      "alternatives": [
+        {
+          "term": "部署",
+          "relative_score": 0.0
+        },
+        {
+          "term": "火速",
+          "relative_score": -6.1619
+        },
+        {
+          "term": "已經",
+          "relative_score": -6.191
+        },
+        {
+          "term": "港口",
+          "relative_score": -6.191
+        },
+        {
+          "term": "抵達",
+          "relative_score": -6.3085
+        }
+      ],
+      "evidence": "Metadata-conditioned lexical frequencies and phrase transitions; must be independently checked"
+    },
+    "032": {
+      "term": "部隊",
+      "status": "hypothesis_unverified",
+      "score_gap_to_second": 2.8066,
+      "alternatives": [
+        {
+          "term": "部隊",
+          "relative_score": 0.0
+        },
+        {
+          "term": "港口",
+          "relative_score": -2.8066
+        },
+        {
+          "term": "要求",
+          "relative_score": -2.924
+        },
+        {
+          "term": "軍司令部",
+          "relative_score": -3.4147
+        },
+        {
+          "term": "第三師",
+          "relative_score": -5.212
+        }
+      ],
+      "evidence": "Metadata-conditioned lexical frequencies and phrase transitions; must be independently checked"
+    }
+  },
+  "decoded_messages": [
+    {
+      "id": "L1",
+      "domain_inferred": null,
+      "codes": [
+        "013",
+        "005",
+        "006",
+        "014",
+        "018",
+        "017"
+      ],
+      "suggested_segments": [
+        "奉令",
+        "補給",
+        "車隊",
+        "預定",
+        "今晚",
+        "出發"
+      ],
+      "reading": "奉令補給車隊預定今晚出發",
+      "verified_codes": 6,
+      "total_codes": 6,
+      "warning": "Any segment not grounded in an explicit known pair is a hypothesis."
+    },
+    {
+      "id": "L2",
+      "domain_inferred": null,
+      "codes": [
+        "005",
+        "006",
+        "008",
+        "009"
+      ],
+      "suggested_segments": [
+        "補給",
+        "車隊",
+        "運抵",
+        "倉庫"
+      ],
+      "reading": "補給車隊運抵倉庫",
+      "verified_codes": 4,
+      "total_codes": 4,
+      "warning": "Any segment not grounded in an explicit known pair is a hypothesis."
+    },
+    {
+      "id": "O1",
+      "domain_inferred": null,
+      "codes": [
+        "001",
+        "002",
+        "003",
+        "014",
+        "004",
+        "017"
+      ],
+      "suggested_segments": [
+        "第三師",
+        "兵力",
+        "集結",
+        "預定",
+        "明日凌晨",
+        "出發"
+      ],
+      "reading": "第三師兵力集結預定明日凌晨出發",
+      "verified_codes": 6,
+      "total_codes": 6,
+      "warning": "Any segment not grounded in an explicit known pair is a hypothesis."
+    },
+    {
+      "id": "L3",
+      "domain_inferred": null,
+      "codes": [
+        "005",
+        "006",
+        "019",
+        "007"
+      ],
+      "suggested_segments": [
+        "補給",
+        "車隊",
+        "運輸",
+        "糧食"
+      ],
+      "reading": "補給車隊運輸糧食",
+      "verified_codes": 2,
+      "total_codes": 4,
+      "warning": "Any segment not grounded in an explicit known pair is a hypothesis."
+    },
+    {
+      "id": "L4",
+      "domain_inferred": null,
+      "codes": [
+        "005",
+        "006",
+        "015",
+        "016"
+      ],
+      "suggested_segments": [
+        "補給",
+        "車隊",
+        "調整",
+        "路線"
+      ],
+      "reading": "補給車隊調整路線",
+      "verified_codes": 2,
+      "total_codes": 4,
+      "warning": "Any segment not grounded in an explicit known pair is a hypothesis."
+    },
+    {
+      "id": "L5",
+      "domain_inferred": null,
+      "codes": [
+        "007",
+        "024",
+        "008",
+        "009"
+      ],
+      "suggested_segments": [
+        "糧食",
+        "糧秣",
+        "運抵",
+        "倉庫"
+      ],
+      "reading": "糧食糧秣運抵倉庫",
+      "verified_codes": 2,
+      "total_codes": 4,
+      "warning": "Any segment not grounded in an explicit known pair is a hypothesis."
+    },
+    {
+      "id": "L6",
+      "domain_inferred": null,
+      "codes": [
+        "010",
+        "007",
+        "011",
+        "012"
+      ],
+      "suggested_segments": [
+        "請求",
+        "糧食",
+        "增援",
+        "前線"
+      ],
+      "reading": "請求糧食增援前線",
+      "verified_codes": 0,
+      "total_codes": 4,
+      "warning": "Any segment not grounded in an explicit known pair is a hypothesis."
+    },
+    {
+      "id": "L7",
+      "domain_inferred": null,
+      "codes": [
+        "005",
+        "006",
+        "020",
+        "021"
+      ],
+      "suggested_segments": [
+        "補給",
+        "車隊",
+        "確保",
+        "安全"
+      ],
+      "reading": "補給車隊確保安全",
+      "verified_codes": 2,
+      "total_codes": 4,
+      "warning": "Any segment not grounded in an explicit known pair is a hypothesis."
+    },
+    {
+      "id": "L8",
+      "domain_inferred": null,
+      "codes": [
+        "025",
+        "007",
+        "026",
+        "027"
+      ],
+      "suggested_segments": [
+        "報告",
+        "糧食",
+        "裝載",
+        "完畢"
+      ],
+      "reading": "報告糧食裝載完畢",
+      "verified_codes": 0,
+      "total_codes": 4,
+      "warning": "Any segment not grounded in an explicit known pair is a hypothesis."
+    },
+    {
+      "id": "O2",
+      "domain_inferred": null,
+      "codes": [
+        "001",
+        "010",
+        "011",
+        "012"
+      ],
+      "suggested_segments": [
+        "第三師",
+        "請求",
+        "增援",
+        "前線"
+      ],
+      "reading": "第三師請求增援前線",
+      "verified_codes": 1,
+      "total_codes": 4,
+      "warning": "Any segment not grounded in an explicit known pair is a hypothesis."
+    },
+    {
+      "id": "O3",
+      "domain_inferred": null,
+      "codes": [
+        "001",
+        "002",
+        "031",
+        "012"
+      ],
+      "suggested_segments": [
+        "第三師",
+        "兵力",
+        "部署",
+        "前線"
+      ],
+      "reading": "第三師兵力部署前線",
+      "verified_codes": 2,
+      "total_codes": 4,
+      "warning": "Any segment not grounded in an explicit known pair is a hypothesis."
+    },
+    {
+      "id": "O4",
+      "domain_inferred": null,
+      "codes": [
+        "032",
+        "002",
+        "003"
+      ],
+      "suggested_segments": [
+        "部隊",
+        "兵力",
+        "集結"
+      ],
+      "reading": "部隊兵力集結",
+      "verified_codes": 2,
+      "total_codes": 3,
+      "warning": "Any segment not grounded in an explicit known pair is a hypothesis."
+    },
+    {
+      "id": "L9",
+      "domain_inferred": null,
+      "codes": [
+        "005",
+        "006",
+        "014",
+        "017"
+      ],
+      "suggested_segments": [
+        "補給",
+        "車隊",
+        "預定",
+        "出發"
+      ],
+      "reading": "補給車隊預定出發",
+      "verified_codes": 4,
+      "total_codes": 4,
+      "warning": "Any segment not grounded in an explicit known pair is a hypothesis."
+    }
+  ]
+}

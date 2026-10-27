@@ -102,7 +102,7 @@ class CipherResearchTests(unittest.TestCase):
                 import sqlite3
                 with sqlite3.connect(Path(tmp)/'audit.sqlite') as conn:
                     stages = [r[0] for r in conn.execute('select stage from events order by id')]
-                self.assertEqual(stages, ['preflight','statistical_baseline','llm_proposals_unverified','rescore'])
+                self.assertEqual(stages, ['run_started','preflight','statistical_baseline','llm_proposals_unverified','rescore'])
         finally:
             server.shutdown()
             server.server_close()

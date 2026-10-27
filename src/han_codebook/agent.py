@@ -11,6 +11,7 @@ import sqlite3
 import socket
 import time
 import threading
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -64,7 +65,8 @@ def validate_llm_endpoint(base_url: str, *, allow_private_network: bool = False,
 def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout: int = 90,
                     *, allow_private_network: bool = False,
                     allowed_hosts: tuple[str, ...] | list[str] = (),
-                    api_key_env: str | None = None) -> dict[str, Any]:
+                    api_key_env: str | None = None,
+                    on_exchange: Callable[[str, dict[str, Any]], None] | None = None) -> dict[str, Any]:
     """Private LAN is opt-in and allowlisted; never send to unrestricted external URLs."""
     validate_llm_endpoint(base_url, allow_private_network=allow_private_network,
                           allowed_hosts=allowed_hosts)
@@ -92,10 +94,34 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
             raise CaseError(f"LLM API key environment variable not set: {api_key_env}")
         headers["Authorization"] = f"Bearer {token}"
     req = request.Request(api + "/chat/completions", data=payload, headers=headers)
+    if on_exchange:
+        on_exchange("llm_request", {"url": req.full_url, "model": model, "body": body})
+    started_at = time.monotonic()
     try:
         with request.urlopen(req, timeout=timeout) as response:
             raw = response.read(500_000)
+        if on_exchange:
+            try:
+                meta = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, ValueError):
+                meta = {}
+            on_exchange("llm_response", {"url": req.full_url,
+                "response": raw.decode("utf-8", errors="replace"),
+                "elapsed_ms": round((time.monotonic() - started_at)*1000, 1),
+                "usage": meta.get("usage") if isinstance(meta, dict) else None})
     except error.HTTPError as exc:
+        # HTTPError is also a readable response. With explicit opt-in, retain its
+        # bounded body for diagnosing e.g. context-size errors from the LLM proxy.
+        if on_exchange:
+            limit = 64_000
+            raw_error = exc.read(limit + 1)
+            on_exchange("llm_response", {
+                "url": req.full_url, "http_status": exc.code,
+                "response": raw_error[:limit].decode("utf-8", errors="replace"),
+                "response_truncated": len(raw_error) > limit,
+                "elapsed_ms": round((time.monotonic() - started_at) * 1000, 1),
+                "usage": None,
+            })
         reason = {400: "request rejected or incompatible API parameters", 401: "authentication required (set llm.api_key_env)",
                   403: "forbidden by service or proxy", 404: "API path or model not found; check /v1/chat/completions route",
                   405: "HTTP method not allowed; check API proxy", 422: "request schema/model not accepted",
@@ -186,20 +212,24 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
               allow_private_network: bool = False,
               llm_allowed_hosts: tuple[str, ...] | list[str] = (),
               llm_api_key_env: str | None = None,
-              progress: Callable[[str], None] | None = None) -> dict[str, Any]:
+              progress: Callable[[str], None] | None = None,
+              capture_llm_io: bool = False,
+              solver_iterations: int = 8, solver_restarts: int = 4) -> dict[str, Any]:
     if rounds:
         validate_llm_endpoint(llm_url, allow_private_network=allow_private_network,
                               allowed_hosts=llm_allowed_hosts)
     conn = create_audit(db_path)
+    run_id = uuid.uuid4().hex
     try:
         anchors, reviews, vocab = anchors_and_review(case)
         domains = list(case["profiles"])
+        log_event(conn, 0, "run_started", {"run_id": run_id, "model": model if rounds else None, "rounds_requested": rounds, "capture_llm_io": capture_llm_io})
         log_event(conn, 0, "preflight", {"messages": len(case["messages"]), "known_anchors": len(anchors),
                                          "ambiguous_pairs": len(reviews), "domains": domains})
         hints: dict[str, dict[str, float]] = {}
         if progress:
             progress("[analysis] Computing local statistical baseline ...")
-        current = analyze(case, use_metadata=metadata)
+        current = analyze(case, use_metadata=metadata, iterations=solver_iterations, restarts=solver_restarts)
         log_event(conn, 0, "statistical_baseline", {"score": current["objective_score"],
                                                      "mapping": {c: p["term"] for c, p in current["proposals"].items()}})
         for num in range(1, rounds + 1):
@@ -213,7 +243,9 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 "available_vocabulary": sorted(vocab),
                 "profiles": {name: {"keywords": p.get("keywords", []), "lexicon": p.get("lexicon", {})}
                              for name, p in case["profiles"].items()},
-                "messages": case["messages"][:50],
+                "messages": (case["messages"][:50] if metadata else [
+                    {"id": m["id"], "codes": m["codes"]} for m in case["messages"][:50]
+                ]),
                 "unresolved": unresolved,
             }
             if progress:
@@ -230,10 +262,11 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
             if worker:
                 worker.start()
             try:
+                extra = {"on_exchange": lambda stage, payload: log_event(conn, num, stage, payload)} if capture_llm_io else {}
                 reply = query_local_llm(llm_url, model, packet, timeout=llm_timeout,
                                         allow_private_network=allow_private_network,
                                         allowed_hosts=llm_allowed_hosts,
-                                        api_key_env=llm_api_key_env)
+                                        api_key_env=llm_api_key_env, **extra)
             finally:
                 done.set()
                 if worker:
@@ -242,25 +275,35 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 progress(f"[agent] Round {num}/{rounds}: API response received in {time.monotonic()-start:.1f}s; "
                          "validating candidate proposals ...")
             accepted = []
+            rejected_count = 0
+            baseline_mapping = {c: p["term"] for c, p in current["proposals"].items()}
             for entry in reply["hypotheses"][:15]:
                 if not isinstance(entry, dict):
+                    rejected_count += 1
                     continue
                 code, candidates = entry.get("code"), entry.get("candidates", [])
                 if code not in unresolved or not isinstance(candidates, list):
+                    rejected_count += 1
                     continue
                 allowed = [x for x in candidates[:5] if isinstance(x, str) and x in vocab]
                 if not allowed:
+                    rejected_count += 1
                     continue
                 for rank, word in enumerate(allowed):
                     hints.setdefault(code, {})[word] = min(0.6, hints.get(code, {}).get(word, 0.0) + 0.25 / (rank + 1))
                 accepted.append({"code": code, "candidates": allowed, "reason": str(entry.get("reason", ""))[:250]})
-            log_event(conn, num, "llm_proposals_unverified", {"accepted": accepted})
+            log_event(conn, num, "llm_proposals_unverified", {"accepted": accepted, "rejected_count": rejected_count, "returned_count": len(reply["hypotheses"])})
             if progress:
                 progress(f"[agent] Round {num}/{rounds}: accepted {len(accepted)} unverified code hypotheses; reranking ...")
-            current = analyze(case, use_metadata=metadata, llm_hints=hints)
+            current = analyze(case, use_metadata=metadata, llm_hints=hints,
+                              iterations=solver_iterations, restarts=solver_restarts)
+            new_mapping = {c: p["term"] for c, p in current["proposals"].items()}
+            changes = {code: {"before": previous, "after": new_mapping[code]}
+                       for code, previous in baseline_mapping.items() if previous != new_mapping[code]}
             log_event(conn, num, "rescore", {"score": current["objective_score"],
-                                              "mapping": {c: p["term"] for c, p in current["proposals"].items()}})
+                                              "mapping": new_mapping, "changes": changes, "changed_count": len(changes)})
         current["agent_rounds_completed"] = rounds
+        current["run_id"] = run_id
         current["audit_database"] = str(db_path)
         current["warning"] = "LLM suggestions influence ranking only; an AI guess never becomes a verified mapping."
         return current

@@ -55,7 +55,8 @@ def main(argv=None) -> int:
                            allow_private_network=llm.get("allow_private_network", False),
                            llm_allowed_hosts=llm.get("allowed_hosts", []),
                            llm_api_key_env=llm.get("api_key_env"),
-                           progress=lambda message: print(message, flush=True))
+                           progress=lambda message: print(message, flush=True),
+                           capture_llm_io=llm.get("capture_io", False))
         if evaluate:
             result["evaluation"] = evaluate_demo(result, case)
         dest = Path(out)

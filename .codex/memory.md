@@ -1,7 +1,7 @@
 # Project memory
 
 ## Current Focus
-v0.2 YAML config and LAN endpoint support implemented; new project draft, awaiting user creation of a new GitHub repository. Do not pretend ZIP creation equals GitHub push or Hosted CI success.
+v0.3 browser workbench implementation in progress on branch; GitHub main d602616 (2026-10-27) has v0.2 and successful Hosted CI. PR #1 separate benchmark suite still open. Never confuse local test and Hosted CI.
 
 ## Recent Outcomes (2026-10-27)
 - Verified `matthewdgreen/decipher` public GitHub repo and README via connector; it has local Ollama agent mode and external context flags, but no dedicated Chinese phrase-codebook solver.
@@ -33,3 +33,12 @@ v0.2 YAML config and LAN endpoint support implemented; new project draft, awaiti
 - HTTP failures 401/403/404/502/503/504 and HTML-instead-of-JSON are now diagnosed explicitly without leaking API tokens.
 - Existing v0.2 offline operation is unchanged; all local tests passed (28 tests) and a separate offline CLI smoke test passed. New tests mock the network; real Ollama service has **not** been verified.
 - This fix should be applied via dedicated PR branch; initial synthetic benchmark PR #1 remains open, independent of this fix.
+
+## Recent outcomes (v0.3 browser prototype, 2026-10-27)
+- Built local-only Python ThreadingHTTPServer + self-contained browser UI, research case editing, lexicon prior editor, known pairs and third-party observations, active job progress, round deltas, score curve, domain distribution, audit raw request/response opt-in, Markdown analysis report.
+- Added observation evidence to metadata-conditioned scoring (never verified anchors), required source and confidence range validation.
+- Added strict benchmark case #8: 12 longer messages, 16-21 groups ~42-55 characters, simulated transport and operational details, 5 sightings, gold separated from case, deterministic offline budget.
+- Local tests run on reconstructed v0.3 working tree; need GitHub push and hosted CI before declaring release readiness.
+- Web UI binds only loopback and disallows generic file serving/CORS writes. Browser sessions are not authenticated; never expose via public port.
+- LLM source prompts, raw responses, timings and returned token usage can be locally captured only with explicit user opt-in. Correctness not proven by a valid HTTP response.
+- Outstanding: independent period corpus, real LAN live inference validation, calibrated abstention, genuine variable-length superencipherment support.

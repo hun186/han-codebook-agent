@@ -10,7 +10,8 @@ _SCHEMAS = {
     "project": {"case": str, "output": str, "audit_db": str},
     "analysis": {"use_metadata": bool, "rounds": int, "evaluate_demo": bool},
     "llm": {"base_url": str, "model": str, "timeout_seconds": int,
-            "allow_private_network": bool, "allowed_hosts": list, "api_key_env": str},
+            "allow_private_network": bool, "allowed_hosts": list, "api_key_env": str,
+            "capture_io": bool},
 }
 
 

@@ -44,6 +44,18 @@ def validate_case(case: dict[str, Any]) -> None:
         for sentence in profile.get("sentences", []):
             if not isinstance(sentence, list) or not all(isinstance(s, str) and s for s in sentence):
                 raise CaseError(f"profile {domain} sentence must be array of nonempty words")
+    for m in case["messages"]:
+        obs = m.get("observations", [])
+        if not isinstance(obs, list):
+            raise CaseError(f"message {m['id']}: observations must be a list")
+        for o in obs:
+            if not isinstance(o, dict) or not isinstance(o.get("source"), str) or not o["source"].strip():
+                raise CaseError(f"message {m['id']}: observation must have a source")
+            if not isinstance(o.get("note", ""), str):
+                raise CaseError(f"message {m['id']}: observation note must be text")
+            confidence = o.get("confidence", 0.5)
+            if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
+                raise CaseError(f"message {m['id']}: observation confidence must be 0..1")
     for pair in case.get("known_pairs", []):
         m_id = pair.get("message_id")
         if m_id not in ids:
@@ -62,8 +74,14 @@ def domain_for_message(message: dict[str, Any], profiles: dict[str, Any], use_me
     if message.get("domain") in profiles:
         return message["domain"]
     text = " ".join(str(message.get(k, "")) for k in ("sender", "recipient", "notes", "unit"))
+    observations = message.get("observations", [])
+    # Third-party sightings are uncertain context, not verified plaintext.
+    observation_texts = [(" ".join(str(o.get(key, "")) for key in ("note", "destination", "status", "activity")),
+                          float(o.get("confidence", 0.5))) for o in observations]
     points = {
         name: sum(len(keyword) for keyword in profile.get("keywords", []) if keyword in text)
+        + 0.6 * sum(len(keyword) * confidence for note, confidence in observation_texts
+                    for keyword in profile.get("keywords", []) if keyword in note)
         for name, profile in profiles.items()
     }
     best = max(points.values(), default=0)

@@ -9,6 +9,19 @@
 
 本機統計搜尋不需要 LLM；可選擇呼叫本機或經授權的私有區網 Ollama／OpenAI-compatible `/v1/chat/completions`，進行多輪候選補充、重新排名、留下 SQLite 審計紀錄。自動流程：資料驗證 → 明密文對齊 → 收發單位分析 → 統計／N-gram 候選 →（可選）LLM 建議 → 約束重算 → 證據與歧義報告。
 
+
+## v0.3：本機瀏覽器研究工作台
+
+已新增可直接使用的 **Web UI**（本機 `127.0.0.1:8765`，不對外開放、不依賴 CDN）：
+
+- Windows 先執行 `setup_windows.bat`，再雙擊 `run_web_windows.bat`；Linux 使用 `python -m han_codebook.web --project-root . --config config.yaml`。
+- 在瀏覽器編輯詞彙先驗、範例句、原始密碼組、收發單位、已知明密文對與第三方目擊情報（來源、行為、目的地、狀態、可信度）。
+- 支援離線或明確啟用的區網 LLM、多輪進度、Baseline 與後續變化比較、目標分數趨勢、分布統計、逐輪 Prompt／原始回覆（必須逐次勾選記錄）、Markdown 分析報告。
+- 增加 12 封、每封 16～21 個碼組（約 42～55 字）的虛構長電文，獨立保存金標，附有離線基準統計圖表及消融測試。
+- 所有本機操作與輸出都在 `artifacts/`，預設被 Git 忽略；沒有身分驗證，**請勿將本機 UI 對外網公開或架成多人服務**。
+
+詳細說明：[docs/browser-workbench.md](docs/browser-workbench.md)。目前仍是研究 PoC：語言先驗與目擊情報可能誤導推理，統計目標分數不是正確率，真實歷史密碼／第二層加數法尚未成功破譯。
+
 ## 建議使用 YAML 設定檔（v0.2）
 
 `config.yaml` 是主要執行設定。可以集中指定資料來源、發／收報單位元數據、LLM 模型、遠端端點、Agent 回合數及分析紀錄位置，不必每次手動輸入一長串 CLI 參數。示範設定使用**使用者提供的私有網路位址** `http://192.168.0.134:18080`，但未連線測試；請確認伺服器會提供 **OpenAI-compatible `/v1/chat/completions`**，而非只有一般網頁。

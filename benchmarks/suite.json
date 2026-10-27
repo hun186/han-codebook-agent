@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "01_known_and_metadata",
+      "case": "cases/01_known_and_metadata.json",
+      "gold": "gold/01_known_and_metadata.json",
+      "description": "Both verified aligned cribs and sender/recipient signals"
+    },
+    {
+      "id": "02_metadata_only",
+      "case": "cases/02_metadata_only.json",
+      "gold": "gold/02_metadata_only.json",
+      "description": "Sender/recipient domain hints but no known plaintext"
+    },
+    {
+      "id": "03_known_only",
+      "case": "cases/03_known_only.json",
+      "gold": "gold/03_known_only.json",
+      "description": "Confirmed code alignments without sender/recipient context"
+    },
+    {
+      "id": "04_cipher_only_with_public_priors",
+      "case": "cases/04_cipher_only_with_public_priors.json",
+      "gold": "gold/04_cipher_only_with_public_priors.json",
+      "description": "No known plaintext and no metadata; candidate lexicon remains available (not a zero-information cipher)"
+    },
+    {
+      "id": "05_unaligned_crib",
+      "case": "cases/05_unaligned_crib.json",
+      "gold": "gold/05_unaligned_crib.json",
+      "description": "Complete plaintext without segment alignment: suggestions only, never verified anchors"
+    },
+    {
+      "id": "06_misleading_context",
+      "case": "cases/06_misleading_context.json",
+      "gold": "gold/06_misleading_context.json",
+      "description": "Deliberately wrong recipient/sender clues for logistics traffic"
+    },
+    {
+      "id": "07_alias_mixed_length",
+      "case": "cases/07_alias_mixed_length.json",
+      "gold": "gold/07_alias_mixed_length.json",
+      "description": "One-character unit, full-phrase unit, mixed digit lengths and same phrase from two codes"
+    },
+    {
+      "id": "08_long_dispatch_with_observations",
+      "case": "cases/08_long_dispatch_with_observations.json",
+      "gold": "gold/08_long_dispatch_with_observations.json",
+      "description": "Twelve fictional multi-clause 12-21-group telegrams, aligned pairs and uncertain third-party sightings"
+    }
+  ]
+}

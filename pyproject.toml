@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "han-codebook-agent"
-version = "0.2.0"
+version = "0.3.0"
 description = "Evidence-based offline-first historical Chinese phrase codebook research prototype"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -15,3 +15,6 @@ han-codebook = "han_codebook.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+han_codebook = ["static/*.html"]

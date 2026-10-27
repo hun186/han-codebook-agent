@@ -13,9 +13,8 @@ analysis:
 llm:
   base_url: "http://192.168.0.134:18080"
   # The client appends /v1/chat/completions. Confirm your proxy exposes this route.
-  model: "qwen3.6:latest-128k"
+  model: "qwen3.8:latest-128k"
   timeout_seconds: 90
-  capture_io: false        # CLI opt-in; web UI has a separate per-run checkbox
   allow_private_network: true
   allowed_hosts:
     - "192.168.0.134"

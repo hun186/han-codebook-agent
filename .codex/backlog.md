@@ -1,7 +1,7 @@
 # Prioritized backlog
 
 - P0: Verify the packaging and live Ollama JSON responses in user environment; document offline deployment with actual endpoint name.
-- P0: Build non-leaking benchmark over multiple synthetic dictionaries and independently collected public historical corpora.
+- P0: Extend current deterministic synthetic benchmark to multiple independent dictionaries and independently collected public historical corpora; add blind hold-out at the phrase-vocabulary level.
 - P1: Optional probabilistic alignment for plaintext not segmented to codes (manual acceptance gate).
 - P1: Character+phrase mix, homophones, added nulls, code-group aliases; evaluate joint search.
 - P1: Metadata model selection that can abstain when the contextual priors make performance worse.

@@ -53,7 +53,14 @@ function persistMarkHistory(){
   // Drop distant history snapshots, NOT the current researcher mark state.
   for(;;){
     research.hypothesis_revision_history={version:1,cursor:markCursor,snapshots:markSnapshots.map(copyMarks),actions:[...markActions]};
-    if(new Blob([JSON.stringify(research)]).size<=1000000 || markSnapshots.length<=1)break;
+    if(new Blob([JSON.stringify(research)]).size<=1000000)break;
+    if(markSnapshots.length<=1){
+      // The sole snapshot duplicates hypothesis_marks. Omit only the persisted
+      // history (not the current marks or in-memory undo state). On reload the
+      // current marks become the new first revision.
+      delete research.hypothesis_revision_history;
+      break;
+    }
     if(markCursor>0){markSnapshots.shift();markActions.shift();markCursor--}
     else{markSnapshots.pop();markActions.pop()}
   }

@@ -24,6 +24,7 @@ from .core import CaseError, analyze, anchors_and_review, validate_case
 from .volume import MANIFEST, load_manifest, probe_metrics
 from .volume_decode_view import build_decoding_view, attach_evaluation_gold, explorer_html
 from .auto_vocabulary import generate_vocabulary, case_from_vocabulary_record
+from .llm_evidence import safe_llm_message
 
 
 class LLMStudyInterrupted(CaseError):
@@ -36,11 +37,8 @@ class LLMStudyInterrupted(CaseError):
 
 
 def _input_messages(batch: list[dict], *, metadata: bool) -> list[dict]:
-    if metadata:
-        # Exclude unexplained/unknown fields and any accidental plaintext labels.
-        fields = ('id', 'codes', 'received_at', 'sender', 'recipient', 'notes', 'unit', 'domain', 'observations')
-        return [{key: m[key] for key in fields if key in m} for m in batch]
-    return [{'id': m['id'], 'codes': m['codes']} for m in batch]
+    # Reuse the exact nested-field whitelist used by cold-start vocabulary requests.
+    return [safe_llm_message(message, metadata=metadata) for message in batch]
 
 
 def llm_rescore(case: dict, baseline: dict, *, metadata: bool, llm_settings: dict,

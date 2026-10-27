@@ -6,15 +6,13 @@ passed to this stage. Candidate words are not code->plaintext alignments.
 from __future__ import annotations
 
 from collections import Counter
-from copy import deepcopy
 import time
 from typing import Any, Callable
 
 from .agent import query_local_llm, validate_llm_endpoint
 from .core import CaseError, validate_case
+from .llm_evidence import safe_message_metadata
 
-
-_CONTEXT_FIELDS = ('id', 'received_at', 'sender', 'recipient', 'notes', 'unit', 'domain', 'observations')
 
 
 def make_vocabulary_packet(case: dict, *, metadata: bool, limit_samples: int = 24) -> dict:
@@ -31,7 +29,7 @@ def make_vocabulary_packet(case: dict, *, metadata: bool, limit_samples: int = 2
         indexes = [(i * (len(messages) - 1)) // max(1, count - 1) for i in range(count)]
         for i in indexes:
             m = messages[i]
-            samples.append({k: deepcopy(m[k]) for k in _CONTEXT_FIELDS if k in m})
+            samples.append(safe_message_metadata(m))
     return {
         'task': 'generate_vocabulary',
         'policy': ('All code-to-text relationships are unknown. Propose possible vocabulary '

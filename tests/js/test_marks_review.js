@@ -40,4 +40,17 @@ assert(size<=1000000,'saved research history exceeds byte budget: '+size);
 assert(ctx.markSnapshots.length < initialLength,'oversized history not pruned');
 assert(ctx.markSnapshots[ctx.markCursor]['059'],'current state was not preserved');
 assert(ctx.markActions.length===ctx.markSnapshots.length,'history labels are misaligned');
+// Reproduce review case: large current annotations plus exactly one snapshot.
+// Both are independently legal but their duplication can exceed the 1.5 MB API cap.
+const big={};
+for(let i=0;i<500;i++)big[String(i).padStart(4,'0')]={preferred:'長文字',excluded:[],pinned:false,note:'文'.repeat(500)};
+research.hypothesis_marks=JSON.parse(JSON.stringify(big));
+ctx.markSnapshots=[JSON.parse(JSON.stringify(big))];
+ctx.markActions=['only'];ctx.markCursor=0;
+ctx.persistMarkHistory();
+assert.strictEqual(ctx.markSnapshots.length,1,'in-memory current snapshot should survive');
+assert.strictEqual(ctx.markCursor,0,'cursor for in-memory snapshot should survive');
+assert.strictEqual('hypothesis_revision_history' in research,false,'duplicate oversized sole snapshot persisted');
+assert(new Blob([JSON.stringify(research)]).size<1500000,'large valid case still exceeds Web API limit');
+assert(research.hypothesis_marks['0499'].note.length===500,'current researcher annotations discarded');
 console.log('Reversible hypothesis UI regression PASS; size='+size+', retained='+ctx.markSnapshots.length);

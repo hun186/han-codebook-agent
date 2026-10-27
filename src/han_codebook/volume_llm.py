@@ -22,7 +22,8 @@ from .benchmark import score_result
 from .config import load_settings
 from .core import CaseError, analyze, anchors_and_review, validate_case
 from .volume import MANIFEST, load_manifest, probe_metrics
-from .volume_decode_view import build_decoding_view, explorer_html
+from .volume_decode_view import build_decoding_view, attach_evaluation_gold, explorer_html
+from .auto_vocabulary import generate_vocabulary, case_from_vocabulary_record
 
 
 class LLMStudyInterrupted(CaseError):
@@ -171,7 +172,7 @@ def run_llm_comparison(manifest_path: str | Path = MANIFEST, *, sizes: tuple[int
                        seeds: tuple[int,...]=(101,), metadata: bool = True,
                        llm_config: str | Path = 'config.yaml', rounds: int = 1,
                        batch_size: int = 25, iterations: int = 2, restarts: int = 2,
-                       capture_io: bool = False,
+                       capture_io: bool = False, auto_vocabulary: bool = False,
                        progress: Callable[[str],None] = print,
                        query: Callable[...,dict] = query_local_llm) -> dict:
     if not sizes or tuple(sorted(set(sizes))) != sizes or any(x < 1 or x > 100 for x in sizes):
@@ -200,7 +201,30 @@ def run_llm_comparison(manifest_path: str | Path = MANIFEST, *, sizes: tuple[int
         first_codes = {c for m in case['messages'][:sizes[0]] for c in m['codes']}
         for size in sizes:
             subset = {**case, 'case_id': f'{case["case_id"]}-n{size}', 'messages': case['messages'][:size]}
-            progress(f'[study] seed={seed} messages={size} metadata={metadata}: offline baseline')
+            vocab_record = None
+            if auto_vocabulary:
+                try:
+                    subset,vocab_record = generate_vocabulary(
+                        subset, metadata=metadata, llm_settings=config,
+                        capture_io=capture_io,progress=progress,query=query)
+                except Exception as exc:
+                    # Raw LLM exchange is kept only when expressly opted into capture.
+                    trace_record = getattr(exc,'vocabulary_record',
+                                           {'task':'generate_vocabulary','status':'failed'})
+                    interrupted = LLMStudyInterrupted('LLM vocabulary generation failed',
+                                                      trace=[trace_record],calls=1)
+                    interrupted.partial_report = {
+                        'status':'failed', 'model':config['model'],
+                        'failed_seed':seed, 'failed_messages':size,
+                        'error':str(exc), 'completed_runs':rows,
+                        'trace':audit + [{'seed':seed,'messages':size,'status':'failed',
+                                           'trace':[trace_record]}],
+                        'capture_llm_io':capture_io,
+                        'note':'No scores for a failed vocabulary generation.',
+                    }
+                    raise interrupted from exc
+            progress(f'[study] seed={seed} messages={size} metadata={metadata}: '
+                     + ('LLM-generated-vocabulary baseline' if auto_vocabulary else 'offline baseline'))
             start = time.monotonic()
             baseline = analyze(subset, use_metadata=metadata, iterations=iterations,
                                restarts=restarts, seed=7)
@@ -216,13 +240,14 @@ def run_llm_comparison(manifest_path: str | Path = MANIFEST, *, sizes: tuple[int
                     'status':'failed', 'model':config['model'],
                     'failed_seed':seed, 'failed_messages':size,
                     'error':str(exc), 'completed_runs':rows,
-                    'trace':audit + [{'seed':seed, 'messages':size, 'status':'failed', 'trace':exc.trace}],
+                    'trace':audit + [{'seed':seed, 'messages':size, 'status':'failed',
+                                      'trace':([vocab_record] if vocab_record else [])+exc.trace}],
                     'capture_llm_io':capture_io,
                     'note':'Analysis interrupted. No score was assigned to the failed run.',
                 }
                 raise
             # Capture guesses BEFORE looking at the secret gold: no oracle-derived text in viewer.
-            decoding_views.append(build_decoding_view(subset,baseline,proposal,seed=seed,size=size,trace=trace))
+            pending_view=build_decoding_view(subset,baseline,proposal,seed=seed,size=size,trace=trace)
             llm_seconds = time.monotonic()-start
             # Gold is opened only AFTER both inference paths return. Never give gold to LLM.
             gold = json.loads((home/item['gold']).read_text(encoding='utf-8'))
@@ -232,15 +257,22 @@ def run_llm_comparison(manifest_path: str | Path = MANIFEST, *, sizes: tuple[int
                 raise CaseError('probe message leaked into inference subset')
             b = score_result(baseline, gold, subset)
             p = score_result(proposal, gold, subset)
+            decoding_views.append(attach_evaluation_gold(pending_view,gold))
             bp = probe_metrics(baseline['proposals'],gold)
             pp = probe_metrics(proposal['proposals'],gold)
             fixed10 = lambda result: sum(result['proposals'][c]['term']==gold['codebook'][c]
                                           for c in first_codes if c in result['proposals']) / len(first_codes)
             changed = sorted(c for c in proposal['proposals']
                              if baseline['proposals'][c]['term'] != proposal['proposals'][c]['term'])
+            vocab_coverage = (len({word for word in gold['codebook'].values()
+                                   if word in subset['profiles']['llm_generated_background']['lexicon']})
+                              / max(1,len(set(gold['codebook'].values())))) if auto_vocabulary else None
             row = {'seed':seed, 'messages':size, 'metadata':metadata, 'one_codebook':True,
+                   'auto_vocabulary':auto_vocabulary,
+                   'candidate_count':len(subset['profiles']['llm_generated_background']['lexicon']) if auto_vocabulary else None,
+                   'generated_vocabulary_gold_term_coverage':round(vocab_coverage,4) if vocab_coverage is not None else None,
                    'initial_known_plaintext_pairs':0, 'model':config['model'], 'rounds':rounds,
-                   'batch_size':batch_size, 'llm_calls':calls, 'accepted_llm_hypotheses':sum(len(t['accepted']) for t in trace),
+                   'batch_size':batch_size, 'llm_calls':calls + int(auto_vocabulary), 'accepted_llm_hypotheses':sum(len(t['accepted']) for t in trace),
                    'distinct_codes_observed':len(proposal['proposals']),
                    'stat_top1':b['unknown_code_top1_rate'], 'llm_top1':p['unknown_code_top1_rate'],
                    'stat_top5':b['unknown_code_top5_rate'], 'llm_top5':p['unknown_code_top5_rate'],
@@ -256,7 +288,8 @@ def run_llm_comparison(manifest_path: str | Path = MANIFEST, *, sizes: tuple[int
                    'stat_elapsed_seconds':round(baseline_seconds,3),
                    'llm_elapsed_seconds':round(llm_seconds,3)}
             rows.append(row)
-            audit.append({'seed':seed,'messages':size,'trace':trace})
+            audit.append({'seed':seed,'messages':size,
+                          'trace':([vocab_record] if vocab_record else []) + trace})
             progress(f'[result] {size} messages: statistics={row["stat_top1"]:.1%}, LLM={row["llm_top1"]:.1%}; '
                      f'probe statistics={row["stat_probe_top1"]:.1%}, LLM={row["llm_probe_top1"]:.1%}; calls={calls}')
     if not rows:
@@ -267,8 +300,8 @@ def run_llm_comparison(manifest_path: str | Path = MANIFEST, *, sizes: tuple[int
             'model':config['model'], 'llm_base_url':config['base_url'],
             'source_manifest':str(Path(manifest_path).resolve()),
             'metadata':metadata,'rounds':rounds,'batch_size':batch_size,
-            'capture_llm_io':capture_io,'fixed_codebook_per_seed':True,
-            'zero_known_plaintext':True,'fixed_candidate_vocabulary_includes_gold_terms':True,
+            'capture_llm_io':capture_io,'auto_vocabulary':auto_vocabulary,'fixed_codebook_per_seed':True,
+            'zero_known_plaintext':True,'fixed_candidate_vocabulary_includes_gold_terms':not auto_vocabulary,
             'oracle_access':'after inference only', 'llm_call_total':sum(x['llm_calls'] for x in rows),
             'runs':rows,'trace':audit,'decoding_views':decoding_views}
 
@@ -284,7 +317,8 @@ def as_markdown(result: dict) -> str:
                      f'{r["stat_probe_top1"]:.1%} | {r["llm_probe_top1"]:.1%} | '
                      f'{r["stat_corrected_by_llm"]} / {r["stat_broken_by_llm"]} | {r["llm_calls"]} |')
     lines += ['',f'- 模型呼叫總數：{result["llm_call_total"]}；資料來源為合成題庫。',
-              '- 固定詞庫包含正確候選詞，因此仍不是沒有先驗詞庫的純密文破解。',
+              ('- 此模式由 LLM 根據密文統計及輔助情報產生候選詞庫；不輸入案例預設詞庫。'
+              if result.get('auto_vocabulary') else '- 固定詞庫包含正確候選詞，因此仍不是沒有先驗詞庫的純密文破解。'),
               '- 這不是完整自主的研究 Agent；LLM 只提出詞庫內候選，統計求解器再重新排序。',
               '- 真實內網實測成績以本次執行所生成的 JSON 為準；不要把模擬 API 測試當成模型能力。','']
     return '\n'.join(lines)
@@ -316,7 +350,7 @@ def as_html(result: dict) -> str:
             '<h1>同一套碼本：統計與 LLM 破譯能力比較</h1>'
             f'<p>模型 {escape(result["model"])}；每批 {result["batch_size"]} 封；{result["rounds"]} 輪；請求 {result["llm_call_total"]} 次。</p>'
             '<p>合成案例、固定包含正確候選的詞庫、無已知明文錨點。LLM 僅提供詞庫內候選，不能當作實際歷史密電破譯能力。</p>'
-            '<p><b style="color:#3179b8">■ 純統計</b>　<b style="color:#c06d23">■ 內網 LLM 後重排</b></p>'
+            '<p><b style="color:#3179b8">■ 初始統計求解（詞庫來源見模式）</b>　<b style="color:#c06d23">■ 內網 LLM 後重排</b></p>'
             f'<svg viewBox="0 0 {width} 290" role="img" aria-label="未知碼組 Top-1 正確率">'
             '<line x1="60" y1="50" x2="60" y2="245" stroke="#bbb"/><line x1="60" y1="245" x2="800" y2="245" stroke="#bbb"/>'
             +ticks+yticks+''.join(plots)+'</svg><h2>完整結果</h2><div class="scroll"><table><thead><tr>'+
@@ -350,6 +384,12 @@ def replay_decoding_views(existing: dict[str, Any], *, manifest_path: str | Path
         if case.get('known_pairs') or any(k in case for k in ('gold','ground_truth','codebook')):
             raise CaseError('source case contains oracle data or known plaintext')
         case={**case,'messages':case['messages'][:size]}
+        if existing.get('auto_vocabulary'):
+            saved_vocabulary = next((v for v in audit[(seed,size)]
+                                     if v.get('task')=='generate_vocabulary' and v.get('status')=='completed'),None)
+            if not saved_vocabulary:
+                raise CaseError('auto-vocabulary replay requires saved candidate term audit')
+            case=case_from_vocabulary_record(case,saved_vocabulary)
         baseline=analyze(case,use_metadata=metadata,iterations=iterations,restarts=restarts,seed=7)
         hints: dict[str,dict[str,float]] = {}
         result=baseline
@@ -357,7 +397,7 @@ def replay_decoding_views(existing: dict[str, Any], *, manifest_path: str | Path
         for step in range(1,int(existing['rounds'])+1):
             batch_found=False
             for record in trace:
-                if record['round'] != step:
+                if record.get('round') != step:
                     continue
                 batch_found=True
                 if record.get('status') == 'failed':
@@ -373,12 +413,13 @@ def replay_decoding_views(existing: dict[str, Any], *, manifest_path: str | Path
                 raise CaseError('trace missing requested LLM round')
             result=analyze(case,use_metadata=metadata,llm_hints=hints,
                            iterations=iterations,restarts=restarts,seed=7)
-        views.append(build_decoding_view(case,baseline,result,seed=seed,size=size,trace=trace))
+        pending_view=build_decoding_view(case,baseline,result,seed=seed,size=size,trace=trace)
         # Never use gold until baseline and replayed solver outputs are finalized.
         gold=json.loads((home/seeds[seed]['gold']).read_text(encoding='utf-8'))
         old_b=score_result(baseline,gold,case)['unknown_code_top1_rate']
         old_l=score_result(result,gold,case)['unknown_code_top1_rate']
         match=abs(old_b-float(row['stat_top1']))<=0.0001 and abs(old_l-float(row['llm_top1']))<=0.0001
+        views.append(attach_evaluation_gold(pending_view,gold))
         checks.append({'seed':seed,'messages':size,'matches_saved_top1':match,
                        'replayed_stat_top1':old_b,'replayed_llm_top1':old_l})
     reconstructed={**existing,'decoding_views':views,'decoding_view_replayed_offline':True,
@@ -399,6 +440,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument('--iterations', type=int, default=2)
     p.add_argument('--restarts', type=int, default=2)
     p.add_argument('--capture-llm-io', action='store_true', help='Opt in to saving raw Prompt and LLM responses locally (may contain sensitive data)')
+    p.add_argument('--auto-vocabulary', action='store_true', help='LLM generates candidate lexicon from ciphertext frequencies and optional side-information; ignores fixture vocabulary (1 extra LLM call per size)')
     p.add_argument('--rebuild-view-from', metavar='REPORT.json', help='Offline replay of old accepted LLM suggestions; NO API calls')
     p.add_argument('--out', default='artifacts/volume_llm_study.json')
     a=p.parse_args(argv)
@@ -427,7 +469,7 @@ def main(argv: list[str] | None = None) -> int:
         seeds=tuple(int(x) for x in a.seeds.split(','))
         result=run_llm_comparison(a.manifest,sizes=sizes,seeds=seeds,metadata=a.metadata=='on',
                       llm_config=a.llm_config,rounds=a.rounds,batch_size=a.batch_size,
-                      iterations=a.iterations,restarts=a.restarts,capture_io=a.capture_llm_io)
+                      iterations=a.iterations,restarts=a.restarts,capture_io=a.capture_llm_io,auto_vocabulary=a.auto_vocabulary)
         out=Path(a.out)
         out.parent.mkdir(parents=True,exist_ok=True)
         out.write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')

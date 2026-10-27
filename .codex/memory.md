@@ -71,3 +71,14 @@ v0.3 browser workbench implementation in progress on branch; GitHub main d602616
 - Added offline replay of existing `artifacts/volume_llm_study.json` saved trace to avoid repeating previous eight live model calls: `run_volume_view_windows.bat` or `--rebuild-view-from`, producing non-overwriting `_decipher` output; compare recomputed metrics to original scores and clearly mark replay.
 - Review at PR #4 HEAD c7787e0 reported two P2s: within-response duplicate candidate/code inflates hints; opt-in audit trace lost on HTTP failure. Updated deduplication and failure handling, writing `.failed.json` only when explicit raw capture enabled and never reporting success for failed run. Add direct regression tests.
 - New work requires Hosted GitHub CI and a fresh formal Codex review before merge; preserve old PR #1 unchanged. Do not claim user LAN Qwen has been rerun after modifications.
+
+## PR #4 follow-up — truth reveal for synthetic training messages (2026-10-27)
+- User highlighted that `available_vocabulary` is a *pre-supplied* lexicon, not inferred from ciphertext; preserve disclosure of this methodological limitation.
+- Added post-inference-only `attach_evaluation_gold` for observed training ciphertext codes, with strict codebook/message consistency checks. Never feed gold, decoded evaluation view, or independent 20-message holdout into statistical analysis or LLM prompts.
+- Explorer adds opt-in **reveal** toggle, code-level correctness overlays, per-message correct counts and exact synthetic plaintext. Toggle is UI-only; completed HTML/JSON contains evaluation labels and must not be fed back to inference. Works for offline replay of saved trace without additional model calls.
+- Tests and hosted verification status must be determined from current PR head; do not claim results from unexecuted tools.
+
+## Current work (2026-10-27) — Reversible researcher annotations
+- Added `hypothesis_marks` to *case inputs* separately from known_pairs, with per-code preferred/experimental pinned/excluded/note; no mark can upgrade verified alignment. Solver supports soft preferences, trial pins and exclusions plus optional entirely new user terms without mutating the input case; undo or removal restores original inference deterministically.
+- Browser `假說標註／復原` tab supports user-selected code via clickable decoded pieces, reversible local undo/redo revision snapshots, reset, re-run and diff against prior result; case save retains current marks and bounded revision snapshots for reopening an earlier version later. Added 100-message synthetic case to browser discovery; no synthetic gold in UI model data.
+- Tests in tests/test_researcher_marks.py cover unverified pins, rollback, exclusion, contradictory marks and audit provenance. GitHub Hosted CI / Codex review still needed for this iteration.

@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from han_codebook.core import analyze
-from han_codebook.volume_decode_view import build_decoding_view, explorer_html
+from han_codebook.volume_decode_view import build_decoding_view, attach_evaluation_gold, explorer_html
 from han_codebook.volume_llm import (
     LLMStudyInterrupted, llm_rescore, run_llm_comparison, as_html, main,
 )
@@ -65,6 +65,58 @@ class ViewerTests(unittest.TestCase):
         self.assertIn('decodingViewData',as_html(report))
         self.assertEqual(report['runs'][0]['stat_top1'],report['runs'][0]['llm_top1'])
         self.assertFalse(any('codebook' in v for v in report['decoding_views']))
+
+    def test_synthetic_truth_revealed_only_in_completed_evaluation_views(self):
+        gold=json.loads((BASE/'benchmarks/volume/seed_101_gold.json').read_text(encoding='utf-8'))
+        case=self.corpus(10)
+        base=analyze(case,iterations=1,restarts=1)
+        blind=build_decoding_view(case,base,base,seed=101,size=10,trace=[])
+        self.assertNotIn('evaluation_gold', blind)
+        decorated=attach_evaluation_gold(blind,gold)
+        self.assertNotIn('evaluation_gold', blind)  # original solver snapshot not mutated
+        known={c for message in case['messages'] for c in message['codes']}
+        self.assertEqual(set(decorated['evaluation_gold']['code_terms']),known)
+        self.assertEqual(set(decorated['evaluation_gold']['message_texts']),{m['id'] for m in case['messages']})
+        for m in case['messages']:
+            self.assertEqual(decorated['evaluation_gold']['message_texts'][m['id']],gold['messages'][m['id']])
+        self.assertNotIn('probe_messages', json.dumps(decorated))
+        self.assertNotIn('S101-011', json.dumps(decorated))
+        markup=explorer_html({'decoding_views':[decorated]})
+        self.assertIn('decGoldPane',markup)
+        self.assertIn('decReveal',markup)
+        self.assertIn('完整原始明文',markup)
+        self.assertIn('decoder-word.correct',markup)
+        self.assertIn('decoder-word.incorrect',markup)
+
+    def test_tampered_or_missing_gold_rejected_before_exposure(self):
+        gold=json.loads((BASE/'benchmarks/volume/seed_101_gold.json').read_text(encoding='utf-8'))
+        c=self.corpus(10)
+        b=analyze(c,iterations=1,restarts=1)
+        v=build_decoding_view(c,b,b,seed=101,size=10,trace=[])
+        key=c['messages'][0]['codes'][0]
+        damaged=json.loads(json.dumps(gold,ensure_ascii=False))
+        damaged['codebook'].pop(key)
+        with self.assertRaises(ValueError):attach_evaluation_gold(v,damaged)
+        damaged=json.loads(json.dumps(gold,ensure_ascii=False))
+        damaged['messages'][c['messages'][0]['id']]='亂碼'
+        with self.assertRaises(ValueError):attach_evaluation_gold(v,damaged)
+
+    def test_real_report_adds_truth_after_llm_without_oracle_leak(self):
+        observed=[]
+        def mock(url,model,packet,**kwargs):
+            observed.append(json.dumps(packet,ensure_ascii=False))
+            self.assertNotIn('evaluation_gold',packet)
+            self.assertNotIn('gold',packet)
+            self.assertNotIn('probe_messages',packet)
+            self.assertEqual(packet['verified_anchors'],{})
+            return {'hypotheses':[]}
+        report=run_llm_comparison(sizes=(10,),seeds=(101,),metadata=True,
+            llm_config=CFG,rounds=1,iterations=1,restarts=1,
+            query=mock,progress=lambda s:None)
+        self.assertEqual(len(observed),1)
+        self.assertIn('evaluation_gold',report['decoding_views'][0])
+        self.assertIn('decGold',as_html(report))
+        self.assertEqual(report['runs'][0]['stat_top1'],report['runs'][0]['llm_top1'])
 
     def test_duplicate_candidates_and_duplicate_entries_do_not_inflate_hints(self):
         c=self.corpus()

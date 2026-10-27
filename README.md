@@ -123,7 +123,7 @@ Docker image 只包含研究程式與 YAML 解析器，不包含本機 LLM；建
 
 ## 目前功能與未完成功能
 
-| 項目 | v0.1 | 備註 |
+| 項目 | v0.2 | 備註 |
 |---|---|---|
 | 中文數字碼組、詞組假設 | 已實作 | 每個碼組可對應不同長度詞組 |
 | 發送者／接收者先驗 | 已實作 | 簡單關鍵字領域推測，非完整知識圖譜 |
@@ -141,6 +141,21 @@ Docker image 只包含研究程式與 YAML 解析器，不包含本機 LLM；建
 
 請看 [examples/EXPERIMENT.md](examples/EXPERIMENT.md)，內含四組開關對照和詳細評估限制。值得注意的是：即使元數據提供合理領域線索，小樣本中也**可能使錯誤偏好變得更強**，不可宣稱凡有背景資料就必然更準確。
 
+## 多情境破密 Benchmark（合成資料）
+
+新增 [benchmarks/README.md](benchmarks/README.md) 的七種標準測試，含「有／無收發者元數據」「有／無已對齊明密文」「未對齊明文」「誤導情報」「混合字／詞／句編碼與異碼同義」。**正解檔與密文檔分開，評分只在求解之後才開啟**。此測試不是歷史電文成功率，也不包含真正零先驗／再加密密碼破譯。
+
+Windows 在安裝後直接執行 `run_benchmark_windows.bat`，Linux／macOS：
+
+```bash
+export PYTHONPATH=src
+python -m han_codebook.benchmark --config benchmarks/config.yaml
+# 顯式啟用你自行部署的內網 LLM（需要先確認 API 路由）：
+python -m han_codebook.benchmark --config benchmarks/config.yaml --enable-llm --llm-config config.yaml --rounds 2
+```
+
+結果會寫到 `artifacts/benchmark_results.json` 與 `.md`；因為 `artifacts/` 在 `.gitignore`，不會把個別執行紀錄提交到 Git。
+
 ## 實驗倫理、限制與判讀
 
 研究人員不能把生成的通順中文當作破解成功。`proposals.*.status` 僅有 `verified_alignment` 與 `hypothesis_unverified`；`score_gap_to_second` 是**相對排序差**，不是已校準的機率。正式解讀應用未參與求解的獨立已知電文檢查，且核對時間、地名及編碼一致性。若使用正確的一次性密碼本或經充分保護的現代加密，本系統無法從純密文中可靠恢復原文。
@@ -151,19 +166,10 @@ Docker image 只包含研究程式與 YAML 解析器，不包含本機 LLM；建
 python -m unittest discover -s tests -v
 ```
 
-CI 位於 `.github/workflows/test.yml`，部署至 GitHub 後才會啟動 Hosted CI；這份 ZIP 本身不是 GitHub 上的 Repository，也不代表已通過 Hosted CI。
+CI 位於 `.github/workflows/test.yml`，目前專案已上傳 GitHub；請以 GitHub Actions 實際狀態為準，勿將本機測試等同 Hosted CI。
 
-## 上傳 GitHub
+## GitHub 原始碼
 
-使用者先在 GitHub 建立空白 public repo（例如 `han-codebook-agent`），**不要額外勾選建立 README**，然後在解壓後專案根目錄：
-
-```bash
-git init
-git add .
-git commit -m "feat: initial Chinese codebook research prototype"
-git branch -M main
-git remote add origin https://github.com/YOUR_ACCOUNT/han-codebook-agent.git
-git push -u origin main
-```
+已建立 [hun186/han-codebook-agent](https://github.com/hun186/han-codebook-agent)，可使用 GitHub Desktop 複製。若 GitHub Desktop 只顯示 `.git`，請檢查本機 checkout 的 `main` 是否追蹤 `origin/main`；可改以全新空白路徑重新 Clone，不需重複建立 Repository。
 
 未來可在既有 Repository 擴充 MCP 工具服務、長時任務 Worker、真正的異碼同義模型、審查 UI、民國時期獨立語料與大型盲測。

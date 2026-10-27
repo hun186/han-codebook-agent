@@ -1,7 +1,7 @@
 # Project memory
 
 ## Current Focus
-v0.2 YAML config and LAN endpoint support implemented; new project draft, awaiting user creation of a new GitHub repository. Do not pretend ZIP creation equals GitHub push or Hosted CI success.
+v0.2 YAML/Ollama source published at `hun186/han-codebook-agent` main 10b112292debf0036b7f383c763302e8586d3ebe; Github Hosted CI run 40468909576 PASS. Current focus: synthetic benchmark test suite in feature branch (not yet merged).
 
 ## Recent Outcomes (2026-10-27)
 - Verified `matthewdgreen/decipher` public GitHub repo and README via connector; it has local Ollama agent mode and external context flags, but no dedicated Chinese phrase-codebook solver.
@@ -11,7 +11,7 @@ v0.2 YAML config and LAN endpoint support implemented; new project draft, awaiti
 - There is NO real historical cipher automatically cracked here, no independent cryptanalytic verification, no Hosted CI/review, no remote git push.
 
 ## Open Handoffs
-1. User creates blank `hun186/han-codebook-agent` or provides another repo URI; publish and enable Hosted CI.
+1. Repository exists and v0.2 published; benchmark feature branch awaits PR/Hosted CI and user review. GitHub Desktop clone shows only `.git` on user machine: advised fresh clone into new folder; GitHub main files independently verified.
 2. Validate user LAN service 192.168.0.134:18080 OpenAI-compatible /v1/chat/completions API, credentials/model name and JSON compatibility. No live network validation has been performed.
 3. Acquire public-period Mandarin military telegram corpus and train/evaluate with train/test separation. Do not contaminate lexical priors with held-out plaintext.
 4. Implement proper variable phrase boundary inference and possible multiple codes per concept; model known-plaintext alignment uncertainty explicitly.
@@ -25,3 +25,9 @@ v0.2 YAML config and LAN endpoint support implemented; new project draft, awaiti
 - Private-network HTTP opt-in and literal-IP allowlist, public-host denial and optional env-key auth; existing localhost mode kept.
 - Windows `run_agent_windows.bat`, offline demo batch, setup installs PyYAML; Docker includes configs.
 - 19 local unittest tests passed, including a mocked endpoint. Actual Ollama compatibility remains unverified, and no GitHub push/Hosted CI has been performed.
+
+## 2026-10-27 benchmark work (in progress)
+- Added seven synthetic codebook cases, separate gold answer files, generator, offline suite runner, post-solve scoring, one LLM mock smoke, Windows bench batch and CLI.
+- Nonaligned crib is review-only; verified anchors excluded from accuracy denominator. Known caveat: profiles include a candidate lexicon; no zero-information blind solve.
+- Default benchmarking is offline (rounds=0); running against 192.168.0.134:18080 has NOT been validated.
+- Results under artifacts/ ignored by Git. See benchmarks/README.md after merged.

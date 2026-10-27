@@ -1,0 +1,7 @@
+# Python -m han_codebook.benchmark --config benchmarks/config.yaml
+# Default: no LLM calls; safe on disconnected hosts.
+benchmark:
+  suite: suite.json
+  output: ../artifacts/benchmark_results.json
+  audit_dir: ../artifacts/benchmark_audit
+  variants: both

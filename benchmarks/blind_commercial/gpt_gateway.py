@@ -31,6 +31,7 @@ def openai_responses(chat: dict, *, key: str, model: str, effort: str, timeout: 
         "model":model,
         "store":False,
         "reasoning":{"effort":effort},
+        "max_output_tokens":16384,
         "text":{"format":{"type":"json_object"}},
         "input":[{"role":m["role"],"content":str(m["content"])} for m in messages]
     }
@@ -63,6 +64,8 @@ def openai_responses(chat: dict, *, key: str, model: str, effort: str, timeout: 
             "model":actual,
             "usage":{"prompt_tokens":usage.get("input_tokens",0),
                      "completion_tokens":usage.get("output_tokens",0),
+                     "cached_input_tokens":usage.get("input_tokens_details",{}).get("cached_tokens",0),
+                     "reasoning_tokens":usage.get("output_tokens_details",{}).get("reasoning_tokens",0),
                      "total_tokens":usage.get("total_tokens",0)},
             "remote_response_id":response.get("id")}
 

@@ -59,9 +59,8 @@ def validate_case(case: dict[str, Any]) -> None:
         for o in obs:
             if not isinstance(o, dict) or not isinstance(o.get("source"), str) or not o["source"].strip():
                 raise CaseError(f"message {m['id']}: observation must have a source")
-            permitted = {"source", "observed_at", "activity", "destination", "status", "note", "confidence"}
-            if set(o) - permitted:
-                raise CaseError(f"message {m['id']}: unexpected observation fields are not inference evidence")
+            # Unknown fields are allowed for archival records, but no solver
+            # or LLM path may use them as evidence (strict field whitelist).
             for field in ("observed_at", "activity", "destination", "status", "note"):
                 if field in o and not isinstance(o[field], str):
                     raise CaseError(f"message {m['id']}: observation {field} must be plain text")

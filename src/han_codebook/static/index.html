@@ -155,7 +155,66 @@ function newProfile(){if(!research)return;let name=prompt('新語境領域名稱
 function loadProfile(){let p=profile();el('keywords').value=(p.keywords||[]).join(', ');el('sentences').value=(p.sentences||[]).map(a=>a.join(' ')).join('\n');renderVocab()}
 function renderVocab(){let p=profile(),q=el('wordSearch').value.trim();el('vocabTable').innerHTML=Object.entries(p.lexicon||{}).filter(([k])=>k.includes(q)).map(([w,n])=>`<tr><td>${esc(w)}</td><td><input type="number" data-word="${esc(w)}" min="0" max="10000" value="${esc(n)}"></td><td><button data-delete="${esc(w)}">刪除</button></td></tr>`).join('');el('vocabTable').querySelectorAll('[data-word]').forEach(inp=>inp.addEventListener('change',()=>{let v=Number(inp.value);if(!Number.isFinite(v)||v<0){notice('權重必須為非負數',true);return}p.lexicon[inp.dataset.word]=v}));el('vocabTable').querySelectorAll('[data-delete]').forEach(b=>b.addEventListener('click',()=>{delete p.lexicon[b.dataset.delete];renderVocab()}))}
 function loadEvidence(){let m=msg();if(!m)return;for(let k of ['sender','recipient','notes','domain','received_at'])el(k).value=m[k]||'';el('cipherEdit').value=m.codes.join('  ');el('observations').value=JSON.stringify(m.observations||[],null,2);renderObservations()}
-function applyEvidence(){try{let m=msg();if(!m)throw Error('請先選擇電文');let staged={...m};for(let k of ['sender','recipient','notes','domain','received_at']){let v=el(k).value.trim();if(v)staged[k]=v;else delete staged[k]}let data=JSON.parse(el('observations').value);if(!Array.isArray(data))throw Error('第三方觀察需為陣列');for(let o of data){if(!o||typeof o!=='object'||Array.isArray(o)||typeof o.source!=='string'||!o.source.trim()||('note' in o&&typeof o.note!=='string')||('confidence' in o&&(typeof o.confidence!=='number'||!Number.isFinite(o.confidence)||o.confidence<0||o.confidence>1)))throw Error('觀察紀錄需有來源、有效文字備註及 0~1 的數值可信度')}staged.observations=data;let codes=el('cipherEdit').value.trim().split(/\s+/).filter(Boolean);if(!codes.length||codes.some(c=>!/^\d+$/.test(c)))throw Error('密碼組必須是以空格分隔的數字字串');staged.codes=codes;Object.keys(m).forEach(k=>{if(!(k in staged))delete m[k]});Object.assign(m,staged);renderObservations();notice(`已套用 ${m.id} 的密文與情報（尚未保存到磁碟）`)}catch(e){notice(e.message,true)}}
+function applyEvidence(){
+ try{
+  const m=msg();if(!m)throw Error('請先選擇電文');
+  const staged={...m};
+  for(const k of ['sender','recipient','notes','domain','received_at']){
+   const value=el(k).value.trim();if(value)staged[k]=value;else delete staged[k];
+  }
+  const data=JSON.parse(el('observations').value);
+  if(!Array.isArray(data))throw Error('第三方觀察需為陣列');
+  for(const o of data){
+   if(!o||typeof o!=='object'||Array.isArray(o)||typeof o.source!=='string'||!o.source.trim()||
+      ('note' in o&&typeof o.note!=='string')||
+      ('confidence' in o&&(typeof o.confidence!=='number'||!Number.isFinite(o.confidence)||o.confidence<0||o.confidence>1)))
+     throw Error('觀察紀錄需有來源、有效文字備註及 0~1 的數值可信度');
+  }
+  staged.observations=data;
+  const codes=el('cipherEdit').value.trim().split(/\s+/).filter(Boolean);
+  if(!codes.length||codes.some(c=>!/^\d+$/.test(c)))throw Error('密碼組必須是以空格分隔的數字字串');
+  staged.codes=codes;
+  // A trusted known-plaintext alignment belongs to the exact ordered codes.
+  const codeChanged=JSON.stringify(m.codes)!==JSON.stringify(codes);
+  const hasCase=typeof research!=='undefined'&&research&&Array.isArray(research.messages);
+  if(hasCase&&codeChanged&&(research.known_pairs||[]).some(p=>p.message_id===m.id))
+   throw Error('此封電文有已知明密文對，請先獨立審核並移除對照資料，才能更動原始碼組');
+  let valid=null,orphaned=[];
+  if(hasCase){
+   valid=new Set(research.messages.flatMap(entry=>entry===m?codes:entry.codes));
+   const previous=new Set(research.messages.flatMap(entry=>entry.codes));
+   orphaned=[...previous].filter(code=>!valid.has(code));
+   const orphanedWithNotes=orphaned.filter(code=>
+    Object.hasOwn(research.candidate_ideas||{},code)||
+    Object.hasOwn(research.hypothesis_marks||{},code)||
+    (typeof ideaSnapshots!=='undefined'&&ideaSnapshots.some(snapshot=>Object.hasOwn(snapshot,code)))||
+    (typeof markSnapshots!=='undefined'&&markSnapshots.some(snapshot=>Object.hasOwn(snapshot,code))));
+   if(orphanedWithNotes.length&&!confirm('以下碼組已不再出現，相關研究想法、標註及復原歷史將同步清除：'+orphanedWithNotes.join('、')+'。要繼續嗎？'))return;
+  }
+  // Commit only after *all* input and referential-integrity checks pass.
+  Object.keys(m).forEach(k=>{if(!(k in staged))delete m[k]});
+  Object.assign(m,staged);
+  if(hasCase){
+   const keep=record=>Object.fromEntries(Object.entries(record||{}).filter(([code])=>valid.has(code)));
+   research.candidate_ideas=keep(research.candidate_ideas);
+   research.hypothesis_marks=keep(research.hypothesis_marks);
+   if(typeof ideaSnapshots!=='undefined'&&ideaSnapshots.length){
+    ideaSnapshots=ideaSnapshots.map(keep);
+    ideaCursor=Math.min(Math.max(0,ideaCursor),ideaSnapshots.length-1);
+    ideaSnapshots[ideaCursor]=JSON.parse(JSON.stringify(research.candidate_ideas));
+   }
+   if(typeof markSnapshots!=='undefined'&&markSnapshots.length){
+    markSnapshots=markSnapshots.map(keep);
+    markCursor=Math.min(Math.max(0,markCursor),markSnapshots.length-1);
+    markSnapshots[markCursor]=JSON.parse(JSON.stringify(research.hypothesis_marks));
+    persistMarkHistory();
+   }
+   initializeMarks();renderIdeas();
+  }
+  renderObservations();
+  notice('已套用 '+m.id+' 的密文與情報'+(orphaned.length?'；已清理 '+orphaned.length+' 個不再出現的碼組及歷史':'')+'（尚未保存到磁碟）');
+ }catch(e){notice(e.message,true)}
+}
 function renderObservations(){let data=[];try{data=JSON.parse(el('observations').value)||[]}catch(e){}el('obsCards').innerHTML=Array.isArray(data)?data.map((o,i)=>`<div class="message"><strong>觀察 ${i+1}</strong>：${esc(o.source||'未知來源')} · ${esc(o.activity||'')} · ${esc(o.destination||'')} · 可信度 ${esc(o.confidence??0.5)}　<button data-removeobs="${i}">移除</button></div>`).join(''):'';el('obsCards').querySelectorAll('[data-removeobs]').forEach(b=>b.onclick=()=>{let a=JSON.parse(el('observations').value);a.splice(Number(b.dataset.removeobs),1);el('observations').value=JSON.stringify(a,null,2);renderObservations()})}
 function addObservation(){try{let data=JSON.parse(el('observations').value);if(!Array.isArray(data))throw Error('觀察資料不是陣列');let source=el('obsSource').value.trim(),n=Number(el('obsConfidence').value);if(!source||!Number.isFinite(n)||n<0||n>1)throw Error('來源不能空白，可信度須介於 0~1');data.push({source,observed_at:el('obsWhen').value.trim(),activity:el('obsActivity').value.trim(),destination:el('obsDest').value.trim(),status:el('obsStatus').value.trim(),confidence:n,note:el('obsNote').value.trim()});el('observations').value=JSON.stringify(data,null,2);renderObservations();notice('觀察已加入；按「套用此封情報」才納入分析')}catch(e){notice(e.message,true)}}
 function applyKnown(){try{

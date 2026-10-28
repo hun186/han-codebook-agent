@@ -174,6 +174,100 @@ const { TextEncoder } = require('node:util');
   assert.ok(Object.values(unsegmentedResult.proposals)
     .every(p=>p.status!=='verified_alignment'));
 
+  // Full adaptive parity: identical GUI/API stages, all computations synthetic.
+  const auto=(await post('/api/start',{
+    case:caseData,rounds:3,use_metadata:true,candidate_mode:'automatic'
+  })).job_id;
+  const automatic=await get('/api/jobs/'+auto);
+  assert.equal(automatic.status,'completed');
+  assert.equal(automatic.result.agent_rounds_completed,3);
+  assert.equal(automatic.result.adaptive_vocabulary,true);
+  assert.equal(automatic.result.human_vocabulary_review,false);
+  assert.ok(automatic.result.dynamic_vocabulary_terms.length>0);
+  assert.equal(automatic.events.filter(x=>x.stage==='vocabulary_candidates_unverified').length,3);
+  assert.equal(automatic.events.filter(x=>x.stage==='vocabulary_rescore').length,3);
+  assert.equal(automatic.events.filter(x=>x.stage==='rescore').length,3);
+  assert.ok(Object.values(automatic.result.proposals)
+    .every(p=>p.status==='hypothesis_unverified'));
+
+  const human=(await post('/api/start',{
+    case:caseData,rounds:2,candidate_mode:'human',use_metadata:true
+  })).job_id;
+  const first=await get('/api/jobs/'+human);
+  assert.equal(first.status,'awaiting_review');
+  assert.equal(first.pending_review.round,1);
+  assert.ok(first.pending_review.candidates.length>0);
+  const offered=first.pending_review.candidates[0].term;
+  const h1={round:1,review_token:first.pending_review.review_token,
+    approved:[offered],added:['研究員自訂詞甲']};
+  const badToken=await sandbox.fetch('/api/jobs/'+human+'/review',{
+    method:'POST',body:JSON.stringify({...h1,review_token:'bad-token-0000'})
+  });
+  assert.equal(badToken.status,409);
+  const badDuplicate=await sandbox.fetch('/api/jobs/'+human+'/review',{
+    method:'POST',body:JSON.stringify({...h1,added:[offered]})
+  });
+  assert.equal(badDuplicate.status,400);
+  assert.equal((await get('/api/jobs/'+human)).status,'awaiting_review');
+  const accepted1=await post('/api/jobs/'+human+'/review',h1);
+  assert.equal(accepted1.accepted,1);
+  assert.equal(accepted1.researcher_added,1);
+  const second=await get('/api/jobs/'+human);
+  assert.equal(second.status,'awaiting_review');
+  assert.equal(second.pending_review.round,2);
+  assert.notEqual(second.pending_review.review_token,first.pending_review.review_token);
+  const stale=await sandbox.fetch('/api/jobs/'+human+'/review',{
+    method:'POST',body:JSON.stringify(h1)
+  });
+  assert.equal(stale.status,409);
+  const duplicatePrior=await sandbox.fetch('/api/jobs/'+human+'/review',{
+    method:'POST',body:JSON.stringify({
+      round:2,review_token:second.pending_review.review_token,
+      approved:[],added:['研究員自訂詞甲']
+    })
+  });
+  assert.equal(duplicatePrior.status,400);
+  assert.equal((await get('/api/jobs/'+human)).status,'awaiting_review');
+  const accepted2=await post('/api/jobs/'+human+'/review',{
+    round:2,review_token:second.pending_review.review_token,
+    approved:[],added:['研究員自訂詞乙']
+  });
+  assert.equal(accepted2.accepted,0);
+  assert.equal(accepted2.researcher_added,1);
+  const finished=await get('/api/jobs/'+human);
+  assert.equal(finished.status,'completed');
+  assert.equal(finished.result.agent_rounds_completed,2);
+  assert.ok(finished.result.dynamic_vocabulary_terms.includes('研究員自訂詞甲'));
+  assert.ok(finished.result.dynamic_vocabulary_terms.includes('研究員自訂詞乙'));
+  assert.deepEqual(
+    Array.from(finished.events.filter(x=>x.stage==='vocabulary_candidates_unverified'),
+      e=>e.payload.researcher_added.map(w=>w.term)),
+    [['研究員自訂詞甲'],['研究員自訂詞乙']]);
+  assert.ok(finished.events.filter(x=>x.stage==='vocabulary_rescore')
+    .every(e=>e.payload.mapping&&typeof e.payload.changed_count==='number'));
+  assert.ok(Object.values(finished.result.proposals)
+    .every(p=>p.status!=='verified_alignment'));
+  const sampleCode=Object.keys(finished.result.proposals).sort()[0];
+  assert.equal(finished.result.proposals[sampleCode].term,'研究員自訂詞乙');
+  const finishedDoc=Buffer.from(sandbox.HanMockDemo.makeDocxForTest(finished.result));
+  assert.ok(finishedDoc.includes(Buffer.from('word/document.xml')));
+
+  const cancelHuman=(await post('/api/start',{
+    case:caseData,rounds:2,candidate_mode:'human'
+  })).job_id;
+  assert.equal((await get('/api/jobs/'+cancelHuman)).status,'awaiting_review');
+  assert.equal((await post('/api/jobs/'+cancelHuman+'/cancel',{})).status,'cancelling');
+  assert.equal((await get('/api/jobs/'+cancelHuman)).status,'failed');
+  const rejectedPost=await sandbox.fetch('/api/jobs/'+cancelHuman+'/review',{
+    method:'POST',body:JSON.stringify({
+      round:1,review_token:'PUBLIC-MOCK-expired',approved:[],added:[]
+    })
+  });
+  assert.equal(rejectedPost.status,409);
+  const invalidMode=await sandbox.fetch('/api/start',{
+    method:'POST',body:JSON.stringify({case:caseData,rounds:0,candidate_mode:'automatic'})
+  });
+  assert.equal(invalidMode.status,400);
   const leak=await sandbox.fetch('/api/start',{
     method:'POST',body:JSON.stringify({case:{...caseData,ground_truth:{'0007':'答案'}},rounds:2})
   });
@@ -182,5 +276,5 @@ const { TextEncoder } = require('node:util');
   assert.deepEqual(requests,['/data/demo.json']);
   assert.equal(typeof callbacks.click,'function');
   new vm.Script(fs.readFileSync(path.join(base,'workbench.js'),'utf8'),{filename:'workbench.js'});
-  console.log('Canonical GUI Mock API: PASS, simulated 0/2/20 rounds, browser jobs, edits, Word ZIP, network isolation');
+  console.log('Canonical GUI Mock API: PASS, static 0/2/20 rounds, adaptive automatic + human rounds, researcher-added terms, stale approvals, report, network isolation');
 })().catch(e=>{console.error(e);process.exitCode=1});

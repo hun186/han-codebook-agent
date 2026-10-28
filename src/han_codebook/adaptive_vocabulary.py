@@ -65,7 +65,7 @@ def vocabulary_packet(case: dict, *, round_number: int, metadata: bool,
 
 def refresh_vocabulary(case: dict, *, round_number: int, metadata: bool,
                        current: dict | None, llm_settings: dict,
-                       review: Callable[[int, list[dict]], list[str]] | None = None,
+                       review: Callable[[int, list[dict]], list[str] | dict] | None = None,
                        query: Callable[..., dict] = query_local_llm,
                        on_exchange: Callable | None = None) -> tuple[dict, dict]:
     """One explicit private-model vocabulary request; review is opt-in.
@@ -109,18 +109,36 @@ def refresh_vocabulary(case: dict, *, round_number: int, metadata: bool,
         if len(candidates) >= MAX_NEW_TERMS_PER_ROUND:
             break
 
+    researcher_added = []
     if review is not None:
-        selection = review(round_number, deepcopy(candidates))
-        if (not isinstance(selection, list)
-                or any(not isinstance(w, str) for w in selection)
+        decision = review(round_number, deepcopy(candidates))
+        # Existing review callbacks returning a list stay compatible. The GUI
+        # returns a structured decision with separately typed original/additions.
+        if isinstance(decision, dict):
+            if set(decision) != {"approved", "added"}:
+                raise CaseError("Review decision must provide approved and added")
+            selection, researcher_added = decision["approved"], decision["added"]
+        else:
+            selection = decision
+        if (not isinstance(selection, list) or not isinstance(researcher_added, list)
+                or any(not isinstance(w, str) for w in selection + researcher_added)
                 or len(set(selection)) != len(selection)
                 or any(w not in {x["term"] for x in candidates} for w in selection)):
-            raise CaseError("Researcher approved words must come from the pending proposal")
+            raise CaseError("Invalid selected LLM proposals in human review")
+        if (len(selection) + len(researcher_added) > MAX_NEW_TERMS_PER_ROUND
+                or len(set(researcher_added)) != len(researcher_added)
+                or any(not 1 <= len(w) <= 24 or w != w.strip()
+                       or any(ord(ch) < 32 for ch in w)
+                       or w in current_terms or w in selection
+                       for w in researcher_added)):
+            raise CaseError("Researcher-added candidates must be unique new words, 1..24 chars")
     else:
         selection = [x["term"] for x in candidates]
 
     remaining = max(0, MAX_DYNAMIC_TERMS - len(dynamic_terms))
-    approved = selection[:remaining]
+    # Human-added words are kept as explicit provenance, never verified anchors.
+    approved = (selection + researcher_added)[:remaining]
+    adopted_manual = [w for w in researcher_added if w in approved]
     updated = deepcopy(case)
     if approved:
         slot = updated["profiles"].setdefault("llm_dynamic_candidates",
@@ -133,7 +151,10 @@ def refresh_vocabulary(case: dict, *, round_number: int, metadata: bool,
         "review_mode": "human" if review is not None else "automatic",
         "proposed": candidates,
         "approved": approved,
-        "rejected_count": len(candidates) - len(approved),
+        "researcher_added": [{"term": w, "status": "unverified",
+                               "source": "researcher", "source_round": round_number}
+                              for w in adopted_manual],
+        "rejected_count": len(candidates) - len([w for w in selection if w in approved]),
         "total_dynamic_terms": len(dynamic_terms) + len(approved),
         "metadata_used": metadata,
     }

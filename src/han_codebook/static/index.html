@@ -301,7 +301,7 @@ function applyKnown(){try{
  if(research.bold_hypotheses)for(const code of Object.keys(research.bold_hypotheses)){
   if(!anchored.has(code)||anchored.get(code)===research.bold_hypotheses[code].term)delete research.bold_hypotheses[code];
  }
- markSnapshots=markSnapshots.map(snapshot=>{const clean=copyMarks(snapshot);for(const code of anchored.keys())delete clean[code];return clean});persistMarkHistory();initializeMarks();renderBoldHypotheses();notice('已知明密文對已套用；舊版歷史中的已驗證碼組標註已清理')
+ markSnapshots=markSnapshots.map(snapshot=>{const clean=copyMarks(snapshot);for(const code of anchored.keys())delete clean[code];return clean});persistMarkHistory();initializeMarks();if(typeof renderBoldHypotheses==='function')renderBoldHypotheses();notice('已知明密文對已套用；舊版歷史中的已驗證碼組標註已清理')
 }catch(e){notice(e.message,true)}}
 function saveProfile(){let p=profile();p.keywords=el('keywords').value.split(',').map(x=>x.trim()).filter(Boolean);p.sentences=el('sentences').value.split('\n').map(x=>x.trim().split(/\s+/).filter(Boolean)).filter(x=>x.length);notice('詞彙與範例句已套用（尚未保存到磁碟）')}
 

@@ -203,7 +203,8 @@ class BlindExperimentTests(unittest.TestCase):
                           {"role":"user","content":"{}"}]}
         saved=session.invoke(fake,provider=lambda chat:
             {"choices":[{"message":{"content":"{}"}}]},
-            model="gpt-6-astra",effort="high",provider_name="TEST_DOUBLE")
+            model="gpt-6-astra",effort="high",provider_name="TEST_DOUBLE",
+            logical_id="test:round_1:vocabulary")
         self.assertEqual(saved["choices"][0]["message"]["content"],"{}")
         session.mark("paused_quota",reason="mock",current="one")
         with self.assertRaisesRegex(ValueError,"settings"):
@@ -211,14 +212,42 @@ class BlindExperimentTests(unittest.TestCase):
         restored=ResumeStore(target,signature=sig,resume=True)
         self.assertEqual(restored.invoke(fake,provider=lambda chat:
             (_ for _ in ()).throw(AssertionError("must use saved reply")),
-            model="gpt-6-astra",effort="high",provider_name="TEST_DOUBLE"),saved)
+            model="gpt-6-astra",effort="high",provider_name="TEST_DOUBLE",
+            logical_id="test:round_1:vocabulary"),saved)
         cache=next((target/"successful_requests").glob("*.json"))
         entry=json.loads(cache.read_text(encoding="utf-8"))
         entry["reply"]["choices"][0]["message"]["content"]="altered"
         cache.write_text(json.dumps(entry),encoding="utf-8")
         with self.assertRaisesRegex(RuntimeError,"fingerprint corrupted"):
             restored.invoke(fake,provider=lambda chat:{},
-                model="gpt-6-astra",effort="high",provider_name="TEST_DOUBLE")
+                model="gpt-6-astra",effort="high",provider_name="TEST_DOUBLE",
+            logical_id="test:round_1:vocabulary")
+
+    def test_same_prompt_in_different_rounds_is_two_model_calls(self):
+        """An unchanged prompt across real rounds must NEVER be replayed."""
+        from checkpoint import ResumeStore
+        r=ResumeStore(self.output,signature={"study":"round-independence"},resume=False)
+        prompt={"messages":[{"role":"system","content":"same"},
+                            {"role":"user","content":"{}"}]}
+        used=[]
+        def live(_):
+            used.append(len(used)+1)
+            return {"choices":[{"message":{"content":str(len(used))}}]}
+        r1=r.invoke(prompt,provider=live,model="gpt-5.6-sol",
+                    effort="high",provider_name="TEST_DOUBLE",
+                    logical_id="study_1:10:with_aux:round_1:hypotheses")
+        r2=r.invoke(prompt,provider=live,model="gpt-5.6-sol",
+                    effort="high",provider_name="TEST_DOUBLE",
+                    logical_id="study_1:10:with_aux:round_2:hypotheses")
+        self.assertEqual(len(used),2)
+        self.assertNotEqual(r1,r2)
+        self.assertEqual(len(list((self.output/"successful_requests").glob("*.json"))),2)
+        r.mark("paused_quota",reason="test")
+        again=ResumeStore(self.output,signature={"study":"round-independence"},resume=True)
+        self.assertEqual(again.invoke(prompt,provider=lambda _:
+            (_ for _ in ()).throw(AssertionError("Must use cache on resume")),
+            model="gpt-5.6-sol",effort="high",provider_name="TEST_DOUBLE",
+            logical_id="study_1:10:with_aux:round_2:hypotheses"),r2)
 
     def test_score_is_exact_and_repeatable_without_shortcuts(self):
         public=json.loads((self.public/"blind_01.json").read_text(encoding="utf-8"))

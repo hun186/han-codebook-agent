@@ -292,5 +292,30 @@ const clone=x=>JSON.parse(JSON.stringify(x));
  assert.equal(canceledPath,'/api/jobs/000000000000000a/cancel');
  assert.equal(run('activeHumanReviewJobId'),null);
 
+ // P2 regression: a transient GET failure must not strand a human
+ // approval job or retire its identity without canceling the worker.
+ el('candidateMode').value='human';el('rounds').value='1';
+ let statusReads=0;
+ api=path=>{
+  if(path==='/api/start')return Promise.resolve({job_id:'000000000000000b'});
+  if(path==='/api/jobs/000000000000000b'){
+   statusReads++;return Promise.reject(Error('temporary status network error'));
+  }
+  return Promise.reject(Error('unexpected human polling path '+path));
+ };
+ run('research=_A;invalidateOldJobs()');
+ await run('start()');
+ for(let i=0;i<9;i++)await Promise.resolve();
+ assert.equal(run('lastJob'),'000000000000000b',
+  'transient polling error retired the pending human approval');
+ assert.ok(timers.size>0,'temporary GET failure killed the only approval poller');
+ assert.ok(statusReads>=1);
+ // Finish teardown; the active server job is canceled on case replacement.
+ api=path=>path==='/api/jobs/000000000000000b/cancel'?
+   Promise.resolve({status:'cancelling'}):
+   Promise.reject(Error('unexpected teardown path '+path));
+ run('invalidateOldJobs()');
+ el('candidateMode').value='static';
+
  console.log('UI cross-case isolation, safe idea import and workflow guide PASS');
 })().catch(e=>{console.error(e);process.exitCode=1});

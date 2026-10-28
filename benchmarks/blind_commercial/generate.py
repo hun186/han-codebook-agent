@@ -70,9 +70,17 @@ def digest(data: object) -> str:
                                     separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def make_one(index: int, rng: random.Random, codebook: dict[str, str]) -> tuple[dict, list[str]]:
-    unit, place, obj, time, status = (rng.choice(src) for src in
-                                     (UNITS, PLACES, OBJECTS, TIMES, STATUSES))
+def make_one(index: int, rng: random.Random, codebook: dict[str, str],
+             thread: dict | None = None) -> tuple[dict, list[str]]:
+    # Same latent logistics/operations episode can yield several differently
+    # phrased messages, at different times. The thread ID never appears in
+    # public ciphertext or model inputs.
+    thread=thread or {}
+    unit=thread.get("unit") if rng.random()<.78 else rng.choice(UNITS)
+    place=thread.get("place") if rng.random()<.73 else rng.choice(PLACES)
+    obj=thread.get("object") if rng.random()<.69 else rng.choice(OBJECTS)
+    time=rng.choice(TIMES)
+    status=rng.choice(STATUSES)
     context = {"unit": unit, "place": place, "object": obj,
                "time": time, "status": status}
     blocks = [rng.choice(TEMPLATES) for _ in range(rng.choice((1, 2, 2, 3)))]
@@ -133,9 +141,18 @@ def generate(public_dir: Path, private_dir: Path, *, repeats: int = 3,
         codes=code_rng.sample(range(1000,9999),len(VOCAB))
         codebook=dict(zip(VOCAB,[str(n) for n in codes]))
         msgs,plaintext=[],[]
+        # 12 related but unlabelled event threads; repeated communications
+        # occur at varying dates, with both correlated and drifting details.
+        threads=[{"unit":rng.choice(UNITS),
+                  "place":rng.choice(PLACES),
+                  "object":rng.choice(OBJECTS)} for _ in range(12)]
+        private_thread_index=[]
         for j in range(100):
-            m,words=make_one(j,rng,codebook)
-            msgs.append(m);plaintext.append({"id":m["id"],"segments":words})
+            thread_no=j%len(threads)
+            m,words=make_one(j,rng,codebook,threads[thread_no])
+            msgs.append(m)
+            plaintext.append({"id":m["id"],"segments":words})
+            private_thread_index.append(thread_no)
         # Absolute sequence number, not a sentence-field/slot index.
         public={"kind":"BLIND_UNSTRUCTURED_CODEBOOK_V1",
                 "case_id":study,
@@ -145,6 +162,7 @@ def generate(public_dir: Path, private_dir: Path, *, repeats: int = 3,
                 "messages":msgs,"known_pairs":[],"candidate_ideas":{}}
         reference={"case_id":study,"code_to_word":{code:word for word,code in codebook.items()},
                    "plaintext_segments":plaintext,
+                   "latent_thread_ids":private_thread_index,
                    "public_sha256":digest(public),"fixture_only":fixture_seed is not None}
         pub=public_dir/f"{study}.json"
         secret=private_dir/f"{study}.gold.json"

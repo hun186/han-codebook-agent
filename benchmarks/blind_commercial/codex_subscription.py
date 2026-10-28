@@ -111,6 +111,8 @@ def codex_subscription_reply(chat: dict, *, model: str = "gpt-6-astra",
         env=os.environ.copy()
         if any(env.get(name) for name in SENSITIVE_ENV):
             raise RuntimeError("Subscription mode requires no API credentials in environment")
+        for name in SENSITIVE_ENV:
+            env.pop(name,None)
         # No repo/workspace information is deliberately available to CLI.
         # CODEX_HOME remains the user's authenticated CLI credentials store.
         result=subprocess_run(args,input=prompt,text=True,capture_output=True,

@@ -193,6 +193,7 @@ const clone=x=>JSON.parse(JSON.stringify(x));
  await activeInterval();
  for(let n=0;n<6;n++)await Promise.resolve();
  assert.equal(run('vocabCandidateRecord[0].term'),'第一批','second poll did not finish first job');
+ const retiredJobButton=el('vocabSuggestions').buttons[0];
  assert.equal(el('askVocabulary').disabled,false,'first job did not release button');
 
  api=async path=>{
@@ -208,6 +209,9 @@ const clone=x=>JSON.parse(JSON.stringify(x));
  for(let n=0;n<6;n++)await Promise.resolve();
  assert.equal(run('vocabCandidateRecord[0].term'),'第二批',
    'late GET from first job overwrote new job in identical case');
+ retiredJobButton.onclick();
+ assert.equal(run('research.profiles.general.lexicon["第二批"]'),undefined,
+   'retired job button was allowed to adopt a replacement job candidate');
  assert.equal(el('askVocabulary').disabled,false,'late GET altered second job button state');
 
  console.log('UI cross-case isolation, safe idea import and workflow guide PASS');

@@ -96,6 +96,7 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
 </main><script>
 const el=id=>document.getElementById(id);let research=null,lastJob=null,poll=null,markSnapshots=[],markCursor=-1,markActions=[],priorResult=null,ideaSnapshots=[],ideaCursor=-1,lastLLMEntries=[];
 let caseGeneration=0,lastLLMOrigin=null,vocabOrigin=null,vocabTimer=null;
+let vocabRequestSerial=0,vocabActiveJobId=null,analysisRequestSerial=0;
 function caseFingerprint(){
  if(!research)return null;
  const item={...research};delete item.hypothesis_revision_history;
@@ -107,7 +108,7 @@ function matchesOrigin(origin){
  return !!(matchesCaseReference(origin)&&origin.fingerprint===caseFingerprint());
 }
 function invalidateOldJobs(){
- caseGeneration++;
+ caseGeneration++;vocabRequestSerial++;vocabActiveJobId=null;analysisRequestSerial++;
  if(poll!==null){clearInterval(poll);poll=null}
  if(vocabTimer!==null){clearInterval(vocabTimer);vocabTimer=null}
  lastJob=null;lastLLMOrigin=null;vocabOrigin=null;lastLLMEntries=[];
@@ -261,32 +262,48 @@ async function askVocabulary(){
  if(!research)return;
  const origin=captureOrigin();
  if(!confirm('只將目前密電與可觀察情報傳給 config.yaml 指定的內網 LLM 產生詞庫候選。不是已知明文。確定呼叫？'))return;
+ // Every submission gets its own request generation, independent of case
+ // fingerprint. A late GET from an already completed job must not win.
+ const serial=++vocabRequestSerial;
+ vocabActiveJobId=null;vocabOrigin=null;vocabCandidateRecord=[];
+ el('vocabSuggestions').replaceChildren();
+ if(vocabTimer!==null){clearInterval(vocabTimer);vocabTimer=null}
+ const current=()=>serial===vocabRequestSerial&&matchesOrigin(origin);
  try{
   const response=await api('/api/suggest-vocabulary',{
     case:JSON.parse(JSON.stringify(research)),confirmed:true,
     use_metadata:el('metadata').value==='true'});
-  if(!matchesOrigin(origin))return;
+  if(!current())return;
   const jobId=response.job_id;
+  vocabActiveJobId=jobId;
+  const active=()=>current()&&vocabActiveJobId===jobId;
   el('askVocabulary').disabled=true;
   el('vocabProgress').textContent='正在請模型產生候選詞庫；不會自動寫入研究員詞庫';
   let localTimer=null;
   function stopVocabTimer(){if(localTimer!==null)clearInterval(localTimer);if(vocabTimer===localTimer)vocabTimer=null}
   async function update(){
-   if(!matchesOrigin(origin)){
+   if(!active()){
     stopVocabTimer();
-    if(matchesCaseReference(origin)){el('askVocabulary').disabled=false;notice('案例已修改，舊詞庫建議已失效；請重新產生')}
+    if(current()===false&&serial===vocabRequestSerial&&matchesCaseReference(origin)){
+     vocabActiveJobId=null;vocabRequestSerial++;el('askVocabulary').disabled=false;
+     notice('案例已修改，舊詞庫建議已失效；請重新產生');
+    }
     return;
    }
    try{
     const job=await api('/api/jobs/'+jobId);
-    if(!matchesOrigin(origin)){
+    if(!active()){
      stopVocabTimer();
-     if(matchesCaseReference(origin)){el('askVocabulary').disabled=false;notice('資料修改後的舊詞庫建議已隔離，請重新產生')}
+     if(serial===vocabRequestSerial&&matchesCaseReference(origin)){
+      vocabActiveJobId=null;vocabRequestSerial++;el('askVocabulary').disabled=false;
+      notice('資料修改後的舊詞庫建議已隔離，請重新產生');
+     }
      return;
     }
     el('vocabProgress').textContent=(job.logs||[]).join('\n')+(job.error?'\nERROR: '+job.error:'');
     if(job.status==='completed'||job.status==='failed'){
-     stopVocabTimer()
+     stopVocabTimer();
+     vocabActiveJobId=null;vocabRequestSerial++; // retire all outstanding GETs from this job
      el('askVocabulary').disabled=false;
      if(job.status==='completed'){
       vocabCandidateRecord=job.result.terms||[];vocabOrigin=origin;renderVocabularyIdeas();
@@ -294,12 +311,12 @@ async function askVocabulary(){
      }else notice('詞庫生成失敗：'+job.error,true);
     }
    }catch(e){
-    stopVocabTimer()
-    if(matchesOrigin(origin)){el('askVocabulary').disabled=false;notice(e.message,true)}
+    stopVocabTimer();
+    if(active()){vocabActiveJobId=null;vocabRequestSerial++;el('askVocabulary').disabled=false;notice(e.message,true)}
    }
   }
   localTimer=setInterval(update,1500);vocabTimer=localTimer;update();
- }catch(e){if(matchesOrigin(origin))notice(e.message,true)}
+ }catch(e){if(current()){vocabActiveJobId=null;vocabRequestSerial++;el('askVocabulary').disabled=false;notice(e.message,true)}}
 }
 
 function chartBar(label,value,max=1){let val=Number(value)||0;return `<div class="chartrow"><span>${esc(label)}</span><div class="track"><div class="fill" style="width:${Math.max(0,Math.min(100,val/max*100))}%"></div></div><span>${esc(val.toFixed(2))}</span></div>`}

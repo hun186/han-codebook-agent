@@ -200,19 +200,29 @@
       limitations:['PUBLIC MOCK: rankings are simulated, not real decryption.',
         'No real LLM calls; never treat generated Chinese as historical plaintext.']};
   }
-  function analysis(caseData, rounds, useMetadata) {
+  function analysis(caseData, rounds, useMetadata, capture=false) {
     const baseline=mockMapping(caseData, 0, useMetadata);
     const result=mockMapping(caseData, rounds, useMetadata);
-    const events=[{round:0,stage:'statistical_baseline',payload:{score:baseline.objective_score,changed_count:0}}];
+    const events=[{round:0,stage:'statistical_baseline',payload:{
+      score:baseline.objective_score,mapping:mappingDelta(null,baseline).mapping,changed_count:0}}];
+    // The static browser mock has just one simulated model ranking.
+    // It applies at round one; later rounds must report zero new changes.
+    let prior=baseline;
     for(let n=1;n<=rounds;n++){
-      const accepted = Object.entries(result.proposals)
+      const current=n===1?result:prior;
+      const accepted = Object.entries(current.proposals)
         .filter(([,p])=>p.status==='hypothesis_unverified')
         .slice(0,15).map(([code,p])=>({code,candidates:p.alternatives.map(a=>a.term).slice(0,2),
           reason:'PUBLIC MOCK simulated candidate, not a model response'}));
+      if(capture)traceMockExchange({events},n,'code',{
+        task:'static_hypothesis_reranking',round:n,metadata_enabled:useMetadata,
+        available_vocabulary:lexicalCandidates(caseData),
+        verified_anchors:current.verified_anchors
+      },{hypotheses:accepted,label:'PUBLIC MOCK · no model call'});
       events.push({round:n,stage:'llm_proposals_unverified',payload:{accepted,rejected_count:0}});
-      events.push({round:n,stage:'rescore',payload:{score:-Object.keys(result.proposals).length+n*0.1,
-        changed_count:Object.keys(result.proposals).filter(c=>baseline.proposals[c]?.term!==result.proposals[c].term).length,
-        changes:{}}});
+      events.push({round:n,stage:'rescore',payload:{
+        score:current.objective_score,...mappingDelta(prior,current)}});
+      prior=current;
     }
     return {result, events};
   }
@@ -472,7 +482,7 @@
       if(mode!=='static' && rounds===0)
         validationError('Dynamic vocabulary requires at least one Mock LLM round');
       if(mode!=='static')return startAdaptive(c,rounds,data.use_metadata!==false,mode,data.capture_llm_io===true);
-      const out=analysis(c,rounds,data.use_metadata!==false);
+      const out=analysis(c,rounds,data.use_metadata!==false,data.capture_llm_io===true);
       return job('analysis',out.result,out.events);
     }
     if(route==='/api/benchmark')return benchmark();

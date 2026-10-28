@@ -48,6 +48,7 @@ vm.createContext(ctx);
 vm.runInContext(grab('let research=null','function notice('),ctx);
 vm.runInContext(grab('function copyIdeas(','async function previewEventLinks()'),ctx);
 vm.runInContext(grab('let vocabCandidateRecord=','function chartBar('),ctx);
+vm.runInContext(grab('async function previewEventLinks()','let vocabCandidateRecord='),ctx);
 vm.runInContext(grab('function renderJob(j)','function renderTrace('),ctx);
 vm.runInContext(grab('async function start(){','async function save()'),ctx);
 vm.runInContext('function profile(){return research.profiles.general}',ctx);
@@ -75,6 +76,36 @@ const clone=x=>JSON.parse(JSON.stringify(x));
  await pending;
  assert.equal(run('vocabCandidateRecord.length'),0,'late A response was installed into B');
  assert.equal(timers.size,0,'late A response started a poller');
+
+ // Same protection for independent async cross-telegram event associations.
+ let resolveEvents;
+ api=path=>path==='/api/event-links'?new Promise(resolve=>resolveEvents=resolve):
+   Promise.reject(new Error('unexpected event call '+path));
+ run('research=_A;invalidateOldJobs()');
+ const pendingEvents=run('previewEventLinks()');
+ await Promise.resolve();
+ run('research=_B;invalidateOldJobs()');
+ resolveEvents({events:[{source:'source A',observed_at:'1942-05-03',activity:'only A',status:'unconfirmed',
+   confidence:0.5,event_id:'A-event',candidates:[]}]});
+ await pendingEvents;
+ assert(!el('eventLinks').innerHTML.includes('source A'),
+   'late event association from A appeared in B');
+
+ // Case revision changes while a vocabulary job is running also invalidate it.
+ let resolveJob;
+ api=path=>{
+   if(path==='/api/suggest-vocabulary')return Promise.resolve({job_id:'delayed-vocab'});
+   if(path==='/api/jobs/delayed-vocab')return new Promise(resolve=>resolveJob=resolve);
+   return Promise.reject(new Error('unexpected call '+path));
+ };
+ run('research=_A;invalidateOldJobs()');
+ await run('askVocabulary()');
+ assert.equal(el('askVocabulary').disabled,true);
+ run('research.messages[0].sender="new evidence during processing"');
+ resolveJob({status:'completed',logs:[],result:{terms:[{term:'舊詞'}]}});
+ for(let n=0;n<5;n++)await Promise.resolve();
+ assert.equal(el('askVocabulary').disabled,false,'stale job left vocabulary button disabled');
+ assert.equal(run('vocabCandidateRecord.length'),0,'same-case edited evidence accepted old results');
 
  // Completed case A vocabulary: multiple manual term adoptions permitted.
  api=async path=>{

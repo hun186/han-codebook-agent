@@ -164,7 +164,7 @@ class CodexSubscriptionBridgeTests(unittest.TestCase):
             events=[{"type":"turn.started"},
                     {"type":"item.completed","item":{"type":"agent_message","text":json.dumps(answer)}},
                     {"type":"turn.completed","usage":{"input_tokens":90,"output_tokens":40}}]
-            return SimpleNamespace(returncode=0,stdout="\\n".join(json.dumps(x) for x in events),stderr="")
+            return SimpleNamespace(returncode=0,stdout="\n".join(json.dumps(x) for x in events),stderr="")
         chat={"messages":[{"role":"system","content":"提出中文候選詞，只輸出 JSON"},
                           {"role":"user","content":json.dumps({"task":"generate_vocabulary"})}]}
         out=codex_subscription_reply(chat,model="gpt-5.6-sol",

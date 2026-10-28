@@ -279,5 +279,18 @@ const clone=x=>JSON.parse(JSON.stringify(x));
   'edited-case analysis GET rejection permanently disabled run button');
  assert.equal(run('lastJob'),null,'failed analysis did not retire job identity');
 
+ // Switching the entire case clears the old polling timer immediately.
+ // The human approval gate must still be explicitly cancelled.
+ let canceledPath=null;
+ api=(path,body)=>{
+  if(path==='/api/jobs/000000000000000a/cancel'){
+   canceledPath=path;return Promise.resolve({status:'cancelling'});
+  }
+  throw Error('unexpected human cancellation path '+path);
+ };
+ run("activeHumanReviewJobId='000000000000000a';invalidateOldJobs()");
+ assert.equal(canceledPath,'/api/jobs/000000000000000a/cancel');
+ assert.equal(run('activeHumanReviewJobId'),null);
+
  console.log('UI cross-case isolation, safe idea import and workflow guide PASS');
 })().catch(e=>{console.error(e);process.exitCode=1});

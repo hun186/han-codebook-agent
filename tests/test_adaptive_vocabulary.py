@@ -62,17 +62,24 @@ class AdaptiveVocabularyTest(unittest.TestCase):
             self.assertNotIn("ground_truth",str(payload))
             round_number=payload["round"]
             generated.append(payload)
+            if kw.get("on_exchange"):
+                kw["on_exchange"]("llm_request",{"body":{"phase":"vocabulary", "round":round_number}})
+                kw["on_exchange"]("llm_response",{"response":"vocabulary round "+str(round_number)})
             return {"vocabulary":[{"term":"第"+str(round_number)+"輪新詞","reason":"輔助情報＋暫時推論"}],
                     "patterns":[]}
         def code_query(url,model,payload,**kw):
             self.assertTrue(payload["available_vocabulary"])
+            if kw.get("on_exchange"):
+                kw["on_exchange"]("llm_request",{"body":{"phase":"code", "round":len(generated)}})
+                kw["on_exchange"]("llm_response",{"response":"code round "+str(len(generated))})
             return {"hypotheses":[{"code":"999","candidates":["第"+str(len(generated))+"輪新詞"],
                                    "reason":"待驗證跨報候選"}]}
         with TemporaryDirectory() as tmp, patch("han_codebook.agent.query_local_llm",side_effect=code_query):
             output=run_agent(case,rounds=2,llm_url=self.config()["base_url"],
                              model="mock-private",db_path=str(Path(tmp)/"audit.sqlite"),
                              metadata=True,vocabulary_query=vocab_query,
-                             adaptive_vocabulary=True,solver_iterations=1,solver_restarts=1,
+                             adaptive_vocabulary=True,capture_llm_io=True,
+                             solver_iterations=1,solver_restarts=1,
                              progress=lambda _:None)
             self.assertEqual(len(generated),2)
             self.assertEqual(output["dynamic_vocabulary_terms"],["第1輪新詞","第2輪新詞"])
@@ -84,7 +91,16 @@ class AdaptiveVocabularyTest(unittest.TestCase):
                     "SELECT payload_json FROM events WHERE stage='vocabulary_candidates_unverified' ORDER BY id")]
                 hypotheses=[json.loads(row[0]) for row in db.execute(
                     "SELECT payload_json FROM events WHERE stage='llm_proposals_unverified' ORDER BY id")]
+                traces=[(stage,json.loads(payload)) for stage,payload in db.execute(
+                    "SELECT stage, payload_json FROM events WHERE stage IN "
+                    "('vocabulary_llm_request','vocabulary_llm_response','llm_request','llm_response') "
+                    "ORDER BY id")]
             self.assertEqual(len(records),2)
+            self.assertEqual([x[0] for x in traces],[
+                'vocabulary_llm_request','vocabulary_llm_response','llm_request','llm_response',
+                'vocabulary_llm_request','vocabulary_llm_response','llm_request','llm_response'])
+            self.assertEqual(traces[1][1]['response'],'vocabulary round 1')
+            self.assertEqual(traces[3][1]['response'],'code round 1')
             self.assertTrue(all(x["review_mode"]=="automatic" for x in records))
             self.assertEqual([r["approved"] for r in records],[["第1輪新詞"],["第2輪新詞"]])
             self.assertTrue(hypotheses[0]["accepted"])

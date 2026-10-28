@@ -73,6 +73,27 @@ const { TextEncoder } = require('node:util');
       assert.equal(bytes.readUInt32LE(bytes.length-22),0x06054b50);
     }
   }
+  const staticTraceId=(await post('/api/start',{
+    case:caseData,rounds:3,candidate_mode:'static',capture_llm_io:true
+  })).job_id;
+  const staticTrace=await get('/api/jobs/'+staticTraceId);
+  assert.equal(staticTrace.events.filter(e=>e.stage==='llm_request').length,3);
+  assert.equal(staticTrace.events.filter(e=>e.stage==='llm_response').length,3);
+  const staticRescores=staticTrace.events.filter(e=>e.stage==='rescore');
+  assert.equal(staticRescores.length,3);
+  assert.ok(staticRescores[0].payload.changed_count>0);
+  for(const event of staticRescores){
+    assert.equal(event.payload.changed_count,Object.keys(event.payload.changes).length);
+    assert.ok(event.payload.mapping);
+  }
+  assert.equal(staticRescores[1].payload.changed_count,0);
+  assert.equal(staticRescores[2].payload.changed_count,0);
+  const noCapture=(await post('/api/start',{
+    case:caseData,rounds:2,candidate_mode:'static',capture_llm_io:false
+  })).job_id;
+  assert.equal((await get('/api/jobs/'+noCapture)).events.filter(
+    e=>['llm_request','llm_response'].includes(e.stage)).length,0);
+
   const noMetadataId=(await post('/api/start',{
     case:caseData,rounds:0,use_metadata:false
   })).job_id;

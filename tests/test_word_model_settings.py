@@ -13,6 +13,7 @@ import unittest
 from http.server import ThreadingHTTPServer
 from urllib import request, error
 from zipfile import ZipFile
+from unittest.mock import patch
 
 from han_codebook.bold_hypotheses import normalize_bold_hypotheses
 from han_codebook.core import CaseError, analyze, load_case, validate_case
@@ -165,6 +166,24 @@ class WordAndLLMHTTPTests(unittest.TestCase):
         with self.assertRaises(error.HTTPError) as err:
             request.urlopen(self.base+"/api/jobs/../../config.yaml/report.docx")
         self.assertIn(err.exception.code,(400,404))
+
+    def test_four_llm_rounds_accepted_without_calling_a_real_model(self):
+        case=json.load(request.urlopen(self.base+"/api/case?id=examples%2Fexample.json"))
+        def fake_runner(research_case,*,rounds,**kwargs):
+            self.assertEqual(rounds,4)
+            result=analyze(research_case,iterations=1,restarts=1)
+            result["agent_rounds_completed"]=rounds
+            return result
+        with patch("han_codebook.web.run_agent",side_effect=fake_runner):
+            job_id=self.post("/api/start",{"case":case,"rounds":4})["job_id"]
+            for _ in range(150):
+                result=json.load(request.urlopen(self.base+"/api/jobs/"+job_id))
+                if result["status"] in ("completed","failed"):
+                    break
+                time.sleep(0.1)
+            self.assertEqual(result["status"],"completed",result["error"])
+            self.assertEqual(result["result"]["agent_rounds_completed"],4)
+
 
 class BoldReviewUITests(unittest.TestCase):
     def test_explicit_alternative_confirmed_and_reversible(self):

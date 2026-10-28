@@ -69,6 +69,12 @@ def build(study:str,public_dir:Path,private_dir:Path,result_dir:Path,out:Path):
     style=doc.styles["Normal"];style.font.name="Microsoft JhengHei";style.font.size=Pt(9)
     doc.add_heading("GPT-6 全自動跨報密碼研究｜真正盲測報告",0)
     para(doc,f"獨立碼本：{study}　模型：{locked['model']}　思考級別：{locked['reasoning_effort']}　回合：{locked['n_rounds']}")
+    para(doc,"API 實際回報模型："+json.dumps(locked.get("reported_api_model_ids",{}),ensure_ascii=False))
+    usage=locked.get("usage",{})
+    para(doc,f"完整實驗 API 呼叫 {locked['n_model_calls']} 次；輸入 {usage.get('prompt_tokens',0):,} tokens"
+        f"（快取 {usage.get('cached_input_tokens',0):,}）；輸出 {usage.get('completion_tokens',0):,}"
+        f"（包含推理 {usage.get('reasoning_tokens',0):,}）；Standard 估算費用"
+        f" US$ {usage.get('estimated_usd',0):.4f}（實際帳單依 API 計費）。")
     para(doc,"本文件只在真正 Responses API 呼叫、逐輪推論、鎖定猜測並揭盲評分後產生。"
          "合成電文並非真實歷史破譯成果；若沒有獨立錨點，無法保證碼組唯一可辨識。")
     para(doc,"鎖定 SHA256："+sealed,small=True)

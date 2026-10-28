@@ -50,6 +50,11 @@ class HumanReviewHTTPTest(unittest.TestCase):
         with request.urlopen(f"http://127.0.0.1:{self.port}"+path,timeout=5) as response:
             return json.load(response)
 
+    def review_payload(self,id,approved):
+        pending=self.get("/api/jobs/"+id)["pending_review"]
+        return {"approved": approved, "round": pending["round"],
+                "review_token": pending["review_token"]}
+
     def wait_status(self,id,wanted):
         for _ in range(120):
             state=self.get("/api/jobs/"+id)
@@ -84,13 +89,14 @@ class HumanReviewHTTPTest(unittest.TestCase):
 
             busy,body=self.post("/api/start",{"case":self.case,"rounds":0})
             self.assertEqual(busy,409,body)
-            bad,body=self.post(f"/api/jobs/{id}/review",{"approved":["不是候選"]})
+            bad,body=self.post(f"/api/jobs/{id}/review",self.review_payload(id,["不是候選"]))
             self.assertEqual(bad,400,body)
             self.assertEqual(self.get("/api/jobs/"+id)["status"],"awaiting_review")
-            accepted,body=self.post(f"/api/jobs/{id}/review",{"approved":["補給"]})
+            approved_payload=self.review_payload(id,["補給"])
+            accepted,body=self.post(f"/api/jobs/{id}/review",approved_payload)
             self.assertEqual(accepted,200,body)
             self.assertEqual(body["accepted"],1)
-            rejected,body=self.post(f"/api/jobs/{id}/review",{"approved":["車隊"]})
+            rejected,body=self.post(f"/api/jobs/{id}/review",approved_payload)
             self.assertEqual(rejected,409,body)
             failed=self.wait_status(id,"failed")
             self.assertEqual(seen["decision"],["補給"])
@@ -110,12 +116,13 @@ class HumanReviewHTTPTest(unittest.TestCase):
             id=body["job_id"]
             self.assertTrue(entered.wait(4))
             self.wait_status(id,"awaiting_review")
+            old_payload=self.review_payload(id,["待審"])
             cancel_status,response=self.post(f"/api/jobs/{id}/cancel",{})
             self.assertEqual(cancel_status,200,response)
             failed=self.wait_status(id,"failed")
             self.assertIn("cancel",failed["error"].lower())
             self.assertNotIn("pending_review",failed)
-            status,body=self.post(f"/api/jobs/{id}/review",{"approved":["待審"]})
+            status,body=self.post(f"/api/jobs/{id}/review",old_payload)
             self.assertEqual(status,409,body)
             # The old job must no longer monopolize the analysis gate.
             status,body=self.post("/api/start",{"case":self.case,"rounds":0})
@@ -141,6 +148,40 @@ class HumanReviewHTTPTest(unittest.TestCase):
             failed=self.wait_status(id,"failed")
             self.assertIn("cancel",failed["error"].lower())
             self.assertNotIn("pending_review",failed)
+
+    def test_retry_from_prior_round_cannot_approve_next_round(self):
+        seen=[]
+        def fake(case,**kw):
+            reviewer=kw["vocabulary_reviewer"]
+            seen.append(reviewer(1,[{"term":"重複候選","reason":"round one"}]))
+            seen.append(reviewer(2,[{"term":"重複候選","reason":"round two"}]))
+            raise RuntimeError("Mock reviewer done")
+        with patch("han_codebook.web.run_agent",side_effect=fake):
+            status,body=self.post("/api/start",{"case":self.case,"rounds":2,
+                                                 "candidate_mode":"human"})
+            self.assertEqual(status,202,body)
+            id=body["job_id"]
+            self.wait_status(id,"awaiting_review")
+            old_payload=self.review_payload(id,[])
+            status,body=self.post(f"/api/jobs/{id}/review",old_payload)
+            self.assertEqual(status,200,body)
+            for _ in range(120):
+                second=self.get("/api/jobs/"+id)
+                if (second["status"]=="awaiting_review"
+                        and second["pending_review"]["round"]==2):
+                    break
+                time.sleep(0.03)
+            else:
+                self.fail("Second review did not appear")
+            self.assertNotEqual(old_payload["review_token"],
+                                second["pending_review"]["review_token"])
+            status,body=self.post(f"/api/jobs/{id}/review",old_payload)
+            self.assertEqual(status,409,body)
+            self.assertEqual(self.get("/api/jobs/"+id)["status"],"awaiting_review")
+            status,body=self.post(f"/api/jobs/{id}/review",self.review_payload(id,["重複候選"]))
+            self.assertEqual(status,200,body)
+            self.wait_status(id,"failed")
+            self.assertEqual(seen,[[],["重複候選"]])
 
     def test_automatic_mode_does_not_create_waiter(self):
         seen={}

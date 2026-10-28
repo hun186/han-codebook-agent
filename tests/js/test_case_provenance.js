@@ -214,5 +214,70 @@ const clone=x=>JSON.parse(JSON.stringify(x));
    'retired job button was allowed to adopt a replacement job candidate');
  assert.equal(el('askVocabulary').disabled,false,'late GET altered second job button state');
 
+
+ // Regression: editing a case during an in-flight vocabulary GET followed by
+ // network failure must retire that request and re-enable its button.
+ let rejectVocabPoll;
+ api=path=>{
+  if(path==='/api/suggest-vocabulary')return Promise.resolve({job_id:'failure-vocab'});
+  if(path==='/api/jobs/failure-vocab')return new Promise((_,reject)=>rejectVocabPoll=reject);
+  return Promise.reject(Error('unexpected vocabulary path '+path));
+ };
+ run('research=_A;invalidateOldJobs()');
+ await run('askVocabulary()');
+ assert.equal(el('askVocabulary').disabled,true);
+ run('research.messages[0].sender="revised metadata"');
+ rejectVocabPoll(Error('offline connection'));
+ for(let n=0;n<6;n++)await Promise.resolve();
+ assert.equal(el('askVocabulary').disabled,false,
+  'edited-case vocabulary GET rejection permanently disabled its button');
+ assert.equal(run('vocabActiveJobId'),null);
+ assert.equal(run('vocabCandidateRecord.length'),0);
+
+ // An old failed GET must not unlock a NEW job in the same edited case.
+ let rejectFirstPending,resolveSecondPending;
+ api=path=>{
+  if(path==='/api/suggest-vocabulary')return Promise.resolve({job_id:'vocab-first-failure'});
+  if(path==='/api/jobs/vocab-first-failure')
+   return new Promise((_,reject)=>rejectFirstPending=reject);
+  throw Error('unexpected first vocabulary request '+path);
+ };
+ run('research=_A;invalidateOldJobs()');
+ await run('askVocabulary()');
+ run('research.messages[0].recipient="edited while first job running"');
+ api=path=>{
+  if(path==='/api/suggest-vocabulary')return Promise.resolve({job_id:'vocab-second-pending'});
+  if(path==='/api/jobs/vocab-second-pending')
+   return new Promise(resolve=>resolveSecondPending=resolve);
+  throw Error('unexpected second vocabulary request '+path);
+ };
+ await run('askVocabulary()');
+ assert.equal(el('askVocabulary').disabled,true);
+ rejectFirstPending(Error('old offline error'));
+ for(let n=0;n<6;n++)await Promise.resolve();
+ assert.equal(el('askVocabulary').disabled,true,'old failed job unlocked new job');
+ resolveSecondPending({status:'completed',logs:[],result:{terms:[{term:'新的工作'}]}});
+ for(let n=0;n<6;n++)await Promise.resolve();
+ assert.equal(el('askVocabulary').disabled,false);
+ assert.equal(run('vocabCandidateRecord[0].term'),'新的工作');
+
+ // Analysis GET failure after same-case edit has the identical restore rule.
+ let rejectAnalysisPoll;
+ api=path=>{
+  if(path==='/api/start')return Promise.resolve({job_id:'failure-analysis'});
+  if(path==='/api/jobs/failure-analysis')
+    return new Promise((_,reject)=>rejectAnalysisPoll=reject);
+  return Promise.reject(Error('unexpected analysis path '+path));
+ };
+ run('research=_A;invalidateOldJobs()');
+ await run('start()');
+ assert.equal(el('run').disabled,true);
+ run('research.messages[0].notes="new field note"');
+ rejectAnalysisPoll(Error('analysis HTTP 503'));
+ for(let n=0;n<6;n++)await Promise.resolve();
+ assert.equal(el('run').disabled,false,
+  'edited-case analysis GET rejection permanently disabled run button');
+ assert.equal(run('lastJob'),null,'failed analysis did not retire job identity');
+
  console.log('UI cross-case isolation, safe idea import and workflow guide PASS');
 })().catch(e=>{console.error(e);process.exitCode=1});

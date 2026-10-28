@@ -53,7 +53,10 @@ const ctx={
  markedCodes(){return [...new Set(ctx.research.messages.flatMap(m=>m.codes))].sort()},
  verifiedCodes(){return new Set()},
  loadMark(){},renderMarks(){rendered++},renderIdeas(){},
- presentCase(){this.initializeMarks()}
+ presentCase(){
+  ctx.ideaSnapshots=[copy(ctx.research.candidate_ideas)];ctx.ideaCursor=0;
+  ctx.initializeMarks();
+ }
 };
 vm.createContext(ctx);
 vm.runInContext(get('function persistMarkHistory()','function initializeMarks()'),ctx);
@@ -62,7 +65,12 @@ vm.runInContext(get('function navigateMarks(','function renderMarks()'),ctx);
 vm.runInContext(get('function deleteMessage()','function newProfile()'),ctx);
 
 // The current marks are empty; an old snapshot still contains a code that
-// occurs only in the message about to be deleted.
+// occurs only in the message about to be deleted. Cancel means no mutation.
+confirmDeletion=false;
+const beforeDeletion=copy(ctx.research);
+ctx.deleteMessage();
+assert.deepEqual(copy(ctx.research),beforeDeletion,'cancelling delete altered the case');
+confirmDeletion=true;
 ctx.deleteMessage();
 assert.deepEqual(copy(ctx.research.messages.map(m=>m.id)),['m2']);
 assert(!('101' in ctx.research.candidate_ideas),'orphan idea was not removed');

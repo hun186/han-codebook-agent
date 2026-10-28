@@ -38,7 +38,8 @@ const ctx={
   el('markCode').value=codes[0];
   el('markCode').options=codes.map(value=>({value,disabled:false}));
  },
- renderIdeas(){},loadMark(){},renderMarks(){},Blob
+ renderIdeas(){},loadMark(){},renderMarks(){},
+ copyIdeas:x=>JSON.parse(JSON.stringify(x)),copyMarks:x=>JSON.parse(JSON.stringify(x)),Blob
 };
 ctx.msg=()=>obj.messages[0];
 vm.createContext(ctx);

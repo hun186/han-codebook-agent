@@ -212,6 +212,10 @@ class HumanReviewHTTPTest(unittest.TestCase):
             else:
                 self.fail("Second round review not available")
             code,_=self.post(f"/api/jobs/{id}/review",
+                 self.review_payload(id,[],["人工新增一"]))
+            self.assertEqual(code,400,"An accepted prior-round word must not consume a new review token")
+            self.assertEqual(self.get("/api/jobs/"+id)["status"],"awaiting_review")
+            code,_=self.post(f"/api/jobs/{id}/review",
                  self.review_payload(id,[],["全由人工提出"]))
             self.assertEqual(code,200)
             self.wait_status(id,"failed")
@@ -229,7 +233,7 @@ class HumanReviewHTTPTest(unittest.TestCase):
             self.assertEqual(status,202,body)
             id=body["job_id"]
             self.wait_status(id,"awaiting_review")
-            for bad in ([""],["重複詞","重複詞"],["一"*25],
+            for bad in ([""],["補給"],["重複詞","重複詞"],["一"*25],
                         ["研究" + chr(10) + "字"],["模型提議"],
                         ["新詞"+str(n) for n in range(33)]):
                 code,_=self.post(f"/api/jobs/{id}/review",

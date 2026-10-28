@@ -1,0 +1,372 @@
+/* Browser-only API adapter for the canonical research workbench.
+ * All responses are deterministic MOCK simulations from public synthetic fixtures.
+ * No HTTP requests to Python, Ollama, public LLMs, or customer endpoints.
+ */
+(() => {
+  'use strict';
+  const nativeFetch = globalThis.fetch.bind(globalThis);
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const cases = new Map();
+  const jobs = new Map();
+  let initialized = null;
+  let seed = null;
+  let sequence = 0;
+  const oracleFields = ['gold', 'ground_truth', 'codebook'];
+  const allowedCases = [10, 25, 50, 100];
+
+  function safeCase(input) {
+    if (!input || typeof input !== 'object' || Array.isArray(input) ||
+        oracleFields.some(k => Object.hasOwn(input, k))) {
+      throw Error('Mock demo only accepts research cases without embedded evaluation answers');
+    }
+    if (!Array.isArray(input.messages) || !input.messages.length ||
+        !input.profiles || typeof input.profiles !== 'object') {
+      throw Error('Case requires messages and profiles');
+    }
+    if (input.messages.some(m => !Array.isArray(m.codes) || !m.codes.length ||
+        m.codes.some(c => typeof c !== 'string' || !/^\d+$/.test(c)))) {
+      throw Error('Codes must be numeric strings');
+    }
+    return clone(input);
+  }
+  function lexicalCandidates(caseData) {
+    const words = new Set();
+    for (const p of Object.values(caseData.profiles || {})) {
+      for (const w of Object.keys(p.lexicon || {})) words.add(w);
+      for (const sentence of p.sentences || []) for (const w of sentence) words.add(w);
+    }
+    for (const ideas of Object.values(caseData.candidate_ideas || {})) {
+      for (const idea of ideas) if (idea.status !== 'rejected') words.add(idea.term);
+    }
+    return [...words].filter(w => typeof w === 'string' && w.length > 0 && w.length <= 32).sort();
+  }
+  const unique = arr => [...new Set(arr.filter(x => typeof x === 'string' && x))];
+  const stableIndex = (code, length) => {
+    let h = 2166136261;
+    for (const x of code) h = Math.imul(h ^ x.charCodeAt(0), 16777619);
+    return (h >>> 0) % Math.max(1, length);
+  };
+  function makeCase(rec) {
+    const words = unique(Object.values(rec.statistical).flatMap(p => p.alternatives));
+    const priors = Object.fromEntries(words.map((w, i) => [w, (i % 5) + 1]));
+    return {
+      case_id: 'demo_' + rec.size,
+      description: '公開合成資料 ' + rec.size + ' 封；所有候選與模型輸出均為 MOCK',
+      profiles: {
+        logistics: {keywords: ['補給', '後勤', '倉庫'], lexicon: clone(priors), sentences: [
+          ['補給', '車隊', '出發'], ['糧秣', '倉庫', '報告']
+        ]},
+        operations: {keywords: ['軍司令', '作戰', '第二營'], lexicon: clone(priors), sentences: [
+          ['兵力', '集結', '前線'], ['第二營', '奉令', '報告']
+        ]},
+      },
+      messages: clone(rec.messages),
+      known_pairs: [],
+      candidate_ideas: {},
+    };
+  }
+  async function setup() {
+    if (!initialized) initialized = (async () => {
+      const r = await nativeFetch('/data/demo.json', {cache:'no-store'});
+      if (!r.ok) throw Error('Public synthetic fixture unavailable');
+      seed = await r.json();
+      if (seed.kind !== 'PUBLIC_SYNTHETIC_MOCK' || seed.llm_used !== false ||
+          !Array.isArray(seed.records)) throw Error('Invalid public mock fixture');
+      for (const size of allowedCases) {
+        const rec = seed.records.find(x => x.size === size);
+        if (!rec) throw Error('Missing public synthetic size ' + size);
+        cases.set('demo_' + size, makeCase(rec));
+      }
+    })();
+    return initialized;
+  }
+  function mockMapping(caseData, rounds) {
+    const n = caseData.messages.length;
+    const source = seed.records.find(x => x.size >= n) || seed.records.at(-1);
+    const base = source.statistical;
+    const model = source.mock;
+    const fromData = rounds ? model : base;
+    const vocab = lexicalCandidates(caseData);
+    const codes = unique(caseData.messages.flatMap(m => m.codes)).sort();
+    const verified = {};
+    const byMessage = Object.fromEntries(caseData.messages.map(m => [m.id, m.codes]));
+    for (const pair of caseData.known_pairs || []) {
+      if (!pair.segments) continue;
+      const seq = byMessage[pair.message_id];
+      if (!seq || seq.length !== pair.segments.length) throw Error('Known plaintext alignment differs from cipher code count');
+      seq.forEach((code, i) => {
+        const word = pair.segments[i];
+        if (!word || verified[code] && verified[code] !== word) throw Error('Contradictory verified known plaintext');
+        verified[code] = word;
+      });
+    }
+    const proposals = {};
+    for (const code of codes) {
+      if (Object.hasOwn(verified, code)) {
+        proposals[code] = {term:verified[code], status:'verified_alignment', alternatives:[], evidence:'Only explicit researcher-entered segmented pairs'};
+        continue;
+      }
+      const mark = (caseData.hypothesis_marks || {})[code] || {};
+      const ideas = ((caseData.candidate_ideas || {})[code] || []).filter(x => x.status !== 'rejected');
+      const ranked = unique([
+        ...ideas.filter(x => x.status === 'shortlisted').map(x => x.term),
+        ...(fromData[code]?.alternatives || []),
+        ...ideas.map(x => x.term),
+        ...vocab,
+      ]);
+      let candidates = mark.pinned && mark.preferred ? [mark.preferred] :
+        ranked.filter(w => !(mark.excluded || []).includes(w));
+      if (!candidates.length) {
+        throw Error('Mock code ' + code + ': researcher exclusions remove every candidate');
+      }
+      if (mark.preferred && !mark.pinned && candidates.includes(mark.preferred)) {
+        candidates = [mark.preferred, ...candidates.filter(w => w !== mark.preferred)];
+      }
+      const selected = fromData[code] ? candidates[0] : candidates[stableIndex(code, candidates.length)];
+      const alternatives = unique([selected, ...candidates]).slice(0,5).map((term, i) => ({
+        term, relative_score: -i * 0.25,
+      }));
+      proposals[code] = {
+        term:selected, status:'hypothesis_unverified',
+        alternatives, score_gap_to_second:0.25,
+        researcher_mark:mark.preferred || mark.excluded?.length ? mark : null,
+        evidence:'MOCK lexical proposal, not verified decoding',
+      };
+    }
+    const decoded_messages = caseData.messages.map(m => {
+      const pieces = m.codes.map(c => proposals[c].term);
+      const domain = m.domain || (m.sender?.includes('軍') ? 'operations' : 'logistics');
+      return {id:m.id, codes:clone(m.codes), suggested_segments:pieces,
+        reading:pieces.join(''),domain_inferred:domain,
+        verified_codes:m.codes.filter(c => Object.hasOwn(verified,c)).length,
+        total_codes:m.codes.length};
+    });
+    return {case_id:caseData.case_id, proposals, decoded_messages, verified_anchors:verified,
+      agent_rounds_completed:rounds, known_code_count:Object.keys(verified).length,
+      unknown_code_count:codes.length-Object.keys(verified).length,
+      objective_score:-codes.length,
+      model:'BROWSER MOCK — no actual model inference', metadata_used:true,
+      limitations:['PUBLIC MOCK: rankings are simulated, not real decryption.',
+        'No real LLM calls; never treat generated Chinese as historical plaintext.']};
+  }
+  function analysis(caseData, rounds) {
+    const baseline=mockMapping(caseData, 0);
+    const result=mockMapping(caseData, rounds);
+    const events=[{round:0,stage:'statistical_baseline',payload:{score:baseline.objective_score,changed_count:0}}];
+    for(let n=1;n<=rounds;n++){
+      const accepted = Object.entries(result.proposals)
+        .filter(([,p])=>p.status==='hypothesis_unverified')
+        .slice(0,15).map(([code,p])=>({code,candidates:p.alternatives.map(a=>a.term).slice(0,2),
+          reason:'PUBLIC MOCK simulated candidate, not a model response'}));
+      events.push({round:n,stage:'llm_proposals_unverified',payload:{accepted,rejected_count:0}});
+      events.push({round:n,stage:'rescore',payload:{score:-Object.keys(result.proposals).length+n*0.1,
+        changed_count:Object.keys(result.proposals).filter(c=>baseline.proposals[c]?.term!==result.proposals[c].term).length,
+        changes:{}}});
+    }
+    return {result, events};
+  }
+  function eventLinks(caseData) {
+    const events=[];
+    for(const m of caseData.messages)for(const obs of m.observations||[]){
+      const observedAt=obs.observed_at||'';
+      const ms=Date.parse(observedAt);
+      const candidates=caseData.messages.map(other=>{
+        const delta=Number.isFinite(ms)? Math.round((Date.parse(other.received_at||'')-ms)/86400000):null;
+        return {message_id:other.id, score:delta===null?0.05:+Math.max(0,0.6-Math.abs(delta)*0.1).toFixed(2),
+          day_offset:delta===null?undefined:delta,
+          basis:'MOCK 時間鄰近假說，沒有語意配對或真實模型'};
+      }).sort((a,b)=>b.score-a.score).slice(0,3);
+      candidates.push({message_id:null,score:0.35,basis:'可能完全無關，需由研究員人工確認'});
+      events.push({source:obs.source||'公開合成觀察',observed_at:observedAt,
+        activity:obs.activity||obs.note||'',status:obs.status||'未確認',
+        confidence:obs.confidence??0.5,event_id:m.id+'-obs-'+events.length,candidates});
+    }
+    return {events};
+  }
+  function benchmark() {
+    return {fictional_synthetic:true, real_cryptanalytic_success_not_established:true,
+      runs:seed.records.map(rec=>({
+        case_id:'demo_'+rec.size,metadata:true,llm_rounds:0,
+        metrics:{
+          unknown_code_top1_rate:rec.metrics.statistical.correct/rec.metrics.statistical.total,
+          non_crib_exact_rate:0,
+          verified_anchor_count:0,
+          unknown_code_count:rec.metrics.statistical.total,
+        },
+      }))};
+  }
+  const nextId=()=>String(++sequence).padStart(16,'0');
+  function job(type, value, events=[]) {
+    const id=nextId();
+    jobs.set(id,{id,type,status:'completed',logs:['PUBLIC MOCK · 純瀏覽器模擬，未呼叫 Python／真實 LLM'],result:value,events,error:null});
+    return {job_id:id};
+  }
+  const settings=()=>({base_url:'MOCK (no network)',endpoint:'MOCK (no network)',
+    model:'PUBLIC MOCK LLM',timeout_seconds:90,allow_private_network:false,
+    allowed_hosts:[],api_key_env:null,capture_io_available:false,
+    note:'Vercel static demo is disconnected from all model endpoints.'});
+  function handle(path, data) {
+    const url=new URL(path,globalThis.location?.origin||'https://demo.invalid');
+    const route=url.pathname;
+    if (data && oracleFields.some(k=>Object.hasOwn(data,k))) throw Error('Embedded gold is not allowed');
+    if(route==='/api/cases')return [...cases.keys()].map(id=>({id}));
+    if(route==='/api/case'){
+      const item=cases.get(url.searchParams.get('id'));
+      if(!item)throw Error('Unknown case');
+      return clone(item);
+    }
+    if(route==='/api/settings')return settings();
+    if(route==='/api/settings/llm')throw Error('公開展示不允許更改模型端點；此頁永遠使用固定 MOCK LLM，不會向任何網址發送資料');
+    if(route==='/api/settings/test')return {connected:false,diagnostics:['STATIC MOCK: no TCP or model probe was made'],
+      note:'This website cannot access local or LAN models.'};
+    if(route==='/api/event-links')return eventLinks(safeCase(data.case));
+    if(route==='/api/suggest-vocabulary'){
+      const c=safeCase(data.case);
+      if(data.confirmed!==true)throw Error('Mock vocabulary action requires explicit confirmation');
+      if((c.known_pairs||[]).length)throw Error('Cold-start candidates require no known plaintext pairs');
+      const vocabulary=lexicalCandidates(c);
+      const candidates=unique([
+        ...Object.values(seed.records[0].mock).slice(0,14).map(p=>p.term),
+        ...vocabulary,
+      ]).slice(0,32);
+      return job('vocabulary',{terms:candidates.map(term=>({term,reason:'MOCK 背景語彙候選，須人工審查'})),
+        patterns:[['補給','車隊','出發']],model:'PUBLIC MOCK',status:'unverified_pending_researcher_review'});
+    }
+    if(route==='/api/save'){
+      const c=safeCase(data.case),name=data.name;
+      if(typeof name!=='string'|| !/^[A-Za-z0-9_-]{1,50}$/.test(name))throw Error('Invalid case name');
+      if(cases.has(name))throw Error('Case already exists (create-only)');
+      cases.set(name,c);
+      return {saved_as:name, note:'Temporary browser session only; refresh clears saved changes'};
+    }
+    if(route==='/api/start'){
+      const c=safeCase(data.case);
+      const rounds=data.rounds??0;
+      if(!Number.isInteger(rounds)||rounds<0||rounds>20)throw Error('Rounds must be 0..20');
+      const out=analysis(c,rounds);
+      return job('analysis',out.result,out.events);
+    }
+    if(route==='/api/benchmark')return benchmark();
+    if(route==='/api/start-benchmark')return job('benchmark',benchmark());
+    const match=route.match(/^\/api\/jobs\/([0-9a-f]{16})$/);
+    if(match){
+      const item=jobs.get(match[1]);
+      if(!item)throw Error('Unknown job');
+      return clone(item);
+    }
+    throw Error('Unknown mock API endpoint: '+route);
+  }
+  function jsonResponse(data,status=200) {
+    return new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json; charset=utf-8'}});
+  }
+  globalThis.fetch=async (resource, options={}) => {
+    const url=new URL(typeof resource==='string'?resource:resource.url,globalThis.location?.origin||'https://demo.invalid');
+    const ownOrigin=globalThis.location?.origin||url.origin;
+    if(url.origin!==ownOrigin)throw Error('Public mock refuses external network requests');
+    if(!url.pathname.startsWith('/api/')) return nativeFetch(resource,options);
+    try{
+      await setup();
+      const body=options.body?JSON.parse(options.body):undefined;
+      return jsonResponse(handle(url.href,body));
+    }catch(error){
+      return jsonResponse({error:String(error.message||error)},400);
+    }
+  };
+
+  // The original GUI expects the same API report routes as the local Python
+  // backend; offer genuinely downloadable MOCK artifacts without a server.
+  const escapeXml =s=>String(s??'').replace(/[&<>"']/g,c=>({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'
+  }[c]));
+  const enc =new TextEncoder();
+  function bytesU16(n){return Uint8Array.of(n&255,(n>>>8)&255)}
+  function bytesU32(n){return Uint8Array.of(n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255)}
+  function concat(arr) {
+    const result=new Uint8Array(arr.reduce((n,a)=>n+a.length,0));let i=0;
+    for(const a of arr){result.set(a,i);i+=a.length}return result;
+  }
+  function crc32(data) {
+    let crc=0xffffffff;
+    for(const byte of data){crc^=byte;for(let j=0;j<8;j++)crc=(crc>>>1)^((crc&1)?0xedb88320:0)}
+    return (crc^0xffffffff)>>>0;
+  }
+  function zip(entries) {
+    const files=[],central=[];let offset=0;
+    for(const [name,text] of entries){
+      const filename=enc.encode(name),data=enc.encode(text),crc=crc32(data);
+      const local=concat([bytesU32(0x04034b50),bytesU16(20),bytesU16(0),bytesU16(0),
+        bytesU16(0),bytesU16(0),bytesU32(crc),bytesU32(data.length),bytesU32(data.length),
+        bytesU16(filename.length),bytesU16(0),filename,data]);
+      files.push(local);
+      central.push(concat([bytesU32(0x02014b50),bytesU16(20),bytesU16(20),bytesU16(0),
+        bytesU16(0),bytesU16(0),bytesU16(0),bytesU32(crc),bytesU32(data.length),
+        bytesU32(data.length),bytesU16(filename.length),bytesU16(0),bytesU16(0),
+        bytesU16(0),bytesU16(0),bytesU32(0),bytesU32(offset),filename]));
+      offset+=local.length;
+    }
+    const middle=concat(central);
+    const end=concat([bytesU32(0x06054b50),bytesU16(0),bytesU16(0),
+      bytesU16(entries.length),bytesU16(entries.length),bytesU32(middle.length),
+      bytesU32(offset),bytesU16(0)]);
+    return concat([...files,middle,end]);
+  }
+  function reportDocx(result) {
+    const para=text=>'<w:p><w:r><w:t xml:space="preserve">'+escapeXml(text)+'</w:t></w:r></w:p>';
+    const cell=text=>'<w:tc>'+para(text)+'</w:tc>';
+    const row=arr=>'<w:tr>'+arr.map(cell).join('')+'</w:tr>';
+    const table='<w:tbl>'+[
+      ['數字碼組','模擬候選','狀態'],
+      ...Object.entries(result.proposals).map(([c,p])=>[c,p.term,p.status])
+    ].map(row).join('')+'</w:tbl>';
+    const doc='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+      +'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'
+      +para('Han Codebook Agent · PUBLIC MOCK 研究報告')
+      +para('此報告來自公開合成資料與瀏覽器模擬，沒有執行真正的 LLM／Python 推論，也不代表解開歷史密電。')
+      +para('案例：'+result.case_id+'　電文：'+result.decoded_messages.length+'　MOCK 回合：'+result.agent_rounds_completed)
+      +table+'<w:sectPr/></w:body></w:document>';
+    const types='<?xml version="1.0" encoding="UTF-8"?>'
+      +'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+      +'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+      +'<Default Extension="xml" ContentType="application/xml"/>'
+      +'<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+      +'</Types>';
+    const rels='<?xml version="1.0" encoding="UTF-8"?>'
+      +'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      +'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+      +'</Relationships>';
+    return zip([['[Content_Types].xml',types],['_rels/.rels',rels],['word/document.xml',doc]]);
+  }
+  function reportMarkdown(result) {
+    return '# PUBLIC MOCK · 中文數字碼本研究報告\n\n'
+      +'**公開合成資料；瀏覽器內的模擬結果，不是歷史密文的破譯。**\n\n'
+      +'案例：'+result.case_id+'\n\n'
+      +'| 數字碼組 | 模擬候選 | 狀態 |\n|---|---|---|\n'
+      +Object.entries(result.proposals).map(([c,p])=>'| '+c+' | '+p.term+' | '+p.status+' |').join('\n')+'\n';
+  }
+  function downloadMock(link,ext,jobId){
+    const item=jobs.get(jobId);
+    if(!item || item.type!=='analysis'||item.status!=='completed')return;
+    const body=ext==='docx'?reportDocx(item.result):enc.encode(reportMarkdown(item.result));
+    const content=ext==='docx'?'application/vnd.openxmlformats-officedocument.wordprocessingml.document':'text/markdown;charset=utf-8';
+    const objectUrl=URL.createObjectURL(new Blob([body],{type:content}));
+    const a=document.createElement('a');
+    a.href=objectUrl;a.download='PUBLIC-MOCK-research-report.'+ext;
+    document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(objectUrl),1000);
+  }
+  document.addEventListener('click',event=>{
+    const link=event.target.closest?.('a[href]');
+    if(!link)return;
+    const path=new URL(link.href,location.href).pathname;
+    const match=path.match(/^\/api\/jobs\/([0-9a-f]{16})\/report\.(docx|md)$/);
+    if(match){event.preventDefault();downloadMock(link,match[2],match[1])}
+  },true);
+
+  globalThis.HanMockDemo = Object.freeze({
+    // Read-only inspection helpers for automated regression tests.
+    getJob:id=>jobs.get(id)?clone(jobs.get(id)):null,
+    getSavedCase:id=>cases.get(id)?clone(cases.get(id)):null,
+    makeDocxForTest:reportDocx,
+    runForTest:handle,
+  });
+})();

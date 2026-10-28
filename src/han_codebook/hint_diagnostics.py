@@ -77,6 +77,7 @@ def compare(case: dict, reply: dict, *, iterations: int = 2, restarts: int = 2,
             "mapping": mapping,
         })
     return {
+        "case_id": case.get("case_id"),
         "mode": "offline-LLM-replay; NO model calls",
         "no_oracle_during_inference": True,
         "accepted_hypotheses": accepted,
@@ -87,6 +88,9 @@ def compare(case: dict, reply: dict, *, iterations: int = 2, restarts: int = 2,
 
 def evaluate_after_inference(report: dict, gold: dict) -> dict:
     """Synthetic oracle scoring after all assignments; never feeds results into analyze."""
+    if (not isinstance(report.get("case_id"), str) or not report["case_id"]
+            or report["case_id"] != gold.get("case_id")):
+        raise CaseError("synthetic gold case_id mismatch; refusing cross-codebook evaluation")
     if not isinstance(gold.get("codebook"), dict):
         raise CaseError("synthetic gold requires codebook object")
     output = deepcopy(report)

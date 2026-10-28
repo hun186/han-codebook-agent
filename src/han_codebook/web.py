@@ -161,6 +161,51 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                 return
             try:
                 data = self._body()
+                if self.path == "/api/event-links":
+                    case = data.get("case")
+                    if not isinstance(case, dict) or any(k in case for k in ("gold", "codebook", "ground_truth")):
+                        raise CaseError("Event analysis requires a research case without embedded gold")
+                    from .event_links import suggest_event_links
+                    return self._json(200, {"events": suggest_event_links(case)})
+                if self.path == "/api/suggest-vocabulary":
+                    case = data.get("case")
+                    if not isinstance(case, dict) or any(k in case for k in ("gold", "codebook", "ground_truth")):
+                        raise CaseError("LLM candidate generation requires a case without gold")
+                    validate_case(case)
+                    if case.get("known_pairs"):
+                        raise CaseError("Cold-start candidate generation requires no known plaintext pairs")
+                    if data.get("confirmed") is not True:
+                        raise CaseError("LLM network use must be explicitly confirmed")
+                    with jobs_lock:
+                        if any(j["status"] in ("queued", "running") for j in jobs.values()):
+                            return self._json(409, {"error": "An investigation is already running"})
+                        job_id = secrets.token_hex(8)
+                        jobs[job_id] = {"id":job_id,"type":"vocabulary","status":"queued",
+                                        "logs":[],"result":None,"events":[],"error":None}
+                    input_case = copy.deepcopy(case)
+                    def vocabulary_work():
+                        with jobs_lock:
+                            jobs[job_id]["status"] = "running"
+                        def progress(message):
+                            with jobs_lock:
+                                jobs[job_id]["logs"].append(str(message))
+                        try:
+                            from .auto_vocabulary import generate_vocabulary
+                            cfg = load_settings(settings_path)["llm"]
+                            _,record = generate_vocabulary(input_case,metadata=data.get("use_metadata", True),
+                                 llm_settings=cfg,progress=progress,capture_io=False)
+                            # Do not mutate user profiles/ideas; proposals remain pending review.
+                            with jobs_lock:
+                                jobs[job_id]["result"] = {"terms":record["terms"],
+                                      "patterns":record["patterns"],"model":record["model"],
+                                      "status":"unverified_pending_researcher_review"}
+                                jobs[job_id]["status"] = "completed"
+                        except Exception as exc:
+                            with jobs_lock:
+                                jobs[job_id]["status"]="failed"
+                                jobs[job_id]["error"]=f"{type(exc).__name__}: {exc}"
+                    threading.Thread(target=vocabulary_work,daemon=True,name="vocabulary-job").start()
+                    return self._json(202,{"job_id":job_id})
                 if self.path == "/api/save":
                     case = data.get("case")
                     if not isinstance(case, dict) or "ground_truth" in case:

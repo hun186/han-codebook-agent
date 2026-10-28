@@ -239,6 +239,10 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         from .hypothesis_marks import normalize_marks
         marks = normalize_marks(case, anchors)
         vocab.update(mark['preferred'] for mark in marks.values() if mark['preferred'])
+        from .candidate_ideas import idea_vocabulary
+        from .event_links import suggest_event_links
+        vocab.update(idea_vocabulary(case))
+        events = suggest_event_links(case) if metadata else []
         domains = list(case["profiles"])
         log_event(conn, 0, "run_started", {"run_id": run_id, "model": model if rounds else None, "rounds_requested": rounds, "capture_llm_io": capture_llm_io})
         if marks:
@@ -248,6 +252,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         hints: dict[str, dict[str, float]] = {}
         if progress:
             progress("[analysis] Computing local statistical baseline ...")
+        from .llm_evidence import safe_llm_message
         current = analyze(case, use_metadata=metadata, iterations=solver_iterations, restarts=solver_restarts)
         log_event(conn, 0, "statistical_baseline", {"score": current["objective_score"],
                                                      "mapping": {c: p["term"] for c, p in current["proposals"].items()}})
@@ -260,12 +265,12 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 "policy": "Propose dictionary-constrained hypotheses only; you have no decoding oracle.",
                 "verified_anchors": anchors,
                 "researcher_hypotheses_unverified": marks,
+                "researcher_idea_bank_unverified": case.get("candidate_ideas", {}),
+                "temporal_event_link_hypotheses": events[:24],
                 "available_vocabulary": sorted(vocab),
                 "profiles": {name: {"keywords": p.get("keywords", []), "lexicon": p.get("lexicon", {})}
                              for name, p in case["profiles"].items()},
-                "messages": (case["messages"][:50] if metadata else [
-                    {"id": m["id"], "codes": m["codes"]} for m in case["messages"][:50]
-                ]),
+                "messages": [safe_llm_message(m, metadata=metadata) for m in case["messages"][:50]],
                 "unresolved": unresolved,
             }
             if progress:

@@ -33,6 +33,11 @@ def validate_case(case: dict[str, Any]) -> None:
         if not isinstance(m.get("id"), str) or m["id"] in ids:
             raise CaseError("each message must have a unique string id")
         ids.add(m["id"])
+        # Never coerce nested objects into metadata text: they might contain
+        # an evaluation oracle that spuriously changes domain inference.
+        for key in ("sender", "recipient", "received_at", "notes", "unit", "domain"):
+            if key in m and not isinstance(m[key], str):
+                raise CaseError(f"message {m['id']}: {key} must be plain text")
         if not isinstance(m.get("codes"), list) or not m["codes"] or not all(isinstance(x, str) and x.isdigit() for x in m["codes"]):
             raise CaseError(f"message {m['id']}: codes must be a non-empty array of digit strings")
     if not isinstance(case.get("profiles"), dict) or not case["profiles"]:
@@ -45,6 +50,8 @@ def validate_case(case: dict[str, Any]) -> None:
         for sentence in profile.get("sentences", []):
             if not isinstance(sentence, list) or not all(isinstance(s, str) and s for s in sentence):
                 raise CaseError(f"profile {domain} sentence must be array of nonempty words")
+    if case.get("observation_policy", "legacy") not in ("legacy", "time_relevance"):
+        raise CaseError("observation_policy must be legacy or time_relevance")
     for m in case["messages"]:
         obs = m.get("observations", [])
         if not isinstance(obs, list):
@@ -52,6 +59,11 @@ def validate_case(case: dict[str, Any]) -> None:
         for o in obs:
             if not isinstance(o, dict) or not isinstance(o.get("source"), str) or not o["source"].strip():
                 raise CaseError(f"message {m['id']}: observation must have a source")
+            # Unknown fields are allowed for archival records, but no solver
+            # or LLM path may use them as evidence (strict field whitelist).
+            # Historical records may contain nested ancillary fields. Keep
+            # them archived but only primitive whitelisted fields enter model
+            # or inference; see domain_for_message and safe_llm_message.
             if not isinstance(o.get("note", ""), str):
                 raise CaseError(f"message {m['id']}: observation note must be text")
             confidence = o.get("confidence", 0.5)
@@ -69,21 +81,52 @@ def validate_case(case: dict[str, Any]) -> None:
                 raise CaseError(f"known pair {m_id}: segments do not concatenate to plaintext")
 
 
+    from .candidate_ideas import normalize_ideas
+    normalize_ideas(case)
     if 'hypothesis_marks' in case:
         from .hypothesis_marks import normalize_marks
         anchors, _, _ = anchors_and_review(case)
         normalize_marks(case, anchors)
 
-def domain_for_message(message: dict[str, Any], profiles: dict[str, Any], use_metadata: bool) -> str | None:
+def _observation_relevance(message: dict[str, Any], observation: dict[str, Any]) -> float:
+    """Non-oracle, optional time and status discount; not proof of a link.
+
+    Date-only records are compared as dates, not fabricated midnight timestamps.
+    """
+    from datetime import datetime
+    status = observation.get("status", "")
+    if not isinstance(status, str):
+        return 0.0
+    if any(flag in status for flag in ("無關", "不相關", "已排除")):
+        return 0.0
+    weight = 0.35 if "未確認" in status else 1.0
+    observed = observation.get("observed_at", "")
+    received = message.get("received_at", "")
+    if not isinstance(observed, str) or not isinstance(received, str) or not observed or not received:
+        return weight * 0.5
+    try:
+        if len(observed) == 10 or len(received) == 10:
+            days = abs((datetime.fromisoformat(observed).date() - datetime.fromisoformat(received).date()).days)
+            return weight * max(0.0, 1.0 - days / 3.0)
+        hours = abs((datetime.fromisoformat(observed) - datetime.fromisoformat(received)).total_seconds()) / 3600
+        return weight * max(0.0, 1.0 - hours / 48.0)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+
+
+def domain_for_message(message: dict[str, Any], profiles: dict[str, Any], use_metadata: bool,
+                       observation_policy: str = "legacy") -> str | None:
     if not use_metadata:
         return None
-    if message.get("domain") in profiles:
+    if isinstance(message.get("domain"), str) and message.get("domain") in profiles:
         return message["domain"]
-    text = " ".join(str(message.get(k, "")) for k in ("sender", "recipient", "notes", "unit"))
+    text = " ".join((message.get(k) if isinstance(message.get(k), str) else "") for k in ("sender", "recipient", "notes", "unit"))
     observations = message.get("observations", [])
     # Third-party sightings are uncertain context, not verified plaintext.
-    observation_texts = [(" ".join(str(o.get(key, "")) for key in ("note", "destination", "status", "activity")),
-                          float(o.get("confidence", 0.5))) for o in observations]
+    observation_texts = [(" ".join((o.get(key) if isinstance(o.get(key), str) else "") for key in ("note", "destination", "status", "activity")),
+                          float(o.get("confidence", 0.5)) *
+                          (_observation_relevance(message,o) if observation_policy == "time_relevance" else 1.0))
+                         for o in observations]
     points = {
         name: sum(len(keyword) for keyword in profile.get("keywords", []) if keyword in text)
         + 0.6 * sum(len(keyword) * confidence for note, confidence in observation_texts
@@ -192,19 +235,25 @@ def build_models(case: dict[str, Any], anchors: dict[str, str], extra_vocabulary
 
 
 def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str, dict[str, float]] | None = None,
-            iterations: int = 8, restarts: int = 4, seed: int = 7) -> dict[str, Any]:
+            iterations: int = 8, restarts: int = 4, seed: int = 7, hint_scale: float = 1.0) -> dict[str, Any]:
     """Local coordinate-ascent codebook hypotheses, with immutable verified anchors."""
+    if isinstance(hint_scale, bool) or not isinstance(hint_scale, (int, float)) or not math.isfinite(hint_scale) or not 0 <= hint_scale <= 4:
+        raise CaseError("hint_scale must be a finite number between 0 and 4")
     validate_case(case)
     anchors, reviews, vocab = anchors_and_review(case)
     from .hypothesis_marks import normalize_marks
     marks = normalize_marks(case, anchors)
+    from .candidate_ideas import idea_vocabulary, shortlisted_bonus
+    idea_terms = idea_vocabulary(case)
+    idea_hints = shortlisted_bonus(case)
     extra_terms = {m["preferred"] for m in marks.values() if m["preferred"]}
+    extra_terms.update(idea_terms)
     vocab.update(extra_terms)
     if not vocab:
         raise CaseError("empty vocabulary; provide profile lexicon or sample sentences")
     messages = case["messages"]
     models = build_models(case, anchors, extra_terms)
-    tagged = [(m, domain_for_message(m, case["profiles"], use_metadata)) for m in messages]
+    tagged = [(m, domain_for_message(m, case["profiles"], use_metadata, case.get("observation_policy", "legacy"))) for m in messages]
     all_codes = sorted({code for m in messages for code in m["codes"]})
     unknown_codes = [code for code in all_codes if code not in anchors]
     freq = Counter(code for m in messages for code in m["codes"])
@@ -218,6 +267,18 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
             raise CaseError(f'code {code}: researcher exclusions remove every candidate')
         allowed_choices[code] = allowed
     hints = llm_hints or {}
+    # Separately calibrate trust in the LLM without changing proposal weights.
+    # 0 disables all LLM influence; 1 reproduces legacy objective weights.
+    def hint(code: str, word: str) -> float:
+        raw = hints.get(code, {}).get(word, 0.0)
+        if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not math.isfinite(raw):
+            raise CaseError('LLM hint weights must be finite numeric values')
+        return hint_scale * min(0.6, max(0.0, raw)) + idea_hints.get(code, {}).get(word, 0.0)
+    for code, values in hints.items():
+        if not isinstance(values, dict):
+            raise CaseError('LLM code hints must be objects')
+        for word in values:
+            hint(code, word)
 
     # Cache vocabulary probabilities. The same domain/word pairs are queried
     # repeatedly during coordinate search, particularly for 100+ telegrams.
@@ -258,7 +319,7 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
             if next_code != code:
                 multiplier = 0.9 if next_code == "</S>" else 1.7
                 delta += multiplier * (transition(domain, candidate, new_right) - transition(domain, previous_word, old_right))
-            delta += min(0.6, max(0.0, hints.get(code, {}).get(candidate, 0.0))) - min(0.6, max(0.0, hints.get(code, {}).get(previous_word, 0.0)))
+            delta += hint(code, candidate) - hint(code, previous_word)
             preferred = marks.get(code, {}).get('preferred')
             if preferred:
                 delta += 2.0 * (int(candidate == preferred) - int(previous_word == preferred))
@@ -277,7 +338,7 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
                 word = assignment[code]
                 out += 0.55 * unigram(domain, word)
                 out += 1.7 * transition(domain, last, word)
-                out += min(0.6, max(0.0, hints.get(code, {}).get(word, 0.0)))
+                out += hint(code, word)
                 if marks.get(code, {}).get('preferred') == word:
                     out += 2.0
                 last = word
@@ -297,7 +358,7 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
         for code in unknown_codes:
             # Good initializations with occasional non-greedy starts for escaping local maxima.
             candidates = sorted(allowed_choices[code], key=lambda word: sum(
-                unigram(d, word) + hints.get(code, {}).get(word, 0.0)
+                unigram(d, word) + hint(code, word)
                 for m, d in tagged if code in m["codes"]), reverse=True)
             assignment[code] = candidates[0] if start == 0 else rng.choice(candidates[:min(8, len(candidates))])
         for sweep in range(iterations):
@@ -366,6 +427,8 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
         "case_id": case.get("case_id", "unnamed"),
         "model": "lexical + bigram constrained coordinate search (not a trained cryptanalytic LLM)",
         "metadata_used": use_metadata,
+        "observation_policy": case.get("observation_policy", "legacy"),
+        "llm_hint_scale": hint_scale,
         "distinct_phrases_assumed": distinct,
         "verified_anchors": anchors,
         "pair_review": reviews,

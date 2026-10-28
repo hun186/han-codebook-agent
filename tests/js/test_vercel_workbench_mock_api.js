@@ -73,6 +73,21 @@ const { TextEncoder } = require('node:util');
       assert.equal(bytes.readUInt32LE(bytes.length-22),0x06054b50);
     }
   }
+  const noMetadataId=(await post('/api/start',{
+    case:caseData,rounds:0,use_metadata:false
+  })).job_id;
+  const noMetadata=(await get('/api/jobs/'+noMetadataId)).result;
+  assert.equal(noMetadata.metadata_used,false);
+  assert.equal(noMetadata.decoded_messages[0].domain_inferred,null);
+  const preferredCase=JSON.parse(JSON.stringify(caseData));
+  const firstCode=preferredCase.messages[0].codes[0];
+  preferredCase.hypothesis_marks={
+    [firstCode]:{preferred:'研究員新詞',pinned:false,excluded:[],note:'mock preference'}
+  };
+  const preferId=(await post('/api/start',{case:preferredCase,rounds:0})).job_id;
+  const preferResult=(await get('/api/jobs/'+preferId)).result;
+  assert.equal(preferResult.proposals[firstCode].term,'研究員新詞');
+  assert.equal(preferResult.proposals[firstCode].status,'hypothesis_unverified');
   const proposal=await post('/api/suggest-vocabulary',{case:caseData,confirmed:true});
   const vocabJob=await get('/api/jobs/'+proposal.job_id);
   assert.equal(vocabJob.type,'vocabulary');

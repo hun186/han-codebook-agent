@@ -86,7 +86,13 @@ class VercelMockDemoTests(unittest.TestCase):
         js=(DEMO/'app.js').read_text(encoding='utf-8')
         html=(DEMO/'index.html').read_text(encoding='utf-8')
         self.assertNotIn('/v1/chat/completions',js+html)
-        self.assertNotIn('192.168.',js+html)
+        # Canonical GUI documentation mentions the generic RFC1918 form
+        # "192.168.x.x"; this is not a live endpoint. Check the actual
+        # browser network adapter, which must never target private hosts.
+        mock_api=(DEMO/'mock_api.js').read_text(encoding='utf-8')
+        self.assertNotIn('192.168.',mock_api)
+        self.assertNotIn('/v1/chat/completions',mock_api)
+        self.assertIn('refuses external network requests',mock_api)
         solver=(DEMO/'mock_solver.js').read_text(encoding='utf-8')
         self.assertNotIn('/v1/chat/completions',solver)
         self.assertNotIn('gold.json',solver)

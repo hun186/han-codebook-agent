@@ -9,6 +9,7 @@ import collections
 import csv
 import hashlib
 import json
+import sqlite3
 from pathlib import Path
 
 def digest(data:object)->str:
@@ -45,6 +46,46 @@ def score_case(public:dict,gold:dict,run:dict)->dict:
       "seconds":run["seconds"],"no_verified_anchors":True
     }
 
+def score_round_trace(public:dict,gold:dict,run:dict,results_dir:Path)->list[dict]:
+    """Evaluate baseline, post-vocabulary and post-hypothesis snapshots AFTER lock."""
+    messages=public["messages"][:run["n_messages"]]
+    freq=collections.Counter(c for m in messages for c in m["codes"])
+    truth=gold["code_to_word"]
+    path=results_dir/run["audit_sqlite"]
+    if path.parent.resolve()!=results_dir.resolve():
+        raise ValueError("Audit path escapes the locked results directory")
+    trace=[]
+    with sqlite3.connect(path) as db:
+        events=db.execute("SELECT round,stage,payload_json FROM events WHERE stage IN "
+             "('statistical_baseline','vocabulary_rescore','rescore') ORDER BY id").fetchall()
+    for round_number,stage,packed in events:
+        packet=json.loads(packed)
+        mapping=packet.get("mapping")
+        if not mapping:
+            # The baseline is optional when the new vocabulary bootstraps
+            # from scratch; no score is claimed for missing assignments.
+            continue
+        if set(mapping)!=set(freq):
+            raise ValueError("Audit mapping/code coverage differs from scoped public ciphertext")
+        hit={c for c in freq if mapping[c]==truth[c]}
+        trace.append({
+          "study":run["study"],"n_messages":run["n_messages"],
+          "condition":run["condition"],"round":round_number,"stage":stage,
+          "code_types":len(freq),"correct_types":len(hit),
+          "type_top1":round(len(hit)/len(freq),5),
+          "positions":sum(freq.values()),
+          "correct_positions":sum(freq[c] for c in hit),
+          "position_accuracy":round(sum(freq[c] for c in hit)/sum(freq.values()),5),
+          "complete_messages":sum(all(mapping[c]==truth[c] for c in m["codes"]) for m in messages),
+        })
+    if len([x for x in trace if x["stage"]=="rescore"])!=run["rounds"]:
+        raise ValueError("Audit does not contain one post-hypothesis rescore per LLM round")
+    final=next(x for x in reversed(trace) if x["stage"]=="rescore")
+    if final["correct_types"]!=sum(run["mapping"][c]==truth[c] for c in freq):
+        raise ValueError("Audit final mapping differs from locked predictions")
+    return trace
+
+
 def score(private_dir:Path,public_dir:Path,results_dir:Path)->dict:
     locked=results_dir/"predictions_LOCKED.json"
     sha=(results_dir/"predictions_LOCKED.sha256").read_text(encoding="ascii").strip()
@@ -57,6 +98,7 @@ def score(private_dir:Path,public_dir:Path,results_dir:Path)->dict:
         raise ValueError("Not all real model calls were completed")
     cache={}
     measures=[]
+    all_rounds=[]
     for item in src["cases"]:
         study=item["study"]
         if study not in cache:
@@ -64,10 +106,11 @@ def score(private_dir:Path,public_dir:Path,results_dir:Path)->dict:
             gold=json.loads((private_dir/(study+".gold.json")).read_text(encoding="utf-8"))
             cache[study]=(pub,gold)
         measures.append(score_case(*cache[study],item))
+        all_rounds.extend(score_round_trace(*cache[study],item,results_dir))
     # Publish scoring only to the PRIVATE evaluation folder, never the
     # browser demo, Vercel or model prompt path.
     evaluated={"locked_sha256":sha,"model":src["model"],"total_runs":len(measures),
-               "results":measures,
+               "results":measures,"round_trajectories":all_rounds,
                "warning":"Real API results only if run.py was executed with explicit cloud opt-in; never score a mock as GPT-6"}
     out=results_dir/"evaluation.json"
     if out.exists():raise FileExistsError("Refuse overwriting published evaluation")
@@ -77,6 +120,11 @@ def score(private_dir:Path,public_dir:Path,results_dir:Path)->dict:
         writer=csv.DictWriter(fh,fieldnames=fields)
         writer.writeheader()
         writer.writerows(measures)
+    with (results_dir/"round_trajectories.csv").open("x",encoding="utf-8-sig",newline="") as fh:
+        fields=list(all_rounds[0])
+        writer=csv.DictWriter(fh,fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(all_rounds)
     return evaluated
 
 def main():

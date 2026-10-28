@@ -257,9 +257,11 @@ async function askVocabulary(){
   const jobId=response.job_id;
   el('askVocabulary').disabled=true;
   el('vocabProgress').textContent='正在請模型產生候選詞庫；不會自動寫入研究員詞庫';
+  let localTimer=null;
+  function stopVocabTimer(){if(localTimer!==null)clearInterval(localTimer);if(vocabTimer===localTimer)vocabTimer=null}
   async function update(){
    if(!matchesOrigin(origin)){
-    if(vocabTimer!==null){clearInterval(vocabTimer);vocabTimer=null}
+    stopVocabTimer()
     return;
    }
    try{
@@ -267,7 +269,7 @@ async function askVocabulary(){
     if(!matchesOrigin(origin))return;
     el('vocabProgress').textContent=(job.logs||[]).join('\n')+(job.error?'\nERROR: '+job.error:'');
     if(job.status==='completed'||job.status==='failed'){
-     if(vocabTimer!==null){clearInterval(vocabTimer);vocabTimer=null}
+     stopVocabTimer()
      el('askVocabulary').disabled=false;
      if(job.status==='completed'){
       vocabCandidateRecord=job.result.terms||[];vocabOrigin=origin;renderVocabularyIdeas();
@@ -275,11 +277,11 @@ async function askVocabulary(){
      }else notice('詞庫生成失敗：'+job.error,true);
     }
    }catch(e){
-    if(vocabTimer!==null){clearInterval(vocabTimer);vocabTimer=null}
+    stopVocabTimer()
     if(matchesOrigin(origin)){el('askVocabulary').disabled=false;notice(e.message,true)}
    }
   }
-  vocabTimer=setInterval(update,1500);update();
+  localTimer=setInterval(update,1500);vocabTimer=localTimer;update();
  }catch(e){if(matchesOrigin(origin))notice(e.message,true)}
 }
 
@@ -314,23 +316,25 @@ async function start(){
   const jobId=queued.job_id;lastJob=jobId;
   for(let k of ['summary','reportLink','bars','readings','roundChart','changes','exchanges'])el(k).innerHTML='';
   el('run').disabled=true;notice('已啟動研究 '+jobId);
+  let localPoll=null;
+  function stopPoll(){if(localPoll!==null)clearInterval(localPoll);if(poll===localPoll)poll=null}
   async function update(){
-   if(!matchesOrigin(origin)){if(poll!==null){clearInterval(poll);poll=null}return}
+   if(!matchesOrigin(origin)){stopPoll()return}
    try{
     const result=await api('/api/jobs/'+jobId);
     if(!matchesOrigin(origin))return;
     renderJob(result,origin);
     if(['completed','failed'].includes(result.status)){
-     if(poll!==null){clearInterval(poll);poll=null}
+     stopPoll()
      el('run').disabled=false;
      notice(result.status==='completed'?'執行完成：結果已存入 artifacts/web_runs/'+jobId:'執行失敗：'+result.error,result.status==='failed');
     }
    }catch(e){
-    if(poll!==null){clearInterval(poll);poll=null}
+    stopPoll()
     if(matchesOrigin(origin)){el('run').disabled=false;notice(e.message,true)}
    }
   }
-  poll=setInterval(update,1300);update();
+  localPoll=setInterval(update,1300);poll=localPoll;update();
  }catch(e){if(matchesOrigin(origin)){notice(e.message,true);el('run').disabled=false}}
 }
 

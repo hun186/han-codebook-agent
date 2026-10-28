@@ -80,11 +80,16 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
                     audit=out_dir/(ref+".sqlite")
                     print(f"[BLIND] {ref}: GPT API × {rounds*2} requests; autonomous review OFF",flush=True)
                     started=time.monotonic()
-                    result=run_agent(current,rounds=rounds,model=model,llm_url=gateway.url,
-                         db_path=str(audit),metadata=metadata,llm_timeout=timeout,
-                         adaptive_vocabulary=True,vocabulary_reviewer=None,
-                         capture_llm_io=True,solver_iterations=solver_iterations,
-                         solver_restarts=solver_restarts)
+                    try:
+                        result=run_agent(current,rounds=rounds,model=model,llm_url=gateway.url,
+                             db_path=str(audit),metadata=metadata,llm_timeout=timeout,
+                             adaptive_vocabulary=True,vocabulary_reviewer=None,
+                             capture_llm_io=True,solver_iterations=solver_iterations,
+                             solver_restarts=solver_restarts)
+                    except Exception as exc:
+                        diagnosis=gateway.errors[-1] if gateway.errors else type(exc).__name__
+                        # Never print Authorization values or the original prompt.
+                        raise RuntimeError(f"Inference failed at {ref}: {diagnosis}") from exc
                     if result["agent_rounds_completed"]!=rounds:
                         raise RuntimeError("Actual completed rounds differ from requested")
                     if not result.get("adaptive_vocabulary") or result.get("human_vocabulary_review"):

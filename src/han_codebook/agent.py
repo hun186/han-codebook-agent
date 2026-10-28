@@ -233,7 +233,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
               solver_iterations: int = 8, solver_restarts: int = 4,
               adaptive_vocabulary: bool = False,
               vocabulary_reviewer: Callable[[int, list[dict]], list[str]] | None = None,
-              vocabulary_query: Callable[..., dict] | None = None) -> dict[str, Any]:
+              vocabulary_query: Callable[..., dict] | None = None,
+              cancel_check: Callable[[], None] | None = None) -> dict[str, Any]:
     if type(adaptive_vocabulary) is not bool:
         raise CaseError("adaptive_vocabulary must be boolean")
     if adaptive_vocabulary and not rounds:
@@ -282,6 +283,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
             log_event(conn, 0, "statistical_baseline", {"score": current["objective_score"],
                 "mapping": {c: p["term"] for c, p in current["proposals"].items()}})
         for num in range(1, rounds + 1):
+            if cancel_check:
+                cancel_check()
             if adaptive_vocabulary:
                 from .adaptive_vocabulary import refresh_vocabulary
                 if progress:
@@ -293,11 +296,13 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                     "allowed_hosts": llm_allowed_hosts,
                     "api_key_env": llm_api_key_env,
                 }
-                exchange = (lambda stage, payload: log_event(conn, num, stage, payload)) if capture_llm_io else None
+                exchange = (lambda stage, payload: log_event(conn, num, "vocabulary_" + stage, payload)) if capture_llm_io else None
                 active_case, record = refresh_vocabulary(
                     active_case, round_number=num, metadata=metadata, current=current,
                     llm_settings=settings, review=vocabulary_reviewer,
                     query=vocabulary_query or query_local_llm, on_exchange=exchange)
+                if cancel_check:
+                    cancel_check()
                 log_event(conn, num, "vocabulary_candidates_unverified", record)
                 vocab.update(record["approved"])
                 if progress:
@@ -351,6 +356,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 done.set()
                 if worker:
                     worker.join(timeout=1)
+            if cancel_check:
+                cancel_check()
             if progress:
                 progress(f"[agent] Round {num}/{rounds}: API response received in {time.monotonic()-start:.1f}s; "
                          "validating candidate proposals ...")
@@ -382,6 +389,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                        for code, previous in baseline_mapping.items() if previous != new_mapping[code]}
             log_event(conn, num, "rescore", {"score": current["objective_score"],
                                               "mapping": new_mapping, "changes": changes, "changed_count": len(changes)})
+        if cancel_check:
+            cancel_check()
         # Display/report-only counterfactuals; never enter the solver or LLM
         # as a verified anchor, and never replace immutable known plaintext.
         from .bold_hypotheses import normalize_bold_hypotheses

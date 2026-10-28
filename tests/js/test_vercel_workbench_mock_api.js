@@ -286,6 +286,56 @@ const { TextEncoder } = require('node:util');
     method:'POST',body:JSON.stringify({case:caseData,rounds:0,candidate_mode:'automatic'})
   });
   assert.equal(invalidMode.status,400);
+  // The canonical Vercel GUI must actually submit the same reviewer-added
+  // fields as the local UI; not merely display a decorative input.
+  const guiJobId=(await post('/api/start',{
+    case:caseData,rounds:1,candidate_mode:'human'
+  })).job_id;
+  const guiJob=await get('/api/jobs/'+guiJobId);
+  const uiJs=fs.readFileSync(path.join(base,'workbench.js'),'utf8');
+  const uiBegin=uiJs.indexOf('function renderPendingVocabularyReview(');
+  const uiEnd=uiJs.indexOf('async function start(){',uiBegin);
+  assert.ok(uiBegin>=0 && uiEnd>uiBegin);
+  const submitButton={disabled:false,textContent:'',onclick:null};
+  const newWordArea={value:'研究員畫面手填一\n研究員畫面手填二'};
+  const pane={dataset:{},hidden:true,innerHTML:'',
+    replaceChildren(){this.innerHTML='';},
+    querySelector(selector){
+      if(selector==='#approveVocabulary')return submitButton;
+      if(selector==='#reviewAddedWords')return newWordArea;
+      throw Error('Unexpected control in review GUI: '+selector);
+    },
+    querySelectorAll(selector){
+      assert.equal(selector,'input[data-review-term]:checked');
+      return []; // Explicitly reject all suggested words; use user additions only.
+    }
+  };
+  const reviewMessages=[];
+  const ui={console,Set,Number,Array,
+    el:id=>{assert.equal(id,'pendingVocabularyReview');return pane;},
+    matchesOrigin:()=>true,
+    esc:x=>String(x),
+    notice:(msg,err)=>reviewMessages.push({msg,err}),
+    api:(uri,payload)=>post(uri,payload),
+    guiJob,guiOrigin:{}
+  };
+  vm.createContext(ui);
+  new vm.Script(uiJs.slice(uiBegin,uiEnd),{filename:'review-ui.js'}).runInContext(ui);
+  vm.runInContext('renderPendingVocabularyReview(guiJob,guiOrigin)',ui);
+  assert.equal(pane.hidden,false);
+  assert.match(pane.innerHTML,/reviewAddedWords/);
+  assert.match(pane.innerHTML,/研究員新增候選詞/);
+  assert.equal(typeof submitButton.onclick,'function');
+  await submitButton.onclick();
+  assert.equal(submitButton.disabled,true);
+  assert.equal(reviewMessages.filter(x=>x.err).length,0);
+  const guiResult=(await get('/api/jobs/'+guiJobId));
+  assert.equal(guiResult.status,'completed');
+  assert.ok(guiResult.result.dynamic_vocabulary_terms.includes('研究員畫面手填一'));
+  assert.ok(guiResult.result.dynamic_vocabulary_terms.includes('研究員畫面手填二'));
+  assert.deepEqual(guiResult.events.find(x=>x.stage==='vocabulary_candidates_unverified')
+    .payload.researcher_added.map(x=>x.term),['研究員畫面手填一','研究員畫面手填二']);
+
   const leak=await sandbox.fetch('/api/start',{
     method:'POST',body:JSON.stringify({case:{...caseData,ground_truth:{'0007':'答案'}},rounds:2})
   });

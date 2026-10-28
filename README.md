@@ -280,3 +280,9 @@ Codex Review 防止跨案例污染的兩項 P2 已實作：
 - 批次匯入 LLM 建議時，若該碼組詞組已存在，**完整保留既有的人工 `rejected`／`shortlisted` 狀態、來源與文字註記**，只新增原本不存在的候選；試鎖和已知明文也不因此提升或被覆寫。
 
 由 `tests/js/test_case_provenance.js` 搭配 `tests/test_case_provenance_ui.py` 透過 Node VM 執行延遲回覆、舊按鈕、同案修改、跨案例目擊、人工否定與 Undo/Redo 回歸。Hosted GitHub CI 與 Codex review 狀態須依目前 PR HEAD 再確認。Vercel 純靜態 Mock PoC 不包含此本機 GUI 的新功能。
+
+### 2026-10-28：同案不同 Job 與密碼組編輯一致性
+
+- 詞庫生成除了「同一個研究案例」外，現在另核對**每一次模型請求序號**及**目前 Job ID**。即使同一個 Job 因間隔輪詢產生多個尚未回覆的 HTTP GET，完成或失敗時也會退休該 Job 的所有舊回覆；下一個 Job 的候選與按鈕不能被上一個 Job 的延遲結果改動。分析工作也採取相同的回覆失效處理。候選採納按鈕綁定生成它的展示工作序號。
+- 研究員在「密電與第三方情報」修改碼組時，系統先驗證完整輸入並檢查是否存在逐碼或非逐碼已知明文對照：**有已知明文對照時不得直接更改對應密碼組**，需先獨立覆核。若某個舊碼組在所有電文中都不再出現，系統會要求確認移除它的候選想法及標註；確認後同步清理 Undo/Redo 快照、儲存歷史並刷新碼組選單。取消不會部分寫入。仍在其他電文出現的碼組不會被清除。
+- 新增 `tests/js/test_cipher_edit_integrity.js` 與 `tests/js/test_case_provenance.js` 相關情境；由 `tests/test_case_provenance_ui.py` 在 Hosted CI 執行 Node VM 的實際輸入／輪詢／撤銷測試。

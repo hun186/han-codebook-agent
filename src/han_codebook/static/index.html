@@ -527,6 +527,7 @@ let requests=events.filter(x=>x.stage==='llm_request'),responses=events.filter(x
 async function startBenchmark(){try{let id=(await api('/api/start-benchmark',{})).job_id;el('runBenchmark').disabled=true;notice('基準評測已啟動');let timer=setInterval(async()=>{try{let j=await api('/api/jobs/'+id);renderJob(j);if(['completed','failed'].includes(j.status)){clearInterval(timer);el('runBenchmark').disabled=false;notice(j.status==='completed'?'基準評測完成':'基準評測失敗：'+j.error,j.status==='failed')}}catch(e){clearInterval(timer);el('runBenchmark').disabled=false;notice(e.message,true)}},1300)}catch(e){notice(e.message,true)}}
 function renderPendingVocabularyReview(j,origin){
  const pane=el('pendingVocabularyReview');
+ pane.dataset ||= {};
  const pending=j.status==='awaiting_review'?j.pending_review:null;
  if(!pending || !matchesOrigin(origin)){
   pane.hidden=true;pane.replaceChildren();pane.dataset.reviewKey='';return;
@@ -575,8 +576,9 @@ async function start(){
   const jobId=queued.job_id;lastJob=jobId;
   const active=()=>current()&&lastJob===jobId;
   for(let k of ['summary','reportLink','bars','readings','roundChart','changes','exchanges'])el(k).innerHTML='';
-  el('pendingVocabularyReview').hidden=true;el('pendingVocabularyReview').dataset.reviewKey='';
-  el('pendingVocabularyReview').replaceChildren();
+  const reviewPane=el('pendingVocabularyReview');
+  reviewPane.hidden=true;reviewPane.dataset ||= {};reviewPane.dataset.reviewKey='';
+  reviewPane.replaceChildren();
   el('run').disabled=true;notice('已啟動研究 '+jobId);
   let localPoll=null;
   function stopPoll(){if(localPoll!==null)clearInterval(localPoll);if(poll===localPoll)poll=null}

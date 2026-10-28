@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,20 +15,28 @@ from unittest.mock import patch
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"benchmarks"/"blind_commercial"))
-from codex_subscription import (check_codex_subscription,
+from codex_subscription import (check_codex_subscription, QuotaExhausted,
                                 codex_subscription_reply,schema_for)
 
 
 class CodexSubscriptionBridgeTests(unittest.TestCase):
     def setUp(self):
+        td=tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        self.auth_home=Path(td.name)
+        (self.auth_home/"auth.json").write_text(json.dumps({
+            "auth_mode":"chatgpt","OPENAI_API_KEY":None,
+            "tokens":{"access_token":"TEST_ONLY_FAKE_VALUE"}}),encoding="utf-8")
         self.clean=patch.dict(os.environ,{
-          "OPENAI_API_KEY":"","CODEX_API_KEY":"","CODEX_ACCESS_TOKEN":""})
+          "OPENAI_API_KEY":"","CODEX_API_KEY":"","CODEX_ACCESS_TOKEN":"",
+          "CODEX_HOME":str(self.auth_home)})
         self.clean.start()
         self.addCleanup(self.clean.stop)
 
     def test_requires_chatgpt_oauth_not_api_billing(self):
         def mock(argv,**kwargs):
-            self.assertEqual(argv,["codex","login","status"])
+            self.assertEqual(argv,["codex", "-c",'forced_login_method="chatgpt"',
+                "-c",'cli_auth_credentials_store="file"',"login","status"])
             return SimpleNamespace(returncode=0,stdout="Logged in using ChatGPT",stderr="")
         check_codex_subscription(subprocess_run=mock)
         def api_key(argv,**kwargs):
@@ -44,6 +53,8 @@ class CodexSubscriptionBridgeTests(unittest.TestCase):
             seen.append((argv,kwargs))
             self.assertEqual(argv[:2],["codex","exec"])
             self.assertIn("--ephemeral",argv)
+            self.assertIn('forced_login_method="chatgpt"',argv)
+            self.assertEqual(kwargs.get("encoding"),"utf-8")
             self.assertIn("--ignore-user-config",argv)
             self.assertIn("--sandbox",argv)
             self.assertEqual(argv[argv.index("--sandbox")+1],"read-only")
@@ -91,6 +102,9 @@ class CodexSubscriptionBridgeTests(unittest.TestCase):
                          "--model CLI option; no independent upstream model ID")
             json.loads(reply["choices"][0]["message"]["content"])
         self.assertEqual(len(seen),2)
+        with patch.dict(os.environ,{"CODEX_HOME":""}):
+            with self.assertRaisesRegex(RuntimeError,"dedicated"):
+                check_codex_subscription(subprocess_run=lambda *a,**k:None)
 
     def test_tool_invocations_and_failed_turns_are_not_valid_baseline(self):
         response={"vocabulary":[],"patterns":[]}
@@ -111,6 +125,27 @@ class CodexSubscriptionBridgeTests(unittest.TestCase):
         events[0]={"type":"turn.failed"}
         with self.assertRaisesRegex(RuntimeError,"tool-free turn"):
             codex_subscription_reply(chat,subprocess_run=mock)
+
+    def test_quota_pause_and_model_tool_rejection(self):
+        chat={"messages":[{"role":"system","content":"Only JSON"},
+                          {"role":"user","content":json.dumps({"task":"generate_vocabulary"})}]}
+        def quota(argv,**kwargs):
+            return SimpleNamespace(returncode=1,stdout="",stderr="Your usage limit has been reached")
+        with self.assertRaises(QuotaExhausted):
+            codex_subscription_reply(chat,subprocess_run=quota)
+        events=[
+            {"type":"item.completed","item":{"type":"collab_tool_call","tool":"spawn_agent"}},
+            {"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}
+        ]
+        def tool(argv,**kwargs):
+            Path(argv[argv.index("--output-last-message")+1]).write_text(
+                json.dumps({"vocabulary":[],"patterns":[]}),encoding="utf-8")
+            return SimpleNamespace(returncode=0,stdout="\n".join(json.dumps(x) for x in events),stderr="")
+        with self.assertRaisesRegex(RuntimeError,"tool-free turn"):
+            codex_subscription_reply(chat,subprocess_run=tool)
+        events[0]={"type":"item.completed","item":{"type":"error","message":"Partial failure"}}
+        with self.assertRaisesRegex(RuntimeError,"tool-free turn"):
+            codex_subscription_reply(chat,subprocess_run=tool)
 
     def test_schema_and_auth_fail_closed(self):
         with self.assertRaises(ValueError):

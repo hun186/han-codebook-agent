@@ -15,6 +15,7 @@ from docx import Document
 from docx.shared import Cm,Pt,RGBColor
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from score import digest,verify_locked_audits
 
 def para(doc,text,*,small=False):
     p=doc.add_paragraph()
@@ -49,9 +50,13 @@ def build(study:str,public_dir:Path,private_dir:Path,result_dir:Path,out:Path):
     evaluation=json.loads((result_dir/"evaluation.json").read_text(encoding="utf-8"))
     if evaluation["locked_sha256"]!=sealed:
         raise ValueError("Report cannot use tampered/unlocked inference results")
+    verify_locked_audits(locked,result_dir)
     case=json.loads((public_dir/(study+".json")).read_text(encoding="utf-8"))
+    expected=next(x["public_sha256"] for x in locked["cases"] if x["study"]==study)
+    if digest(case)!=expected:
+        raise ValueError("Public corpus modified after blind lock; refuse Word report")
     gold=json.loads((private_dir/(study+".gold.json")).read_text(encoding="utf-8"))
-    if gold.get("public_sha256")!=next(x["public_sha256"] for x in locked["cases"] if x["study"]==study):
+    if gold.get("public_sha256")!=expected:
         raise ValueError("Mismatched reference corpus")
     runs={(x["n_messages"],x["condition"]):x for x in locked["cases"] if x["study"]==study}
     if len(runs)!=8 or set(runs)!={(n,c) for n in (10,25,50,100) for c in ("with_aux","without_aux")}:

@@ -119,11 +119,8 @@ def verify_known_pairs(case: dict[str, Any], *, max_folds: int = 10,
                     raise CaseError("withheld code was improperly marked verified")
                 term = truth[code]
                 alternatives = [a["term"] for a in proposal["alternatives"][:5]]
-                excluded = result.get("researcher_marks", {}).get(code, {}).get("excluded", [])
                 if proposal["term"] == term:
                     category = "correct_top1"
-                elif term in excluded:
-                    category = "excluded_by_researcher"
                 elif term not in vocab:
                     category = "term_missing_from_candidate_vocabulary"
                 elif term in alternatives:
@@ -173,7 +170,6 @@ def verify_known_pairs(case: dict[str, Any], *, max_folds: int = 10,
             "failure_categories": {
                 key: totals[key] for key in (
                     "term_missing_from_candidate_vocabulary",
-                    "excluded_by_researcher",
                     "top5_only_ranking_error",
                     "candidate_ranked_below_top5",
                 )

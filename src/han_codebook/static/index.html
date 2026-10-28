@@ -562,22 +562,33 @@ function renderPendingVocabularyReview(j,origin){
  if(!pending || !matchesOrigin(origin)){
   pane.hidden=true;pane.replaceChildren();pane.dataset.reviewKey='';return;
  }
- const key=j.id+':'+pending.round;
+ const key=j.id+':'+pending.round+':'+pending.review_token;
  if(pane.dataset.reviewKey!==key){
   pane.dataset.reviewKey=key;pane.hidden=false;
   pane.innerHTML='<h3>第 '+esc(pending.round)+' 輪候選詞人工覆核（全部均未驗證）</h3>'+
    '<p class="muted">只勾選要加入未驗證候選詞庫的項目。清空勾選代表全部拒絕，繼續下一步。</p>'+
    pending.candidates.map((x,i)=>'<label><input type="checkbox" data-review-term="'+i+'" checked> '+
      esc(x.term)+' <small>'+esc(x.reason||'')+'</small></label>').join('')+
-   '<button class="primary" id="approveVocabulary">提交選擇，繼續推論</button>';
+   '<label for="reviewAddedWords"><strong>研究員新增候選詞</strong>（選填，每行一詞）</label>'+
+   '<textarea id="reviewAddedWords" rows="4" maxlength="1500" spellcheck="false" placeholder="例：補給線&#10;前線集結"></textarea>'+
+   '<p class="muted">可以全部不勾 LLM 建議，只加入自己提出的詞；本輪合計最多 32 個、單詞最多 24 字，所有新增詞仍是未驗證假說。</p>'+
+   '<button class="primary" id="approveVocabulary">提交選詞與新增詞，繼續推論</button>';
   pane.querySelector('#approveVocabulary').onclick=async()=>{
    if(!matchesOrigin(origin)){notice('案例已變更，舊的人工覆核不再有效',true);return}
    const approved=Array.from(pane.querySelectorAll('input[data-review-term]:checked'))
      .map(x=>pending.candidates[Number(x.dataset.reviewTerm)].term);
+   const rawAdded=pane.querySelector('#reviewAddedWords').value;
+   const added=rawAdded.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+   if(approved.length+added.length>32){notice('本輪候選詞（勾選＋手動新增）合計不可超過 32 個',true);return}
+   if(added.some(w=>w.length>24||/[\x00-\x1f]/.test(w)) ||
+      new Set(added).size!==added.length ||
+      added.some(w=>approved.includes(w)||pending.candidates.some(x=>x.term===w))){
+    notice('新增詞須是 1～24 字、不重複、不可與 LLM 候選詞相同',true);return;
+   }
    const button=pane.querySelector('#approveVocabulary');button.disabled=true;
    try{
     await api('/api/jobs/'+encodeURIComponent(j.id)+'/review',{
-     approved,round:pending.round,review_token:pending.review_token
+     approved,added,round:pending.round,review_token:pending.review_token
     });
     button.textContent='已提交，模型繼續運算中…';
    }catch(e){button.disabled=false;notice('人工覆核未送出：'+e.message,true)}

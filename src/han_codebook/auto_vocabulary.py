@@ -20,6 +20,7 @@ def make_vocabulary_packet(case: dict, *, metadata: bool, limit_samples: int = 2
     validate_case(case)
     if case.get('known_pairs') or any(x in case for x in ('gold','ground_truth','codebook')):
         raise CaseError('cold-start vocabulary requires unknown mappings and no embedded gold')
+    from .event_links import suggest_event_links
     messages = case['messages']
     freq = Counter(c for m in messages for c in m['codes'])
     samples = []
@@ -45,9 +46,7 @@ def make_vocabulary_packet(case: dict, *, metadata: bool, limit_samples: int = 2
         'side_information_samples': samples,
         # Explicitly competing possible links across telegrams, including
         # the alternative that a sighting has NO relationship to any telegram.
-        'temporal_event_link_hypotheses': (
-            __import__('han_codebook.event_links', fromlist=['suggest_event_links'])
-            .suggest_event_links(case)[:24] if metadata else []),
+        'temporal_event_link_hypotheses': suggest_event_links(case)[:24] if metadata else [],
         'requested_max_terms': 128,
         'requested_max_patterns': 30,
     }

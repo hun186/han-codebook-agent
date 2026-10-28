@@ -71,6 +71,7 @@ def openai_responses(chat: dict, *, key: str, model: str, effort: str, timeout: 
 
 class LoopbackGateway:
     def __init__(self,*,provider:Callable[[dict],dict]):
+        self.provider=provider
         gateway=self
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*args):pass

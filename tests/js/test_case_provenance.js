@@ -172,5 +172,43 @@ const clone=x=>JSON.parse(JSON.stringify(x));
  assert.equal(clone(run('research.candidate_ideas["101"]')).length,2,'undo lost human state');
  run('navigateIdeas(1)');
  assert.equal(clone(run('research.candidate_ideas["101"]')).length,3,'redo lost imported entry');
+
+ // A single case can also have several pending GETs for the SAME job.
+ // A stale GET from the finished first job must not replace the next job.
+ let resolveOldPoll,firstCalls=0;
+ api=async path=>{
+  if(path==='/api/suggest-vocabulary')return {job_id:'same-case-first'};
+  if(path==='/api/jobs/same-case-first'){
+   firstCalls++;
+   if(firstCalls===1)return new Promise(resolve=>{resolveOldPoll=resolve});
+   return {status:'completed',logs:[],result:{terms:[{term:'第一批'}]}};
+  }
+  throw Error('unexpected same-case job path: '+path);
+ };
+ run('research=_A;invalidateOldJobs()');
+ await run('askVocabulary()');
+ assert.equal(firstCalls,1);
+ const activeInterval=[...timers.values()].at(-1);
+ assert(activeInterval,'missing poll interval for same-case request');
+ await activeInterval();
+ for(let n=0;n<6;n++)await Promise.resolve();
+ assert.equal(run('vocabCandidateRecord[0].term'),'第一批','second poll did not finish first job');
+ assert.equal(el('askVocabulary').disabled,false,'first job did not release button');
+
+ api=async path=>{
+  if(path==='/api/suggest-vocabulary')return {job_id:'same-case-second'};
+  if(path==='/api/jobs/same-case-second')
+    return {status:'completed',logs:[],result:{terms:[{term:'第二批'}]}};
+  throw Error('unexpected second job path: '+path);
+ };
+ await run('askVocabulary()');
+ for(let n=0;n<6;n++)await Promise.resolve();
+ assert.equal(run('vocabCandidateRecord[0].term'),'第二批','second job failed');
+ resolveOldPoll({status:'completed',logs:[],result:{terms:[{term:'遲到的第一批'}]}});
+ for(let n=0;n<6;n++)await Promise.resolve();
+ assert.equal(run('vocabCandidateRecord[0].term'),'第二批',
+   'late GET from first job overwrote new job in identical case');
+ assert.equal(el('askVocabulary').disabled,false,'late GET altered second job button state');
+
  console.log('UI cross-case isolation, safe idea import and workflow guide PASS');
 })().catch(e=>{console.error(e);process.exitCode=1});

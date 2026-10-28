@@ -178,7 +178,12 @@ def codex_subscription_reply(chat: dict, *, model: str = "gpt-6-astra",
             except ValueError:
                 raise RuntimeError("Codex CLI did not provide parseable JSONL audit")
             typ=event.get("type","")
-            if typ in ("turn.failed","error"):failures.append(typ)
+            if typ in ("turn.failed","error"):
+                failure_text=json.dumps(event,ensure_ascii=False).lower()
+                if any(t in failure_text for t in QUOTA_TEXT):
+                    raise QuotaExhausted(
+                        "ChatGPT Codex subscription quota reached in model event; resume later")
+                failures.append(typ)
             if typ=="turn.completed":completed.append(event)
             if typ not in {"thread.started","turn.started","turn.completed",
                            "item.started","item.updated","item.completed"}:

@@ -102,8 +102,9 @@ function caseFingerprint(){
  return JSON.stringify(item);
 }
 function captureOrigin(){return {generation:caseGeneration,caseRef:research,fingerprint:caseFingerprint()}}
+function matchesCaseReference(origin){return !!(origin&&origin.generation===caseGeneration&&origin.caseRef===research)}
 function matchesOrigin(origin){
- return !!(origin&&origin.generation===caseGeneration&&origin.caseRef===research&&origin.fingerprint===caseFingerprint());
+ return !!(matchesCaseReference(origin)&&origin.fingerprint===caseFingerprint());
 }
 function invalidateOldJobs(){
  caseGeneration++;
@@ -261,12 +262,17 @@ async function askVocabulary(){
   function stopVocabTimer(){if(localTimer!==null)clearInterval(localTimer);if(vocabTimer===localTimer)vocabTimer=null}
   async function update(){
    if(!matchesOrigin(origin)){
-    stopVocabTimer()
+    stopVocabTimer();
+    if(matchesCaseReference(origin)){el('askVocabulary').disabled=false;notice('案例已修改，舊詞庫建議已失效；請重新產生')}
     return;
    }
    try{
     const job=await api('/api/jobs/'+jobId);
-    if(!matchesOrigin(origin))return;
+    if(!matchesOrigin(origin)){
+     stopVocabTimer();
+     if(matchesCaseReference(origin)){el('askVocabulary').disabled=false;notice('資料修改後的舊詞庫建議已隔離，請重新產生')}
+     return;
+    }
     el('vocabProgress').textContent=(job.logs||[]).join('\n')+(job.error?'\nERROR: '+job.error:'');
     if(job.status==='completed'||job.status==='failed'){
      stopVocabTimer()
@@ -319,10 +325,18 @@ async function start(){
   let localPoll=null;
   function stopPoll(){if(localPoll!==null)clearInterval(localPoll);if(poll===localPoll)poll=null}
   async function update(){
-   if(!matchesOrigin(origin)){stopPoll();return}
+   if(!matchesOrigin(origin)){
+    stopPoll();
+    if(matchesCaseReference(origin)){el('run').disabled=false;notice('研究資料已變更，舊分析不會再套用；需要重新執行')}
+    return;
+   }
    try{
     const result=await api('/api/jobs/'+jobId);
-    if(!matchesOrigin(origin))return;
+    if(!matchesOrigin(origin)){
+     stopPoll();
+     if(matchesCaseReference(origin)){el('run').disabled=false;notice('研究資料已變更，舊分析回覆已隔離；請重新執行')}
+     return;
+    }
     renderJob(result,origin);
     if(['completed','failed'].includes(result.status)){
      stopPoll()

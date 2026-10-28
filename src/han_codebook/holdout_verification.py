@@ -36,8 +36,11 @@ def _fold_input(case: dict[str, Any], message_id: str,
     # may itself encode the answer that this fold is meant to predict.
     for key in ("candidate_ideas", "hypothesis_marks", "bold_hypotheses"):
         if key in folded:
+            # Marks and bold hypotheses may be explicitly null in otherwise
+            # valid historical cases; their normalizers treat None as empty.
+            entries = folded[key] if folded[key] is not None else {}
             folded[key] = {
-                code: value for code, value in folded[key].items()
+                code: value for code, value in entries.items()
                 if code not in independent_codes
             }
 
@@ -101,18 +104,28 @@ def verify_known_pairs(case: dict[str, Any], *, max_folds: int = 10,
         overlap = len(truth) - len(independent)
         failures = Counter()
         details = []
-
-        if independent:
+        # For a case with no other known pairs and no profile lexicon, the
+        # withheld aligned words may have been the *entire* vocabulary.
+        # Never restore them just to make the solver run: record the missing
+        # vocabulary as a legitimate failure category instead.
+        vocab.update(idea_vocabulary(folded))
+        marks = folded.get("hypothesis_marks") or {}
+        vocab.update(mark["preferred"] for mark in marks.values()
+                     if mark.get("preferred"))
+        no_candidates = bool(independent) and not vocab
+        if no_candidates:
+            for code in independent:
+                failures["term_missing_from_candidate_vocabulary"] += 1
+                details.append({
+                    "code": code, "outcome": "term_missing_from_candidate_vocabulary"
+                })
+        elif independent:
             # Only the sanitized case crosses the inference boundary.
             result = analyze(folded, use_metadata=use_metadata,
                              iterations=iterations, restarts=restarts)
             if result["verified_anchors"] != retained:
                 raise CaseError("inference altered the retained trusted anchors")
             # The original withheld plaintext is consulted only *now*.
-            vocab.update(idea_vocabulary(folded))
-            vocab.update(mark["preferred"] for mark in
-                         result.get("researcher_marks", {}).values()
-                         if mark.get("preferred"))
             for code in independent:
                 proposal = result["proposals"][code]
                 if proposal["status"] != "hypothesis_unverified":
@@ -142,7 +155,8 @@ def verify_known_pairs(case: dict[str, Any], *, max_folds: int = 10,
             "correct_top5": failures["correct_top1"] + failures["top5_only_ranking_error"],
             "failure_categories": dict(sorted(failures.items())),
             "outcomes_without_plaintext": details,
-            "status": "scored" if independent else "no_newly_unanchored_codes",
+            "status": ("no_candidate_vocabulary" if no_candidates else
+                       "scored" if independent else "no_newly_unanchored_codes"),
         }
         folds.append(fold)
         totals.update({

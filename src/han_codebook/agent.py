@@ -4,6 +4,7 @@ The model never receives 'ground_truth' or credentials, and cannot alter verifie
 """
 from __future__ import annotations
 
+import copy
 import ipaddress
 import json
 import os

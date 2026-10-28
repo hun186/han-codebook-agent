@@ -30,7 +30,8 @@ def json_sha(obj:object)->str:
 
 
 def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:int,
-                   max_calls:int,timeout:int,provider,conditions=("with_aux","without_aux")) -> dict:
+                   max_calls:int,timeout:int,provider,conditions=("with_aux","without_aux"),
+                   real_api:bool=False,solver_iterations:int=8,solver_restarts:int=4) -> dict:
     public_dir=public_dir.resolve();out_dir=out_dir.resolve()
     if public_dir==out_dir or out_dir in public_dir.parents or public_dir in out_dir.parents:
         raise ValueError("Public input and result directories must be separate")
@@ -41,7 +42,7 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
     if manifests.get("protocol")!="blind-phrase-v1":
         raise ValueError("Unsupported blind manifest")
     if manifests.get("sizes")!=list(SIZES):raise ValueError("Must run fixed comparable sizes 10/25/50/100")
-    if any(x.get("fixture_only") for x in manifests["studies"]) and provider is openai_responses:
+    if real_api and any(x.get("fixture_only") for x in manifests["studies"]):
         raise ValueError("Do not run a known-seed insecure fixture as a real GPT-6 blind study")
     n_runs=len(manifests["studies"])*len(SIZES)*len(conditions)
     expected_calls=n_runs*rounds*2
@@ -64,6 +65,8 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
         for case in manifests["studies"]:
             sample=json.loads((public_dir/case["public_file"]).read_text(encoding="utf-8"))
             validate_case(sample)
+            if sample.get("kind")!="BLIND_UNSTRUCTURED_CODEBOOK_V1":
+                raise ValueError("Only synthetic blind benchmark inputs are allowed")
             if json_sha(sample)!=case["public_sha256"]:
                 raise ValueError("Public message digest mismatch; stop, no scoring")
             if len(sample["messages"])!=100 or sample.get("known_pairs"):
@@ -80,7 +83,8 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
                     result=run_agent(current,rounds=rounds,model=model,llm_url=gateway.url,
                          db_path=str(audit),metadata=metadata,llm_timeout=timeout,
                          adaptive_vocabulary=True,vocabulary_reviewer=None,
-                         capture_llm_io=True,solver_iterations=8,solver_restarts=4)
+                         capture_llm_io=True,solver_iterations=solver_iterations,
+                         solver_restarts=solver_restarts)
                     if result["agent_rounds_completed"]!=rounds:
                         raise RuntimeError("Actual completed rounds differ from requested")
                     if not result.get("adaptive_vocabulary") or result.get("human_vocabulary_review"):
@@ -105,7 +109,8 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
             raise RuntimeError(f"Loopback model transport failure: {len(gateway.errors)}")
     if counter["calls"]!=expected_calls:
         raise RuntimeError(f"Expected {expected_calls} actual model requests, saw {counter['calls']}")
-    lock={"kind":"ACTUAL_MULTI_ROUND_BLIND_EVALUATION", "model":model,
+    lock={"kind":"ACTUAL_MULTI_ROUND_BLIND_EVALUATION" if real_api else "TEST_DOUBLE_SMOKE_NOT_SCORED",
+          "provider":"OPENAI_RESPONSES" if real_api else "TEST_DOUBLE", "model":model,
           "reasoning_effort":effort, "n_rounds":rounds,
           "n_model_calls":counter["calls"],"usage":counter,
           "includes_hidden_reference":False,
@@ -142,7 +147,7 @@ def main():
                                model=args.model,effort=args.effort,timeout=args.timeout)
     run_experiment(args.public_dir,args.out_dir,model=args.model,effort=args.effort,
                    rounds=args.rounds,max_calls=args.max_calls,timeout=args.timeout,
-                   provider=provider)
+                   provider=provider,real_api=True)
 
 
 if __name__=="__main__":

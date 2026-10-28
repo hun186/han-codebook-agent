@@ -37,6 +37,7 @@ jobs:
           public=json.loads((base/'han_adaptive_new_public.json').read_text(encoding='utf-8'))
           locked_file=base/'han_adaptive_new_predictions_LOCKED.json'
           locked=json.loads(locked_file.read_text(encoding='utf-8'))
+          no_aux=json.loads((base/'han_adaptive_no_aux_LOCKED.json').read_text(encoding='utf-8'))
           metrics=json.loads((base/'han_adaptive_new_metrics.json').read_text(encoding='utf-8'))
           digest=hashlib.sha256(locked_file.read_bytes()).hexdigest()
           assert digest=='960a0394a9bb2d873f81987fa4b3f31138cccb7ac8ef5ac60a12269e368ab86a',f'Locked predictions changed: {digest}'
@@ -47,6 +48,7 @@ jobs:
                'case_id':'adaptive_trial_100',
                'note':'Previously revealed 100-message exploratory benchmark, snapshots only. NOT a fresh GPT API call or real cryptanalysis.',
                'public':public,'locked_predictions':locked,
+               'no_aux_replay':no_aux,
                'published_metrics':metrics,
                'locked_sha256':digest}
           target=pathlib.Path('vercel-demo/data/adaptive_trial_100.json')

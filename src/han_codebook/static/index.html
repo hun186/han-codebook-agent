@@ -63,7 +63,7 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
 </div>
 </div>
 <div class="panel">
-<h2>三層證據與求解架構</h2>
+<h2>四層證據與求解架構</h2>
 <table class="guide-table"><thead><tr><th>證據層</th><th>如何使用</th><th>重要界線</th></tr></thead><tbody>
 <tr><td>電文與元數據</td><td>數字碼組、電文時序、收發者、領域線索。統計／bigram 形成初始詞序先驗。</td><td>重複出現不等於找到真正明文。</td></tr>
 <tr><td>第三方動態觀察</td><td>目擊事件與多封密電的日期距離、來源可信度、可能相關碼組，產生跨電文假說供 LLM 或研究員查核。</td><td>目前是保守的時間關聯候選，尚非經校準的因果事件推理；可能全部無關。</td></tr>
@@ -232,13 +232,20 @@ function importPreviousLLMIdeas(){
  const current=copyIdeas(research.candidate_ideas);research.candidate_ideas=before;
  if(count)commitIdeas(current);
  notice('新增 '+count+' 個模型候選；重複詞組保留原有人工判定與註記，不會重新啟用已否定詞組')}
-async function previewEventLinks(){if(!research)return;try{let r=await api('/api/event-links',{case:research});
+async function previewEventLinks(){
+ if(!research)return;
+ const origin=captureOrigin();
+ try{
+ const r=await api('/api/event-links',{case:JSON.parse(JSON.stringify(research))});
+ if(!matchesOrigin(origin))return;
  el('eventLinks').innerHTML=r.events.map(o=>'<div class="message"><strong>'+esc(o.source)+'</strong> · '+esc(o.observed_at)+' · '+esc(o.activity)+
  '<br><small>'+esc(o.status)+' · 可信度 '+esc(o.confidence)+' · '+esc(o.event_id)+'</small>'+
  o.candidates.map(c=>'<div>可能相關：'+(c.message_id?'<button data-event-message="'+esc(c.message_id)+'">'+esc(c.message_id)+'</button>':'<strong>完全無關</strong>')+
  ' · 相對權重 '+esc(c.score)+(c.day_offset===undefined?'':' · 日差 '+esc(c.day_offset))+
  ' · '+esc(c.basis)+'</div>').join('')+'</div>').join('')||'<p class="muted">目前尚無第三方目擊紀錄。</p>';
- el('eventLinks').querySelectorAll('[data-event-message]').forEach(b=>b.onclick=()=>{el('messagePick').value=b.dataset.eventMessage;loadEvidence();notice('已切換電文；這只是時間相關候選，不等於確認連結')});
+ el('eventLinks').querySelectorAll('[data-event-message]').forEach(b=>b.onclick=()=>{
+ if(!matchesOrigin(origin)){notice('事件關聯建議已不屬於目前案例，請重新分析',true);return}
+ el('messagePick').value=b.dataset.eventMessage;loadEvidence();notice('已切換電文；這只是時間相關候選，不等於確認連結')});
  }catch(e){notice('事件時序分析失敗：'+e.message,true)}}
 let vocabCandidateRecord=[];
 function renderVocabularyIdeas(){

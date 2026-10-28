@@ -137,7 +137,7 @@ const { TextEncoder } = require('node:util');
   modified.candidate_ideas={'123':[{term:'人工猜測',source:'researcher',status:'suggested',note:''}]};
   const save=await post('/api/save',{case:modified,name:'my_mock_case'});
   assert.equal(save.saved_as,'my_mock_case');
-  assert.equal((await get('/api/cases')).length,5);
+  assert.equal((await get('/api/cases')).length,6);
   const reloaded=await get('/api/case?id=my_mock_case');
   assert.deepEqual(reloaded.messages[0].codes,['0007','123']);
   const runId=(await post('/api/start',{case:reloaded,rounds:1})).job_id;

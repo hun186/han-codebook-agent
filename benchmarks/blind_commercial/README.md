@@ -18,7 +18,9 @@ a final claim that GPT-6 can/cannot break codebooks.**
   only cipher groups, sender/recipient/dates and noisy observations.
 - **Variable-length coded messages** built from multiple independently chosen
   Chinese phrase clauses, optional fragments, reorderings, and no published
-  fixed slot labels. The generator necessarily has language templates (this
+  fixed slot labels. Twelve private interleaved event threads produce
+  repeated but shifting reports over time; the model never receives the
+  thread membership or the private original text. The generator necessarily has language templates (this
   remains synthetic, NOT a validated historical cipher simulation); the
   original solver and LLM are not given the generator, original segments,
   a word→code list, slot roles, or plaintext targets.

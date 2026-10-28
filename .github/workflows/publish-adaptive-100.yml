@@ -1,0 +1,77 @@
+name: Publish adaptive 100-message synthetic benchmark and Word report
+on:
+  push:
+    branches:
+      - feat/adaptive-100-case-word-report
+    paths:
+      - 'benchmarks/adaptive_100/*.py'
+      - '.github/workflows/publish-adaptive-100.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-public-synthetic-trial:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install report and matching dependencies
+        run: |
+          python -m pip install --disable-pip-version-check numpy scipy "python-docx>=1.1,<2"
+      - name: Generate no-oracle input, lock predictions, then reveal scoring key
+        run: |
+          set -eu
+          python benchmarks/adaptive_100/build_fixture.py --output-dir benchmarks/adaptive_100
+          python benchmarks/adaptive_100/run_no_gold.py --data-dir benchmarks/adaptive_100
+          python benchmarks/adaptive_100/score_after_lock.py --data-dir benchmarks/adaptive_100
+          python benchmarks/adaptive_100/make_report.py --data-dir benchmarks/adaptive_100 --out vercel-demo/reports/adaptive_100_full_report.docx
+          python - <<'PY'
+          import json,hashlib,pathlib
+          base=pathlib.Path('benchmarks/adaptive_100')
+          public=json.loads((base/'han_adaptive_new_public.json').read_text(encoding='utf-8'))
+          locked_file=base/'han_adaptive_new_predictions_LOCKED.json'
+          locked=json.loads(locked_file.read_text(encoding='utf-8'))
+          metrics=json.loads((base/'han_adaptive_new_metrics.json').read_text(encoding='utf-8'))
+          digest=hashlib.sha256(locked_file.read_bytes()).hexdigest()
+          assert digest=='960a0394a9bb2d873f81987fa4b3f31138cccb7ac8ef5ac60a12269e368ab86a',f'Locked predictions changed: {digest}'
+          assert [x['correct_types'] for x in metrics]==[8,28,31,4]
+          assert [x['correct_positions'] for x in metrics]==[156,444,470,50]
+          assert len(public['messages'])==100
+          obj={'kind':'PUBLIC_SYNTHETIC_ADAPTIVE_REPLAY',
+               'case_id':'adaptive_trial_100',
+               'note':'Previously revealed 100-message exploratory benchmark, snapshots only. NOT a fresh GPT API call or real cryptanalysis.',
+               'public':public,'locked_predictions':locked,
+               'published_metrics':metrics,
+               'locked_sha256':digest}
+          target=pathlib.Path('vercel-demo/data/adaptive_trial_100.json')
+          target.parent.mkdir(parents=True,exist_ok=True)
+          target.write_text(json.dumps(obj,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
+          assert 'code_to_word' not in target.read_text(encoding='utf-8')
+          assert 'messages_words' not in target.read_text(encoding='utf-8')
+          assert pathlib.Path('vercel-demo/reports/adaptive_100_full_report.docx').stat().st_size>25000
+          print('Locked/metrics/document checked:',digest)
+          PY
+      - name: Commit reproducible test data and Word into PR branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add benchmarks/adaptive_100/han_adaptive_new_public.json
+          git add benchmarks/adaptive_100/han_adaptive_new_predictions_LOCKED.json
+          git add benchmarks/adaptive_100/han_adaptive_no_aux_LOCKED.json
+          git add benchmarks/adaptive_100/han_adaptive_new_metrics.json
+          git add benchmarks/adaptive_100/han_adaptive_new_code_comparison.csv
+          git add benchmarks/adaptive_100/reference/han_adaptive_new_gold_PRIVATE.json
+          git add vercel-demo/data/adaptive_trial_100.json
+          git add vercel-demo/reports/adaptive_100_full_report.docx
+          if ! git diff --cached --quiet; then
+            git commit -m "data: publish revealed adaptive 100 synthetic case and Word appendix"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          else
+            echo "Reproduced files unchanged"
+          fi

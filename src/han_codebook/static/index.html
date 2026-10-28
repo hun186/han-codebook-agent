@@ -30,8 +30,14 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
  main>.page{display:none}
  main>.page.active{display:block}
 }
+.hypo-read.verified-code{border:2px solid #5ee6b0;background:#0b403f;color:#e8fff5}
+.hypo-read.bold-code{border:2px solid #f29be5;background:#492143;color:#fff1fb}
+.bold-mark{border-left:4px solid #f29be5;background:#3d2138;padding:10px;margin:8px 0}
+#toast{position:fixed;top:14px;right:14px;z-index:99;width:min(480px,calc(100vw - 28px));padding:15px;border-radius:10px;border:2px solid #ffca6e;background:#392a24;color:#fff8e8;box-shadow:0 12px 30px #0009;cursor:pointer}
+#toast[hidden]{display:none}
+.settings-help{line-height:1.65}
 </style></head><body><header><h1>Han Codebook Agent　中文詞組密電研究工作台</h1><small>本機瀏覽器介面 · 歷史虛構案例 · 未驗證候選絕不等於真實破譯</small></header><main>
-<div class="panel"><div class="row"><div><label for="caseList">研究案例</label><select id="caseList" style="width:100%"></select></div><button id="loadCase">載入案例</button><button id="newCase">＋ 建立空白案例</button><button id="addMessage">＋ 新增電文</button><button id="delMessage">刪除目前電文</button><button id="newProfile">＋ 新增語境領域</button><div><label>模型服務</label><div id="modelInfo" class="muted">載入中…</div></div></div><p id="notice" class="muted" aria-live="polite"></p></div>
+<div class="panel"><div class="row"><div><label for="caseList">研究案例</label><select id="caseList" style="width:100%"></select></div><button id="loadCase">載入案例</button><button id="newCase">＋ 建立空白案例</button><button id="addMessage">＋ 新增電文</button><button id="delMessage">刪除目前電文</button><button id="newProfile">＋ 新增語境領域</button><div><label>模型服務</label><div id="modelInfo" class="muted">載入中…</div></div></div><p id="notice" class="muted" aria-live="polite"></p></div><div id="toast" role="alert" aria-live="assertive" hidden title="點選可關閉"></div>
 <aside class="workspace-sidebar" aria-label="研究工作台導航"><h2>研究導航</h2><nav class="tabs" id="tabs" aria-label="工作流程與功能">
 <div class="nav-heading">入門與建立研究</div>
 <button data-page="guide">◎　研究流程／架構說明</button>
@@ -43,6 +49,7 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
 <button data-page="trace">05　逐輪分析／Prompt</button>
 <div class="nav-heading">研究評測</div>
 <button data-page="benchmark">06　基準評測</button>
+<div class="nav-heading">本機系統</div><button data-page="modelSettings">⚙　LLM 端點設定</button>
 </nav></aside>
 
 <section id="guide" class="page" aria-label="研究流程及破譯架構說明">
@@ -77,8 +84,20 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
 <p class="guide-callout"><strong>安全與有效性：</strong>本機介面綁定 127.0.0.1；LLM 網路請求需明確選擇與確認，僅發往設定且允許的私有端點。資料與密碼組請視為敏感研究材料。Vercel 公開 PoC 只做合成 Mock 展示，沒有此本機真實模型流程。</p>
 </div>
 </section>
-<section id="overview" class="page active"><div class="columns"><div class="panel"><h2>執行研究</h2><p class="muted">所有密碼組維持原始字串，已知對齊是確定錨點；收發者與第三方觀察只作推測先驗。</p><div class="row"><div><label>LLM 回合數</label><select id="rounds"><option value="0">0 — 完全離線</option><option value="1">1 — 呼叫內網 LLM</option><option value="2">2 — 呼叫內網 LLM</option><option value="3">3 — 呼叫內網 LLM</option></select></div><div><label>元數據分析</label><select id="metadata"><option value="true">啟用收發者／第三方情報</option><option value="false">停用，作消融比較</option></select></div></div><p><label><input type="checkbox" id="capture"> 在本機 SQLite 保存**完整** LLM Prompt 與回覆（可能包含敏感情報）</label></p><div class="row"><button id="run" class="primary">執行分析</button><button id="save">另存案例</button></div><p class="alert">預設 0 輪不連 LLM；選擇大於 0 輪並按「執行分析」才會將研究案例送往 config.yaml 指定的內網服務。</p><h3>工作進度</h3><pre id="progress">尚未啟動</pre></div><div class="panel"><h2>最新結果總覽</h2><div id="summary" class="muted">先載入案例並執行分析。</div><div id="reportLink"></div><div id="bars"></div></div></div><div class="panel"><h2>每封電文候選解讀</h2><div id="readings" class="wrap muted">尚無結果</div></div></section>
-<section id="vocab" class="page"><div class="panel"><h2>詞彙與語言先驗</h2><p class="muted">編輯會直接影響解碼候選與頻率分布；權重不是已驗證答案，範例句為 token 清單，一句一行，以空格區隔。</p><div class="row"><div><label>領域</label><select id="profilePick"></select></div><div><label>搜尋詞彙</label><input id="wordSearch" type="text" placeholder="搜尋詞組"></div></div><div class="wrap compact"><table><thead><tr><th>詞組</th><th>先驗權重</th><th></th></tr></thead><tbody id="vocabTable"></tbody></table></div><div class="row"><input type="text" id="newWord" placeholder="新增詞組"><input type="number" id="newWeight" min="0" max="1000" value="3"><button id="addWord">新增</button></div><label>領域判定關鍵詞（逗號分隔）</label><textarea id="keywords"></textarea><label>範例句（每行一筆，詞組間以空格分隔）</label><textarea id="sentences" rows="5"></textarea><button id="saveProfile" class="primary">套用詞彙與範例句修改</button><hr><h3>LLM 自動提出候選詞庫（人工覆核）</h3><p class="muted">只把密文與可觀察情報送至設定的內網模型；不使用合成金標，回覆不會自動進入候選詞庫。</p><button id="askVocabulary">請內網 LLM 產生候選詞（需確認）</button><pre id="vocabProgress" class="muted"></pre><div id="vocabSuggestions" class="compact"></div></div></section>
+<section id="overview" class="page active"><div class="columns"><div class="panel"><h2>執行研究</h2><p class="muted">所有密碼組維持原始字串，已知對齊是確定錨點；收發者與第三方觀察只作推測先驗。</p><div class="row"><div><label>LLM 回合數</label><input id="rounds" type="number" min="0" max="20" step="1" value="0"><small class="muted">0＝離線；1～20 為內網 LLM 回合，不保證回合多就更準確</small></div><div><label>元數據分析</label><select id="metadata"><option value="true">啟用收發者／第三方情報</option><option value="false">停用，作消融比較</option></select></div></div><p><label><input type="checkbox" id="capture"> 在本機 SQLite 保存**完整** LLM Prompt 與回覆（可能包含敏感情報）</label></p><div class="row"><button id="run" class="primary">執行分析</button><button id="save">另存案例</button></div><p class="alert">預設 0 輪不連 LLM；選擇大於 0 輪並按「執行分析」才會將研究案例送往 config.yaml 指定的內網服務。</p><h3>工作進度</h3><pre id="progress">尚未啟動</pre></div><div class="panel"><h2>最新結果總覽</h2><div id="summary" class="muted">先載入案例並執行分析。</div><div id="reportLink"></div><div id="bars"></div></div></div><div class="panel"><h2>每封電文候選解讀</h2><div id="readings" class="wrap muted">尚無結果</div></div></section>
+<section id="modelSettings" class="page"><div class="panel"><h2>本機 LLM 端點設定</h2>
+<p class="guide-callout settings-help">參考 AI 模擬病人的 Provider/Model 設定概念，這裡只支援 Ollama／vLLM／內網 OpenAI-compatible Chat Completions。基於密電保密性，<strong>不開放公網端點</strong>。修改只會寫入本機 config.yaml；API Key 本體不會儲存於此介面。</p>
+<div class="gridfield"><div><label>Provider 類型（操作提示）</label><select id="llmPreset"><option value="ollama">Ollama Local / LAN</option><option value="compatible">內網 OpenAI-compatible</option></select></div>
+<div><label>模型名稱</label><input type="text" id="llmModel" maxlength="128" placeholder="qwen3:14b"></div>
+<div><label>API Base URL</label><input type="text" id="llmUrl" placeholder="http://127.0.0.1:11434"></div>
+<div><label>等待秒數（1～600）</label><input type="number" id="llmTimeout" min="1" max="600" step="1" value="90"></div>
+<div><label>API Key 環境變數名稱（選填，勿貼金鑰）</label><input type="text" id="llmKeyEnv" autocomplete="off" placeholder="HAN_CODEBOOK_LLM_API_KEY"></div>
+</div><label><input id="llmAllowLAN" type="checkbox"> 明確允許連向指定 RFC1918 內網 IP（只允許此一目的 IP）</label>
+<p class="muted">127.0.0.1／localhost 不需要啟用內網許可；若使用 192.168.x.x、10.x.x.x 或 172.16～31.x.x，必須勾選許可。DNS 和公網 IP 均被拒絕。服務測試只檢查 TCP 與模型清單，不會傳送研究案例。</p>
+<div class="row"><button class="primary" id="saveLLM">儲存本機 LLM 設定</button><button id="testLLM">測試連線（不傳送密電）</button></div><pre id="llmSettingStatus" class="muted">尚未檢查</pre>
+</div></section>
+<section id="vocab" class="page"><div class="panel"><h2>詞彙與語言先驗</h2><p class="muted">編輯會直接影響解碼候選與頻率分布；權重不是已驗證答案，範例句為 token 清單，一句一行，以空格區隔。</p>
+<div class="guide-callout settings-help"><strong>什麼是先驗權重？</strong> 在看這封密電的直接證據之前，研究員預先給詞組的偏好強度；例如「車隊＝5、橋梁＝2」只是讓其他條件相近時車隊比較容易被提議，不代表 5 倍正確率或 50% 信心。降低權重可做消融比較，確定明文只能由可靠逐碼明密文對建立。</div><div class="row"><div><label>領域</label><select id="profilePick"></select></div><div><label>搜尋詞彙</label><input id="wordSearch" type="text" placeholder="搜尋詞組"></div></div><div class="wrap compact"><table><thead><tr><th>詞組</th><th>先驗權重</th><th></th></tr></thead><tbody id="vocabTable"></tbody></table></div><div class="row"><input type="text" id="newWord" placeholder="新增詞組"><input type="number" id="newWeight" min="0" max="1000" value="3"><button id="addWord">新增</button></div><label>領域判定關鍵詞（逗號分隔）</label><textarea id="keywords"></textarea><label>範例句（每行一筆，詞組間以空格分隔）</label><textarea id="sentences" rows="5"></textarea><button id="saveProfile" class="primary">套用詞彙與範例句修改</button><hr><h3>LLM 自動提出候選詞庫（人工覆核）</h3><p class="muted">只把密文與可觀察情報送至設定的內網模型；不使用合成金標，回覆不會自動進入候選詞庫。</p><button id="askVocabulary">請內網 LLM 產生候選詞（需確認）</button><pre id="vocabProgress" class="muted"></pre><div id="vocabSuggestions" class="compact"></div></div></section>
 <section id="evidence" class="page"><div class="panel"><h2>電文與第三方情報</h2><p class="muted">第三方觀察可以記錄目擊者、目的地、活動、狀態、可信度；它只用於語意與領域推測，不會自動升格為明文對照。</p><div class="row"><div><label>選擇電文</label><select id="messagePick"></select></div><div><label>密碼組（可用空白分隔編輯）</label><textarea id="cipherEdit" rows="2"></textarea></div></div><div class="gridfield"><div><label>發送者</label><input id="sender" type="text"></div><div><label>接收者</label><input id="recipient" type="text"></div><div><label>收報日期時間（ISO 格式）</label><input id="received_at" type="text" placeholder="1942-05-03T16:00:00"></div><div><label>備註</label><input id="notes" type="text"></div><div><label>指定領域（非必填）</label><input id="domain" type="text"></div></div><label>新增第三方觀察（可逐項填寫）</label>
 <div class="gridfield"><div><label>情報來源</label><input id="obsSource" type="text" placeholder="目擊者或觀察報告"></div><div><label>觀察日期時間（ISO 格式）</label><input id="obsWhen" type="text" placeholder="1942-05-03 或完整時間"></div><div><label>觀察行為</label><input id="obsActivity" type="text" placeholder="例如裝載物資"></div><div><label>目的地</label><input id="obsDest" type="text" placeholder="例如補給處"></div><div><label>狀態</label><input id="obsStatus" type="text" placeholder="例如車隊已離開"></div><div><label>可信度 0~1</label><input id="obsConfidence" type="number" min="0" max="1" step="0.05" value="0.6"></div><div><label>補充內容</label><input id="obsNote" type="text"></div></div>
 <button id="addObservation">新增觀察至列表</button><div id="obsCards"></div>
@@ -86,6 +105,8 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
 <section id="marks" class="page"><div class="columns"><div class="panel"><h2>研究員假說標註 · 可撤銷</h2><p class="muted">仿踩地雷標記：偏好／排除／試鎖只是研究假說，不會寫入已驗證碼本。修改後按「執行分析」才會重新求解，舊結果仍保留為上一輪紀錄。</p>
 <div class="row"><div><label>數字碼組（亦可在候選電文點選）</label><select id="markCode"></select></div><div><label>暫時候選中文字詞</label><input id="markWord" type="text" maxlength="32" placeholder="例如：車隊"></div></div>
 <label>研究理由／資料來源（選填）</label><textarea id="markNote" maxlength="500" rows="2" placeholder="記錄為何認為這個詞可能正確"></textarea>
+<div class="guide-callout">綠色：有可信逐碼明文的錨點；藍色：未驗證研究候選；紫紅色：研究員明知與錨點相反，仍保留的「大膽指定」。大膽指定不會偷偷修改原始驗證資料。</div>
+<div id="boldStatus" class="muted"></div><div class="row"><button id="boldSet">⚡ 大膽指定目前碼組（需再次確認）</button><button id="boldClear">取消大膽指定</button></div><div id="boldList"></div>
 <div class="row"><button class="hypo-action" id="markPrefer">★ 偏好此候選</button><button class="hypo-action" id="markExclude">× 排除／取消排除</button><button class="hypo-action" id="markPin">📌 試鎖此對應</button><button class="hypo-action" id="markClear">清除此碼標註</button></div><div class="row"><button id="markUndo">↶ 復原</button><button id="markRedo">↷ 重做</button><button id="markReset">全部標註重設</button></div><p id="markStatus" class="muted">尚未標註</p><div id="markList" class="compact"></div><h3>同碼組多個研究想法</h3><p class="muted">可保存多個詞組，來源為人員／模型／目擊情報。先列為待審，或設「優先考慮」提供微弱、可取消的求解權重；不會成為確定明文。</p>
 <div class="row"><input id="ideaTerm" type="text" maxlength="32" placeholder="另一種可能詞組"><select id="ideaSource"><option value="researcher">研究員</option><option value="llm">LLM</option><option value="observation">目擊線索</option></select><select id="ideaStatus"><option value="suggested">待審</option><option value="shortlisted">優先考慮</option><option value="rejected">否定／排除想法</option></select></div><textarea id="ideaNote" rows="2" maxlength="500" placeholder="證據來源與對應的目擊／電文 ID"></textarea>
 <div class="row"><button id="addIdea">加入另一個想法／更新</button><button id="undoIdea">復原想法庫</button><button id="redoIdea">重做想法庫</button><button id="importLLMIdeas">匯入上一輪 LLM 碼組建議</button></div><div id="ideaList" class="compact"></div>
@@ -114,11 +135,44 @@ function invalidateOldJobs(){
  lastJob=null;lastLLMOrigin=null;vocabOrigin=null;lastLLMEntries=[];
  el('run').disabled=false;el('askVocabulary').disabled=false;
 }
-function notice(s,error=false){el('notice').textContent=s;el('notice').style.color=error?'#ffc083':'#a4b9ce'}
+function notice(s,error=false){
+ el('notice').textContent=s;el('notice').style.color=error?'#ffc083':'#a4b9ce';
+ if(error){let toast=el('toast');toast.textContent='⚠ '+s+'（點選關閉）';toast.hidden=false;toast.onclick=()=>{toast.hidden=true}}
+ else if(el('toast'))el('toast').hidden=true;
+}
 async function api(path,data){let opts={};if(data!==undefined)opts={method:'POST',headers:{'Content-Type':'application/json','X-Han-UI':'local'},body:JSON.stringify(data)};let res=await fetch(path,opts),val=await res.json();if(!res.ok)throw Error(val.error||res.status);return val}
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function profile(){return research.profiles[el('profilePick').value]};function msg(){return research.messages.find(m=>m.id===el('messagePick').value)}
-async function listCases(){const cases=await api('/api/cases');el('caseList').innerHTML=cases.map(c=>`<option value="${esc(c.id)}">${esc(c.id)}</option>`).join('');let c=await api('/api/settings');el('modelInfo').textContent=`${c.model} · ${c.endpoint}`}
+async function listCases(){
+ const cases=await api('/api/cases');
+ el('caseList').innerHTML=cases.map(c=>`<option value="${esc(c.id)}">${esc(c.id)}</option>`).join('');
+ await loadLLMSettings();
+}
+async function loadLLMSettings(){
+ const cfg=await api('/api/settings');
+ el('llmModel').value=cfg.model||'';
+ el('llmUrl').value=cfg.base_url||'';
+ el('llmTimeout').value=cfg.timeout_seconds||90;
+ el('llmAllowLAN').checked=cfg.allow_private_network===true;
+ el('llmKeyEnv').value=cfg.api_key_env||'';
+ el('modelInfo').textContent=`${cfg.model} · ${cfg.endpoint}`;
+}
+async function saveLLMSettings(){
+ const timeout=Number(el('llmTimeout').value);
+ if(!Number.isInteger(timeout)||timeout<1||timeout>600)throw Error('請輸入 1～600 的整數等待秒數');
+ if(!confirm('修改本機 LLM 端點設定？既有正在執行的工作不會改用新設定。'))return;
+ const cfg=await api('/api/settings/llm',{base_url:el('llmUrl').value.trim(),
+   model:el('llmModel').value.trim(),timeout_seconds:timeout,
+   allow_private_network:el('llmAllowLAN').checked,api_key_env:el('llmKeyEnv').value.trim()});
+ el('llmSettingStatus').textContent='設定已儲存：'+cfg.model+' · '+cfg.base_url;
+ await loadLLMSettings();
+}
+async function testLLMSettings(){
+ if(!confirm('將測試目前儲存的本機端點，僅傳送 TCP 與模型清單查詢，不傳研究案例。確定？'))return;
+ el('llmSettingStatus').textContent='正在測試已儲存的模型端點...';
+ const result=await api('/api/settings/test',{confirmed:true});
+ el('llmSettingStatus').textContent=(result.connected?'基本連線檢查成功':'基本連線檢查未成功')+'\n'+(result.diagnostics||[]).join('\n')+'\n'+result.note;
+}
 function presentCase(){
  invalidateOldJobs();priorResult=null;vocabCandidateRecord=[];
  for(const id of ['summary','reportLink','bars','readings','roundChart','changes','exchanges','eventLinks'])el(id).replaceChildren();

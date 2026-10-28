@@ -85,9 +85,13 @@ class ResumeStore:
             raise ValueError("Invalid checkpoint state")
         self._write_status(state,reason=reason,current=current)
 
-    def invoke(self,chat:dict,*,provider,model:str,effort:str,provider_name:str)->dict:
+    def invoke(self,chat:dict,*,provider,model:str,effort:str,provider_name:str,
+               logical_id:str)->dict:
+        """Cache by stable run/round/phase, never deduplicate two real model turns."""
+        if not isinstance(logical_id,str) or not logical_id or len(logical_id)>256:
+            raise ValueError("Each model call requires a stable logical identity")
         key=digest({"version":self.VERSION,"chat":chat,"model":model,
-                    "effort":effort,"provider":provider_name})
+                    "effort":effort,"provider":provider_name,"logical_id":logical_id})
         path=self.requests/(key+".json")
         if path.exists():
             item=json.loads(path.read_text(encoding="utf-8"))

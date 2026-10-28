@@ -43,6 +43,11 @@ def make_vocabulary_packet(case: dict, *, metadata: bool, limit_samples: int = 2
         },
         'metadata_enabled': metadata,
         'side_information_samples': samples,
+        # Explicitly competing possible links across telegrams, including
+        # the alternative that a sighting has NO relationship to any telegram.
+        'temporal_event_link_hypotheses': (
+            __import__('han_codebook.event_links', fromlist=['suggest_event_links'])
+            .suggest_event_links(case)[:24] if metadata else []),
         'requested_max_terms': 128,
         'requested_max_patterns': 30,
     }

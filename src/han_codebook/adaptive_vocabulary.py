@@ -17,7 +17,7 @@ from .llm_evidence import safe_llm_message
 
 MAX_NEW_TERMS_PER_ROUND = 32
 MAX_DYNAMIC_TERMS = 128
-MAX_CONTEXT_MESSAGES = 50
+MAX_CONTEXT_MESSAGES = 100
 
 
 def vocabulary_packet(case: dict, *, round_number: int, metadata: bool,

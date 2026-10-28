@@ -97,6 +97,51 @@ class HumanReviewHTTPTest(unittest.TestCase):
             self.assertTrue(seen["adaptive"] and seen["review_enabled"])
             self.assertNotIn("pending_review",failed)
 
+    def test_case_change_can_cancel_waiting_review_without_ten_minute_gate(self):
+        entered=threading.Event()
+        def fake(case,**kw):
+            entered.set()
+            kw["vocabulary_reviewer"](1,[{"term":"待審","reason":"合成情報"}])
+            raise RuntimeError("Unreachable after cancellation")
+        with patch("han_codebook.web.run_agent",side_effect=fake):
+            status,body=self.post("/api/start",{"case":self.case,"rounds":1,
+                                                 "candidate_mode":"human"})
+            self.assertEqual(status,202,body)
+            id=body["job_id"]
+            self.assertTrue(entered.wait(4))
+            self.wait_status(id,"awaiting_review")
+            cancel_status,response=self.post(f"/api/jobs/{id}/cancel",{})
+            self.assertEqual(cancel_status,200,response)
+            failed=self.wait_status(id,"failed")
+            self.assertIn("cancel",failed["error"].lower())
+            self.assertNotIn("pending_review",failed)
+            status,body=self.post(f"/api/jobs/{id}/review",{"approved":["待審"]})
+            self.assertEqual(status,409,body)
+            # The old job must no longer monopolize the analysis gate.
+            status,body=self.post("/api/start",{"case":self.case,"rounds":0})
+            self.assertEqual(status,202,body)
+
+    def test_cancel_before_review_is_registered_does_not_leave_stale_waiter(self):
+        started=threading.Event()
+        proceed=threading.Event()
+        def fake(case,**kw):
+            started.set()
+            if not proceed.wait(4):
+                raise RuntimeError("test setup timed out")
+            kw["vocabulary_reviewer"](1,[{"term":"未知","reason":"測試"}])
+        with patch("han_codebook.web.run_agent",side_effect=fake):
+            status,body=self.post("/api/start",{"case":self.case,"rounds":1,
+                                                 "candidate_mode":"human"})
+            self.assertEqual(status,202,body)
+            id=body["job_id"]
+            self.assertTrue(started.wait(4))
+            cancel_status,_=self.post(f"/api/jobs/{id}/cancel",{})
+            self.assertEqual(cancel_status,200)
+            proceed.set()
+            failed=self.wait_status(id,"failed")
+            self.assertIn("cancel",failed["error"].lower())
+            self.assertNotIn("pending_review",failed)
+
     def test_automatic_mode_does_not_create_waiter(self):
         seen={}
         def fake(case,**kw):

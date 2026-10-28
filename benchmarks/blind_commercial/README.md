@@ -82,11 +82,29 @@ python benchmarks/blind_commercial/run.py \
   --public-dir artifacts/blind_20261029/public \
   --out-dir artifacts/blind_20261029/locked_results \
   --model gpt-6-astra --effort high --rounds 5 \
-  --max-calls 240 --allow-cloud-api
+  --max-calls 240 --max-estimated-usd 100 \
+  --allow-cloud-api
 ```
 
 This performs actual paid API requests. A ChatGPT Plus/Pro login **is not**
-an API credential. If the API credential, quota or model entitlement is not
+an API credential. This protocol uses the official `gpt-6-astra` Responses API
+and records the actual returned API model IDs, `reasoning.effort=high`, usage
+(including cached input and reasoning-output tokens), the real call count and
+an estimated Standard-tier USD total. As of 2026-10-29 the published Standard
+rate is **$10/1M uncached input, $1/1M cached input and $50/1M output tokens**
+with higher whole-request rates above 272K input tokens.
+The default `--max-estimated-usd 100` aborts further calls once an estimated
+spending cap is crossed (it is not a prepaid reservation or guarantee of the
+final invoice). A partially completed run is **not scored** as a complete
+commercial-model benchmark. Do not share or commit an API key or private
+reference data. Official specs:
+https://developers.openai.com/api/docs/models/gpt-6-astra
+
+For a **small paid smoke run** first generate a different experiment with
+`--repeats 1`, then run `--rounds 1 --max-calls 16 --max-estimated-usd 10`.
+This is only a technical pilot to confirm API access, JSON parsing, model
+identity and per-round audit, **not** the pre-registered 3x5-round study.
+ If the API credential, quota or model entitlement is not
 available, the run cannot start; do NOT substitute a browser mock or claim
 GPT-6 was tested. To minimize costs use one replication and a smaller
 round budget as a **separate pre-registered pilot**, not as full results.

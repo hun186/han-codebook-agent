@@ -593,6 +593,13 @@ el('addIdea').onclick=()=>addResearchIdea(el('ideaTerm').value,el('ideaSource').
 el('undoIdea').onclick=()=>navigateIdeas(-1);el('redoIdea').onclick=()=>navigateIdeas(1);
 el('importLLMIdeas').onclick=importPreviousLLMIdeas;el('checkEvents').onclick=previewEventLinks;
 el('askVocabulary').onclick=askVocabulary;
+el('llmPreset').onchange=()=>{
+ const preset=el('llmPreset').value;
+ if(preset==='ollama'&&!el('llmUrl').value.trim())el('llmUrl').value='http://127.0.0.1:11434';
+ el('llmSettingStatus').textContent=preset==='ollama'?
+   'Ollama 適用本機／內網 OpenAI-compatible /v1/chat/completions；請確認實際埠號與模型名稱。':
+   '自訂內網相容端點：僅接受 loopback 或明確允許的私人 IPv4。';
+};
 el('saveLLM').onclick=()=>saveLLMSettings().catch(e=>notice(e.message,true));el('testLLM').onclick=()=>testLLMSettings().catch(e=>notice(e.message,true));
 el('loadCase').onclick=()=>loadCase().catch(e=>notice(e.message,true));el('profilePick').onchange=loadProfile;el('messagePick').onchange=loadEvidence;el('wordSearch').oninput=renderVocab;el('addWord').onclick=()=>{let w=el('newWord').value.trim(),n=Number(el('newWeight').value);if(w&&Number.isFinite(n)&&n>=0){profile().lexicon[w]=n;el('newWord').value='';renderVocab()}};el('saveProfile').onclick=saveProfile;el('applyEvidence').onclick=applyEvidence;el('addObservation').onclick=addObservation;el('applyKnown').onclick=applyKnown;el('run').onclick=start;el('save').onclick=save;el('runBenchmark').onclick=startBenchmark;el('loadBenchmark').onclick=()=>api('/api/benchmark').then(renderBenchmark).catch(e=>notice(e.message,true));listCases().then(loadCase).catch(e=>notice(e.message,true));
 </script></body></html>

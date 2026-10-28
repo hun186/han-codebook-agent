@@ -39,6 +39,30 @@ shell/file/MCP/web tool invocations。也無需授權程式開啟任何
    真正付費的 Responses API 模式仍保留在相鄰的 `run.py`
    `--provider openai-api`。
 
+## GPT-5.6 Sol — 不需另購 API 額度的替代商用模型
+
+如果你希望先用 GPT-5 系列而不是 Astra，這套同一個原系統
+Agent 和相同盲測程序也支援 **`gpt-5.6-sol`**。這是官方
+Codex 可選模型，會消耗你 ChatGPT 訂閱的 Codex 使用量，
+**不是**在此對話直接呼叫的 API，也沒有繞過配額限制。
+
+在本頁後面示例的 `run.py` 命令將
+`--model gpt-6-astra` 改為 `--model gpt-5.6-sol` 即可；
+其餘參數（`--provider codex-subscription`、
+`--allow-subscription-usage`、`--resume` 等）不變。
+
+- 請在**新的一組未知碼本和全新結果資料夾**跑 GPT-5.6 Sol。
+- **不允許**在相同測試的 `--resume` 中途從 Astra 改成 Sol，
+  更不能混合兩種模型的回覆算成單一模型正確率。
+- 報告會明確記錄 `model=gpt-5.6-sol`、
+  `provider=CODEX_CLI_CHATGPT_PLAN`、
+  reasoning effort、逐輪回覆與已完成的真實推論次數。
+- 模型可用性受你的 ChatGPT 訂閱、CLI 版本、當下的模型配額限制。
+  本 repo 的無網路回歸只能驗證命令與回覆處理，**不能證明已經
+  成功呼叫你帳號的 GPT-5.6 Sol**。
+
+官方型號參考：https://developers.openai.com/api/docs/models/gpt-5.6-sol
+
 ## 你的 Windows 電腦怎麼啟用
 
 1. 安裝最新版官方 Codex CLI（詳見官方文件）。

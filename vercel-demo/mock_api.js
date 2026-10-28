@@ -23,9 +23,50 @@
         !input.profiles || typeof input.profiles !== 'object') {
       throw Error('Case requires messages and profiles');
     }
-    if (input.messages.some(m => !Array.isArray(m.codes) || !m.codes.length ||
+    if (input.messages.some(m => !m || typeof m.id !== 'string' ||
+        !Array.isArray(m.codes) || !m.codes.length ||
         m.codes.some(c => typeof c !== 'string' || !/^\d+$/.test(c)))) {
-      throw Error('Codes must be numeric strings');
+      throw Error('Messages need IDs and nonempty numeric-string code groups');
+    }
+    const byMessage = new Map(input.messages.map(m => [m.id, m.codes]));
+    if (byMessage.size !== input.messages.length) {
+      throw Error('Each message must have a unique ID');
+    }
+    // Mirror core.validate_case() + anchors_and_review(): only consistent
+    // researcher-provided aligned evidence may become verified anchors.
+    // The public fixture is deliberately not a plaintext oracle.
+    const anchors = new Map();
+    const pairs = input.known_pairs || [];
+    if (!Array.isArray(pairs)) throw Error('known_pairs must be an array');
+    for (const pair of pairs) {
+      if (!pair || typeof pair !== 'object' || Array.isArray(pair)) {
+        throw Error('Known pair must be a record');
+      }
+      const codes = byMessage.get(pair.message_id);
+      if (!codes) throw Error('Known pair references an unknown message');
+      if (!Object.hasOwn(pair, 'segments')) {
+        if (typeof pair.plaintext !== 'string') {
+          throw Error('Unsegmented known pair requires plaintext');
+        }
+        continue; // unsegmented text is never an anchor
+      }
+      const segments = pair.segments;
+      if (!Array.isArray(segments) || segments.length !== codes.length ||
+          segments.some(w => typeof w !== 'string' || !w)) {
+        throw Error('Known pair segments must match code count and contain nonempty words');
+      }
+      if (pair.plaintext !== undefined && pair.plaintext !== null &&
+          (typeof pair.plaintext !== 'string' ||
+           segments.join('') !== pair.plaintext)) {
+        throw Error('Known pair: segments do not concatenate to plaintext');
+      }
+      for (let i = 0; i < codes.length; i++) {
+        const previous = anchors.get(codes[i]);
+        if (previous !== undefined && previous !== segments[i]) {
+          throw Error('Contradictory verified known plaintext for code ' + codes[i]);
+        }
+        anchors.set(codes[i], segments[i]);
+      }
     }
     return clone(input);
   }

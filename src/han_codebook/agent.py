@@ -285,6 +285,10 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         for num in range(1, rounds + 1):
             if cancel_check:
                 cancel_check()
+            # Preserve pre-round assignments, including changes made by
+            # newly added vocabulary before the code-level LLM response.
+            round_start_mapping = ({c: p["term"] for c, p in current["proposals"].items()}
+                                   if current is not None else {})
             if adaptive_vocabulary:
                 from .adaptive_vocabulary import refresh_vocabulary
                 if progress:
@@ -312,8 +316,17 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 # Expand the solver's candidate space before asking for code-level hints.
                 current = analyze(active_case, use_metadata=metadata,
                                   iterations=solver_iterations, restarts=solver_restarts)
+                if cancel_check:
+                    cancel_check()  # Never send another LLM call after a canceled solve.
+                after_vocab_mapping = {c: p["term"] for c, p in current["proposals"].items()}
+                vocab_changes = {c: {"before": prior, "after": after_vocab_mapping[c]}
+                                 for c, prior in round_start_mapping.items()
+                                 if after_vocab_mapping[c] != prior}
                 log_event(conn, num, "vocabulary_rescore", {
                     "score": current["objective_score"],
+                    "mapping": after_vocab_mapping,
+                    "changes": vocab_changes,
+                    "changed_count": len(vocab_changes),
                     "candidate_count": len(vocab),
                     "round": num,
                 })
@@ -363,7 +376,6 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                          "validating candidate proposals ...")
             accepted = []
             rejected_count = 0
-            baseline_mapping = {c: p["term"] for c, p in current["proposals"].items()}
             for entry in reply["hypotheses"][:15]:
                 if not isinstance(entry, dict):
                     rejected_count += 1
@@ -386,7 +398,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                               iterations=solver_iterations, restarts=solver_restarts)
             new_mapping = {c: p["term"] for c, p in current["proposals"].items()}
             changes = {code: {"before": previous, "after": new_mapping[code]}
-                       for code, previous in baseline_mapping.items() if previous != new_mapping[code]}
+                       for code, previous in round_start_mapping.items()
+                       if new_mapping[code] != previous}
             log_event(conn, num, "rescore", {"score": current["objective_score"],
                                               "mapping": new_mapping, "changes": changes, "changed_count": len(changes)})
         if cancel_check:

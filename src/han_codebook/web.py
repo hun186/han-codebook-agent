@@ -48,6 +48,8 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
     settings_path = settings_path.resolve()
     jobs = jobs if jobs is not None else {}
     jobs_lock = threading.Lock()
+    # Events remain outside the JSON-facing job record.
+    review_waiters: dict[str, dict[str, Any]] = {}
     static = Path(__file__).parent / "static" / "index.html"
 
     class Handler(BaseHTTPRequestHandler):
@@ -182,12 +184,33 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                 return
             try:
                 data = self._body()
+                review_match = re.fullmatch(r"/api/jobs/([0-9a-f]{16})/review", self.path)
+                if review_match:
+                    job_id = review_match.group(1)
+                    approved = data.get("approved")
+                    if (set(data) != {"approved"} or not isinstance(approved, list)
+                            or len(approved) > 32 or any(not isinstance(w, str) for w in approved)
+                            or len(set(approved)) != len(approved)):
+                        raise CaseError("Approved words must be a distinct string list (at most 32)")
+                    with jobs_lock:
+                        waiter = review_waiters.get(job_id)
+                        job = jobs.get(job_id)
+                        if not waiter or not job or job["status"] != "awaiting_review" or waiter["submitted"]:
+                            return self._json(409, {"error": "No active vocabulary review for this job"})
+                        offered = set(waiter["offered"])
+                        if any(w not in offered for w in approved):
+                            raise CaseError("Cannot approve words outside this round's pending candidates")
+                        waiter["approved"] = approved[:]
+                        waiter["submitted"] = True
+                        job["review_submitted"] = True
+                        waiter["event"].set()
+                    return self._json(200, {"accepted": len(approved), "status": "submitted"})
                 if self.path == "/api/settings/llm":
                     from .model_settings import save_model_settings
                     # The active-job check and the entire config write form one
                     # critical section with job admission and its LLM snapshot.
                     with jobs_lock:
-                        if any(j["status"] in ("queued", "running") for j in jobs.values()):
+                        if any(j["status"] in ("queued", "running", "awaiting_review") for j in jobs.values()):
                             return self._json(409, {"error": "Cannot change LLM settings while an investigation is active"})
                         new_settings = save_model_settings(settings_path, data)
                     return self._json(200, {**new_settings, "endpoint": new_settings["base_url"]})
@@ -220,7 +243,7 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                     if data.get("confirmed") is not True:
                         raise CaseError("LLM network use must be explicitly confirmed")
                     with jobs_lock:
-                        if any(j["status"] in ("queued", "running") for j in jobs.values()):
+                        if any(j["status"] in ("queued", "running", "awaiting_review") for j in jobs.values()):
                             return self._json(409, {"error": "An investigation is already running"})
                         llm_snapshot = copy.deepcopy(load_settings(settings_path)["llm"])
                         job_id = secrets.token_hex(8)
@@ -265,7 +288,7 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                     return self._json(201, {"saved_as": str(target.relative_to(root)).replace(os.sep, "/")})
                 if self.path == "/api/start-benchmark":
                     with jobs_lock:
-                        if any(j["status"] in ("queued", "running") for j in jobs.values()):
+                        if any(j["status"] in ("queued", "running", "awaiting_review") for j in jobs.values()):
                             return self._json(409, {"error": "An investigation is already running"})
                         job_id = secrets.token_hex(8)
                         jobs[job_id] = {"id": job_id, "type": "benchmark", "status": "queued",
@@ -303,8 +326,13 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                     capture = data.get("capture_llm_io", False)
                     if type(capture) is not bool:
                         raise CaseError("capture_llm_io must be boolean")
+                    candidate_mode = data.get("candidate_mode", "static")
+                    if type(candidate_mode) is not str or candidate_mode not in ("static", "automatic", "human"):
+                        raise CaseError("candidate_mode must be static, automatic or human")
+                    if candidate_mode != "static" and rounds == 0:
+                        raise CaseError("Dynamic vocabulary requires at least one LLM round")
                     with jobs_lock:
-                        if sum(j["status"] in ("queued", "running") for j in jobs.values()) >= 1:
+                        if sum(j["status"] in ("queued", "running", "awaiting_review") for j in jobs.values()) >= 1:
                             return self._json(409, {"error": "An investigation is already running"})
                         # Pin the approved LLM destination/model at job admission;
                         # background execution must never reread mutable YAML.
@@ -315,6 +343,37 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                     input_case = copy.deepcopy(case)
                     def work():
                         target = root / "artifacts" / "web_runs" / job_id
+
+                        def reviewer(round_number: int, proposed: list[dict]) -> list[str]:
+                            # Timeout fails closed, never silently auto-accept.
+                            if not proposed:
+                                return []
+                            event = threading.Event()
+                            with jobs_lock:
+                                jobs[job_id]["status"] = "awaiting_review"
+                                jobs[job_id]["pending_review"] = {
+                                    "round": round_number,
+                                    "candidates": copy.deepcopy(proposed),
+                                }
+                                jobs[job_id]["review_submitted"] = False
+                                review_waiters[job_id] = {
+                                    "event": event,
+                                    "offered": [item["term"] for item in proposed],
+                                    "approved": [], "submitted": False,
+                                }
+                            try:
+                                if not event.wait(600):
+                                    raise CaseError("Human vocabulary review timed out; no candidates auto-accepted")
+                                with jobs_lock:
+                                    selected = review_waiters[job_id]["approved"][:]
+                                    jobs[job_id]["status"] = "running"
+                                    jobs[job_id].pop("pending_review", None)
+                                    jobs[job_id].pop("review_submitted", None)
+                                return selected
+                            finally:
+                                with jobs_lock:
+                                    review_waiters.pop(job_id, None)
+
                         with jobs_lock:
                             jobs[job_id]["status"] = "running"
                         def progress(message):
@@ -332,7 +391,9 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                                 llm_allowed_hosts=llm.get("allowed_hosts", []),
                                 llm_api_key_env=llm.get("api_key_env"), progress=progress,
                                 capture_llm_io=capture and rounds > 0,
-                                solver_iterations=3, solver_restarts=2)
+                                solver_iterations=3, solver_restarts=2,
+                                adaptive_vocabulary=candidate_mode != "static",
+                                vocabulary_reviewer=reviewer if candidate_mode == "human" else None)
                             (target / "result.json").write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
                             events = audit_timeline(target / "audit.sqlite")
                             from .report import investigation_report
@@ -352,6 +413,8 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                         except Exception as exc:
                             with jobs_lock:
                                 jobs[job_id]["status"] = "failed"
+                                jobs[job_id].pop("pending_review", None)
+                                jobs[job_id].pop("review_submitted", None)
                                 jobs[job_id]["error"] = f"{type(exc).__name__}: {exc}"
                                 try:
                                     jobs[job_id]["events"] = audit_timeline(target / "audit.sqlite")

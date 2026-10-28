@@ -28,6 +28,10 @@ GUI「推論與解讀」→「候選詞庫更新／人工覆核」提供三種�
 
 人工審核時 `GET /api/jobs/{job_id}` 回傳 `status: awaiting_review` 和 `pending_review: {round,candidates}`；`POST /api/jobs/{job_id}/review` body 須包含 `{"round": 1, "review_token": "<當輪唯一憑證>", "approved": ["候選詞一", ...]}`。每輪由 `GET` 傳回獨立的 `review_token`；伺服器在同一把鎖內檢查 job、round、token 與待審集合，過期／重送到下一輪的核准一律 409，防止舊網頁決定跳過下一輪的人工覆核。核准詞必須包含於當前待審項目，提交一次即鎖定；候選全拒絕可使用空陣列。
 
+**人工新增詞（此次新增）**：每輪候選覆核畫面增加「研究員新增候選詞」文字區，每行一詞。操作員可以一邊勾選 LLM 詞彙，一邊自行提出未出現於 LLM 回覆的新詞；也可取消所有 LLM 詞彙，只提交人工新增詞。`POST /api/jobs/{job_id}/review` 可額外提交 `"added": ["研究員新詞", "其他候選"]`（舊版省略 `added` 視為 `[]`），但必須仍提交本輪 `round` 與 `review_token`。總勾選與人工新增詞**最多 32 個**；人工新增詞必須 1～24 字、無控制字元、不可重複、不得冒充已由 LLM 提供的候選詞，且不能重複當前詞庫。儲存於該工作**執行期間**的低權重候選詞庫，稽核事件另外記錄 `researcher_added` 與 `source: researcher`、`status: unverified`；絕不自動變成 `verified_alignment`，也不直接覆寫使用者原案例。
+
+回合更新後會再次計算整個案例的碼組對應。研究員新詞對應的變動會出現在 `vocabulary_rescore.changes` 和後續整輪 `rescore.changes`。本機 GUI 在人工作業模式的工作查詢暫時失敗時不會直接丟棄待審工作，而會保留同一 job 與輪詢以便恢復。
+
 人工模式下，若研究員在等待審核時修改或切換案例，舊研究的結果已不可套入新頁面。GUI 將呼叫 `POST /api/jobs/{job_id}/cancel`（空 JSON）取消**該人工覆核工作**；取消可在排隊、模型執行中或等待審核時提出。若模型請求已送出，會在該次請求返回後、下一次推論階段前安全結束，不能瞬間中斷外部模型運算。取消時不能繼續核准舊候選，也不會自動接受候選；不會提前釋出尚未真正停止的 job gate。
 
 若開啟完整 Prompt/回覆稽核，動態詞庫階段分別記為 `vocabulary_llm_request`／`vocabulary_llm_response`，碼組推論階段保留 `llm_request`／`llm_response`。GUI 的逐輪紀錄依**回合與階段**配對請求／回覆，避免把詞庫的答覆誤貼到碼組推論 prompt 上。

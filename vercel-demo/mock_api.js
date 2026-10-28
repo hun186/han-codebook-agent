@@ -8,6 +8,12 @@
   const clone = value => JSON.parse(JSON.stringify(value));
   const cases = new Map();
   const jobs = new Map();
+  const investigations = new Map(); // Browser-memory-only adaptive workflow state.
+  const simulatedTerms = [
+    '補給線','整備待命','沿線警戒','運輸調度','情報彙整','緊急集結',
+    '物資轉運','車輛檢修','前線部署','夜間移動','後勤聯絡','臨時集散',
+    '機動補給','行動時序','轉進路線','交通管制','聯合觀察','調查核對'
+  ];
   let initialized = null;
   let seed = null;
   let sequence = 0;
@@ -121,7 +127,7 @@
     })();
     return initialized;
   }
-  function mockMapping(caseData, rounds, useMetadata) {
+  function mockMapping(caseData, rounds, useMetadata, addedTerms=[]) {
     const n = caseData.messages.length;
     const source = seed.records.find(x => x.size >= n) || seed.records.at(-1);
     const base = source.statistical;
@@ -149,9 +155,12 @@
       }
       const mark = (caseData.hypothesis_marks || {})[code] || {};
       const ideas = ((caseData.candidate_ideas || {})[code] || []).filter(x => x.status !== 'rejected');
+      const showcase = (code === codes[0] || stableIndex(code, 9) === 0) ?
+        addedTerms.filter(w => typeof w === 'string').slice(-4).reverse() : [];
       const ranked = unique([
         ...ideas.filter(x => x.status === 'shortlisted').map(x => x.term),
         ...(mark.preferred ? [mark.preferred] : []),
+        ...showcase,
         ...(fromData[code]?.alternatives || []),
         ...ideas.map(x => x.term),
         ...vocab,
@@ -206,6 +215,147 @@
         changes:{}}});
     }
     return {result, events};
+  }
+  function mappingDelta(before, after) {
+    const oldMap = Object.fromEntries(Object.entries(before?.proposals || {}).map(([k,v])=>[k,v.term]));
+    const newMap = Object.fromEntries(Object.entries(after?.proposals || {}).map(([k,v])=>[k,v.term]));
+    const changes = {};
+    for(const code of Object.keys(newMap)){
+      if(Object.hasOwn(oldMap,code) && oldMap[code] !== newMap[code])
+        changes[code] = {before:oldMap[code], after:newMap[code]};
+    }
+    return {mapping:newMap,changes,changed_count:Object.keys(changes).length};
+  }
+  function validationError(message,status=400) {
+    const err=new Error(message);err.status=status;throw err;
+  }
+  function syntheticCandidates(state) {
+    const existing=new Set(lexicalCandidates(state.caseData));
+    const suggestions=simulatedTerms.filter(w=>!existing.has(w));
+    // Rotate deterministic MOCK ideas so the suggested vocabulary evolves by round.
+    return suggestions.slice((state.round-1)*3 % Math.max(1,suggestions.length))
+      .concat(suggestions.slice(0,(state.round-1)*3 % Math.max(1,suggestions.length)))
+      .slice(0,Math.min(5,Math.max(0,128-state.dynamicWords.length)))
+      .map(term=>({term,reason:'PUBLIC MOCK · 第'+state.round+'輪跨電文與第三方情報模擬候選',
+        source_round:state.round,status:'unverified'}));
+  }
+  function pendingReview(state) {
+    const item=jobs.get(state.id);
+    const candidates=syntheticCandidates(state);
+    const review_token='PUBLIC-MOCK-'+state.id+'-ROUND-'+state.round+'-TOKEN-'+(++sequence);
+    item.status='awaiting_review';
+    item.review_submitted=false;
+    item.pending_review={round:state.round,review_token,candidates};
+    item.logs.push('[Mock] 第'+state.round+'/'+state.rounds+'輪：等待研究員覆核（可勾選、拒絕或自行新增詞）');
+  }
+  function applyAdaptiveRound(state, approved, added, suggestions) {
+    const item=jobs.get(state.id);
+    const chosen=approved.concat(added);
+    if(state.dynamicWords.length+chosen.length>128)
+      validationError('PUBLIC MOCK: dynamic candidate vocabulary is limited to 128 terms');
+    const prior=state.current;
+    const existingTerms=new Set(lexicalCandidates(state.caseData));
+    if(chosen.some(w=>existingTerms.has(w)))
+      validationError('Candidate vocabulary already contains a selected word');
+    if(chosen.length){
+      const profile=state.caseData.profiles.llm_dynamic_candidates ||= {
+        keywords:[],lexicon:{},sentences:[]
+      };
+      for(const word of chosen)profile.lexicon[word]=1.0;
+    }
+    state.dynamicWords.push(...chosen);
+    const record={round:state.round,model:'PUBLIC MOCK — no model calls',
+      status:'unverified_candidate_vocabulary',review_mode:state.mode==='human'?'human':'automatic',
+      proposed:suggestions,approved:chosen,
+      researcher_added:added.map(term=>({term,status:'unverified',
+        source:'researcher',source_round:state.round})),
+      rejected_count:suggestions.length-approved.length,
+      total_dynamic_terms:state.dynamicWords.length,metadata_used:state.metadata};
+    item.events.push({round:state.round,stage:'vocabulary_candidates_unverified',payload:record});
+    const rescored=mockMapping(state.caseData,state.round,state.metadata,state.dynamicWords);
+    const delta=mappingDelta(prior,rescored);
+    item.events.push({round:state.round,stage:'vocabulary_rescore',payload:{
+      round:state.round,score:rescored.objective_score,candidate_count:lexicalCandidates(state.caseData).length,
+      ...delta}});
+    const accepted=Object.entries(rescored.proposals)
+      .filter(([,p])=>p.status==='hypothesis_unverified')
+      .slice(0,15).map(([code,p])=>({
+        code,candidates:p.alternatives.map(x=>x.term).slice(0,2),
+        reason:'PUBLIC MOCK · simulated code-hypothesis ranking, not a verified decoding'
+      }));
+    item.events.push({round:state.round,stage:'llm_proposals_unverified',
+      payload:{accepted,rejected_count:0,returned_count:accepted.length}});
+    const fullDelta=mappingDelta(prior,rescored);
+    item.events.push({round:state.round,stage:'rescore',
+      payload:{score:rescored.objective_score,...fullDelta}});
+    item.logs.push('[Mock] 第'+state.round+'輪：'+suggestions.length+' 個模擬 LLM 詞，'
+      +approved.length+' 採納，'+added.length+' 人工新增；重算 '+fullDelta.changed_count+' 個碼組，全部未驗證');
+    state.current=rescored;
+    state.round++;
+    if(state.round>state.rounds){
+      rescored.agent_rounds_completed=state.rounds;
+      rescored.dynamic_vocabulary_terms=state.dynamicWords.slice();
+      rescored.adaptive_vocabulary=true;
+      rescored.human_vocabulary_review=state.mode==='human';
+      item.result=rescored;
+      item.status='completed';
+      delete item.pending_review;
+      delete item.review_submitted;
+      item.logs.push('[Mock] 全部 '+state.rounds+' 回合已完成；輸出可下載合成 Word / Markdown');
+      investigations.delete(state.id);
+    } else if(state.mode==='human') {
+      pendingReview(state);
+    }
+  }
+  function startAdaptive(c,rounds,metadata,mode) {
+    const base=mockMapping(c,0,metadata);
+    const start=job('analysis',null,[{round:0,stage:'statistical_baseline',
+      payload:{score:base.objective_score,mapping:mappingDelta(null,base).mapping}}]);
+    const item=jobs.get(start.job_id);
+    item.logs=['PUBLIC MOCK · '+mode+' 自適應詞庫分析：完全在瀏覽器記憶體執行，沒有模型呼叫'];
+    const state={id:start.job_id,round:1,rounds,metadata,mode,
+      caseData:c,current:base,dynamicWords:[]};
+    investigations.set(state.id,state);
+    if(mode==='human')pendingReview(state);
+    else while(state.round<=rounds){
+      const suggestions=syntheticCandidates(state);
+      const approved=suggestions.map(x=>x.term);
+      applyAdaptiveRound(state,approved,[],suggestions);
+    }
+    return start;
+  }
+  function submitReview(id,data) {
+    const item=jobs.get(id),state=investigations.get(id);
+    if(!item || !state || state.mode!=='human' ||
+       item.status!=='awaiting_review' || item.review_submitted)
+      validationError('No active vocabulary review for this job',409);
+    if(!data || !Number.isInteger(data.round) || typeof data.review_token!=='string' ||
+       data.round!==item.pending_review.round ||
+       data.review_token!==item.pending_review.review_token)
+      validationError('Stale human vocabulary review round or token',409);
+    const approved=data.approved,added=data.added??[];
+    if(!Array.isArray(approved)||!Array.isArray(added)||
+       approved.length+added.length>32||
+       [...approved,...added].some(w=>typeof w!=='string')||
+       new Set(approved).size!==approved.length||
+       new Set(added).size!==added.length)
+      validationError('Approve up to 32 distinct candidate strings per round');
+    const offered=item.pending_review.candidates.map(x=>x.term);
+    const words=new Set(lexicalCandidates(state.caseData));
+    if(approved.some(w=>!offered.includes(w)))
+      validationError('Cannot approve words outside the current MOCK LLM proposals');
+    if(added.some(w=>!w || w.trim()!==w || w.length>24 ||
+       /[\x00-\x1f]/.test(w) || offered.includes(w) ||
+       approved.includes(w) || words.has(w)))
+      validationError('Researcher-added words must be novel 1..24 character unverified terms');
+    if(state.dynamicWords.length+approved.length+added.length>128)
+      validationError('Dynamic vocabulary limit (128 total) reached');
+    // The review response is single-use and bound to its exact round/token.
+    const round=state.round;
+    item.review_submitted=true;
+    applyAdaptiveRound(state,approved,added,item.pending_review.candidates);
+    return {status:'submitted',round,accepted:approved.length,
+      researcher_added:added.length};
   }
   function eventLinks(caseData) {
     const events=[];
@@ -287,11 +437,31 @@
       if(!Number.isInteger(rounds)||rounds<0||rounds>20)throw Error('Rounds must be 0..20');
       if(typeof data.use_metadata!=='undefined' && typeof data.use_metadata!=='boolean')
         throw Error('use_metadata must be boolean');
+      const mode=data.candidate_mode??'static';
+      if(!['static','automatic','human'].includes(mode))
+        validationError('candidate_mode must be static, automatic or human');
+      if(mode!=='static' && rounds===0)
+        validationError('Dynamic vocabulary requires at least one Mock LLM round');
+      if(mode!=='static')return startAdaptive(c,rounds,data.use_metadata!==false,mode);
       const out=analysis(c,rounds,data.use_metadata!==false);
       return job('analysis',out.result,out.events);
     }
     if(route==='/api/benchmark')return benchmark();
     if(route==='/api/start-benchmark')return job('benchmark',benchmark());
+    const reviewRoute=route.match(/^\/api\/jobs\/([0-9a-f]{16})\/review$/);
+    if(reviewRoute)return submitReview(reviewRoute[1],data);
+    const cancelRoute=route.match(/^\/api\/jobs\/([0-9a-f]{16})\/cancel$/);
+    if(cancelRoute){
+      const id=cancelRoute[1],state=investigations.get(id),item=jobs.get(id);
+      if(!state||!item||state.mode!=='human'||item.status!=='awaiting_review')
+        validationError('No active cancellable human-review job',409);
+      if(data && Object.keys(data).length)validationError('Cancel requires an empty request');
+      item.status='failed';item.error='PUBLIC MOCK · human vocabulary review canceled';
+      item.logs.push('[Mock] 人工覆核模擬工作已取消；未採納候選不會進入解讀');
+      delete item.pending_review;delete item.review_submitted;
+      investigations.delete(id);
+      return {status:'cancelling'};
+    }
     const match=route.match(/^\/api\/jobs\/([0-9a-f]{16})$/);
     if(match){
       const item=jobs.get(match[1]);
@@ -313,7 +483,7 @@
       const body=options.body?JSON.parse(options.body):undefined;
       return jsonResponse(handle(url.href,body));
     }catch(error){
-      return jsonResponse({error:String(error.message||error)},400);
+      return jsonResponse({error:String(error.message||error)},error.status||400);
     }
   };
 

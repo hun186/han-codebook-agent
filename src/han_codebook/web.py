@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import re
 import sqlite3
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -130,40 +131,41 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                                  "capture_io_available": True,
                                  "note": "Local/private OpenAI-compatible model only; credentials remain in environment variables."})
                 return
-            if url.path.startswith("/api/jobs/") and url.path.endswith("/report.docx"):
-                job_id = url.path.split('/')[3] if len(url.path.split('/')) == 5 else ''
+            if url.path.startswith("/api/jobs/") and (url.path.endswith("/report.docx") or url.path.endswith("/report.md")):
+                parts = url.path.split("/")
+                job_id = parts[3] if len(parts) == 5 else ""
+                if not re.fullmatch(r"[0-9a-f]{16}", job_id):
+                    return self._json(404, {"error": "Unknown report"})
                 with jobs_lock:
-                    j = jobs.get(job_id)
-                if not j or j.get("status") != "completed" or j.get("type") != "analysis":
-                    return self._json(404, {"error": "Word research report unavailable"})
-                report_file = root / "artifacts" / "web_runs" / job_id / "report.docx"
+                    job = jobs.get(job_id)
+                if job and (job.get("status") != "completed" or job.get("type") != "analysis"):
+                    return self._json(404, {"error": "Analysis has not completed"})
+                target = root / "artifacts" / "web_runs" / job_id
+                wants_word = parts[4] == "report.docx"
+                report_file = target / ("report.docx" if wants_word else "report.md")
+                # Historical reports from before this deployment still have
+                # result.json and audit.sqlite; make DOCX available on demand.
+                if wants_word and not report_file.is_file():
+                    result_json = target / "result.json"
+                    audit_sqlite = target / "audit.sqlite"
+                    if result_json.is_file() and audit_sqlite.is_file():
+                        from .report_docx import investigation_docx
+                        result = json.loads(result_json.read_text(encoding="utf-8"))
+                        document = investigation_docx(result, audit_timeline(audit_sqlite))
+                        report_file.write_bytes(document)
                 if not report_file.is_file():
-                    return self._json(404, {"error": "Word report not generated"})
-                document = report_file.read_bytes()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-                self.send_header("Content-Disposition", 'attachment; filename="investigation-report.docx"')
-                self.send_header("Content-Length", str(len(document)))
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("X-Content-Type-Options", "nosniff")
-                self.end_headers()
-                self.wfile.write(document)
-                return
-            if url.path.startswith("/api/jobs/") and url.path.endswith("/report.md"):
-                job_id = url.path.split('/')[3] if len(url.path.split('/')) == 5 else ''
-                with jobs_lock:
-                    j = jobs.get(job_id)
-                if not j or j.get("status") != "completed" or j.get("type") != "analysis":
                     return self._json(404, {"error": "Research report unavailable"})
-                report = (root / "artifacts" / "web_runs" / job_id / "report.md").read_bytes()
+                blob = report_file.read_bytes()
                 self.send_response(200)
-                self.send_header("Content-Type", "text/markdown; charset=utf-8")
-                self.send_header("Content-Disposition", 'attachment; filename="investigation-report.md"')
-                self.send_header("Content-Length", str(len(report)))
+                self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                 if wants_word else "text/markdown; charset=utf-8")
+                self.send_header("Content-Disposition", 'attachment; filename="investigation-report.docx"'
+                                 if wants_word else 'attachment; filename="investigation-report.md"')
+                self.send_header("Content-Length", str(len(blob)))
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.end_headers()
-                self.wfile.write(report)
+                self.wfile.write(blob)
                 return
             if url.path.startswith("/api/jobs/"):
                 key = url.path.rsplit("/", 1)[-1]

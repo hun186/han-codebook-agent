@@ -16,6 +16,7 @@
   ];
   let initialized = null;
   let seed = null;
+  let recordedTrial = null;
   let sequence = 0;
   const oracleFields = ['gold', 'ground_truth', 'codebook'];
   const allowedCases = [10, 25, 50, 100];
@@ -112,11 +113,39 @@
       candidate_ideas: {},
     };
   }
+  function makeRecordedCase(publicData) {
+    return {
+      case_id:'adaptive_trial_100',
+      description:'100 封已揭盲合成跨報研究案例（2026-10-28）；固定演算法的逐輪結果重播，非新 GPT 模型推論。報告含全 100 封真值比較。',
+      profiles:{general:{keywords:['合成觀察','跨報情報','逐輪詞庫'],
+        lexicon:Object.fromEntries(publicData.fixed_vocab.map(w=>[w,1.0])),
+        sentences:[]}},
+      messages:publicData.messages.map(m=>({
+        ...clone(m),received_at:m.sent_at,
+        observations:m.observations.map(o=>({
+          ...clone(o),note:'模擬第三方觀察，未驗證與密電關聯'})
+      })),
+      known_pairs:[],candidate_ideas:{}
+    };
+  }
   async function setup() {
     if (!initialized) initialized = (async () => {
-      const r = await nativeFetch('/data/demo.json', {cache:'no-store'});
+      const [r,adaptive] = await Promise.all([
+        nativeFetch('/data/demo.json', {cache:'no-store'}),
+        nativeFetch('/data/adaptive_trial_100.json', {cache:'no-store'})
+      ]);
       if (!r.ok) throw Error('Public synthetic fixture unavailable');
+      if (!adaptive.ok) throw Error('100-message adaptive replay fixture unavailable');
       seed = await r.json();
+      recordedTrial=await adaptive.json();
+      if (recordedTrial.kind!=='PUBLIC_SYNTHETIC_ADAPTIVE_REPLAY' ||
+          recordedTrial.case_id!=='adaptive_trial_100' ||
+          recordedTrial.public.messages.length!==100 ||
+          recordedTrial.locked_predictions.rounds.length!==3 ||
+          !recordedTrial.no_aux_replay ||
+          JSON.stringify(recordedTrial).includes('code_to_word') ||
+          JSON.stringify(recordedTrial).includes('messages_words'))
+        throw Error('Invalid public adaptive replay; reference answer must not be embedded');
       if (seed.kind !== 'PUBLIC_SYNTHETIC_MOCK' || seed.llm_used !== false ||
           !Array.isArray(seed.records)) throw Error('Invalid public mock fixture');
       for (const size of allowedCases) {
@@ -124,6 +153,7 @@
         if (!rec) throw Error('Missing public synthetic size ' + size);
         cases.set('demo_' + size, makeCase(rec));
       }
+      cases.set('adaptive_trial_100',makeRecordedCase(recordedTrial.public));
     })();
     return initialized;
   }
@@ -396,6 +426,95 @@
     return {status:'submitted',round,accepted:approved.length,
       researcher_added:added.length};
   }
+  // Replays the PREVIOUSLY REVEALED 100-message experiment from locked
+  // non-oracle predictions. This is not a fresh LLM run or solver reexecution.
+  function isUnchangedRecordedCase(c) {
+    const original=cases.get('adaptive_trial_100');
+    return Boolean(recordedTrial && c.case_id==='adaptive_trial_100' && original &&
+      c.messages.length===100 && (c.known_pairs||[]).length===0 &&
+      JSON.stringify(c.candidate_ideas||{})===JSON.stringify(original.candidate_ideas) &&
+      JSON.stringify(c.profiles)===JSON.stringify(original.profiles) &&
+      c.messages.every((m,i)=>{
+        const expected=original.messages[i];
+        return m.id===expected.id &&
+          JSON.stringify(m.codes)===JSON.stringify(expected.codes) &&
+          m.sender===expected.sender && m.recipient===expected.recipient &&
+          JSON.stringify(m.observations)===JSON.stringify(expected.observations);
+      }));
+  }
+  function recordedMapping(c, map, n, useMetadata) {
+    const proposals=Object.fromEntries(Object.entries(map).map(([code,term])=>[
+      code,{term,status:'hypothesis_unverified',alternatives:[{
+        term,relative_score:0
+      }],evidence:'LOCKED SYNTHETIC REPLAY, not verified plaintext'}
+    ]));
+    const decoded_messages=c.messages.map(m=>({
+      id:m.id,codes:clone(m.codes),
+      suggested_segments:m.codes.map(code=>map[code]||'[未解]'),
+      reading:m.codes.map(code=>map[code]||'[未解]').join(''),
+      domain_inferred:useMetadata?m.sender:null,
+      verified_codes:0,total_codes:m.codes.length
+    }));
+    return {
+      case_id:c.case_id,proposals,decoded_messages,verified_anchors:{},
+      agent_rounds_completed:n,known_code_count:0,unknown_code_count:60,
+      objective_score:-60,model:'PUBLIC LOCKED REPLAY — no model calls',
+      metadata_used:useMetadata,locked_experiment_replay:true,
+      limitations:['PREVIOUSLY REVEALED synthetic 100-message test; this replay does not run GPT API.',
+        'Role-template prior favors this artificial corpus; NOT real codebook cryptanalysis.',
+        'The reference key is available only in the separate published Word report, not to browser inference.']
+    };
+  }
+  function replayTrial(c, rounds, metadata, capture, mode) {
+    const stages=recordedTrial.locked_predictions.rounds;
+    const noaux=recordedTrial.no_aux_replay.predictions;
+    const base=recordedMapping(c,stages[0].predictions,0,metadata);
+    const events=[{round:0,stage:'statistical_baseline',
+      payload:{score:base.objective_score,mapping:mappingDelta(null,base).mapping,
+        changed_count:0,note:'PUBLIC recorded fixture; not a new model run'}}];
+    let prior=base,current=base;
+    for(let n=1;n<=rounds;n++){
+      const idx=Math.min(n-1,2);
+      const roundData=stages[idx];
+      const vocabulary=n===1?[]:n===2?recordedTrial.locked_predictions.round2_new_terms:
+        n===3?recordedTrial.locked_predictions.round3_new_terms:[];
+      const mapping=(!metadata && n>=3)?noaux:roundData.predictions;
+      current=recordedMapping(c,mapping,n,metadata);
+      const delta=mappingDelta(prior,current);
+      const proposed=vocabulary.map(term=>({
+        term,status:'unverified',source_round:n,reason:'已揭盲案例：過去研究的詞庫擴充紀錄'
+      }));
+      if(capture)traceMockExchange({events},n,'vocabulary',{
+        task:'RECORDED_ADAPTIVE_VOCABULARY',round:n,case_id:c.case_id
+      },{vocabulary:proposed,label:'LOCKED REPLAY, NOT LIVE LLM'});
+      events.push({round:n,stage:'vocabulary_candidates_unverified',
+        payload:{round:n,status:'unverified_candidate_vocabulary',review_mode:'automatic',
+          proposed,approved:vocabulary,researcher_added:[],rejected_count:0,
+          total_dynamic_terms:n===1?0:n===2?21:50,metadata_used:metadata,
+          note:'Captured 2026-10-28 synthetic trial, not new model suggestions'}});
+      events.push({round:n,stage:'vocabulary_rescore',
+        payload:{round:n,score:current.objective_score,
+          candidate_count:roundData.vocabulary.length,...delta}});
+      const accepted=Object.entries(current.proposals)
+        .filter(([,p])=>p.term!=='[未解]')
+        .slice(0,15).map(([code,p])=>({code,candidates:[p.term],
+          reason:'LOCKED REPLAY — no verified mapping from model'}));
+      if(capture)traceMockExchange({events},n,'code',{
+        task:'RECORDED_CODE_MAPPING',round:n,case_id:c.case_id
+      },{hypotheses:accepted,label:'LOCKED REPLAY, NOT LIVE LLM'});
+      events.push({round:n,stage:'llm_proposals_unverified',
+        payload:{accepted,rejected_count:0,returned_count:accepted.length}});
+      events.push({round:n,stage:'rescore',payload:{
+        score:current.objective_score,...delta}});
+      prior=current;
+    }
+    const metrics=recordedTrial.published_metrics[
+      !metadata&&rounds>=3?3:Math.min(Math.max(rounds-1,0),2)
+    ];
+    current.replay_published_metrics=clone(metrics);
+    current.agent_rounds_completed=rounds;
+    return {result:current,events};
+  }
   function eventLinks(caseData) {
     const events=[];
     for(const m of caseData.messages)for(const obs of m.observations||[]){
@@ -481,6 +600,18 @@
         validationError('candidate_mode must be static, automatic or human');
       if(mode!=='static' && rounds===0)
         validationError('Dynamic vocabulary requires at least one Mock LLM round');
+      if(isUnchangedRecordedCase(c)&&mode!=='human'){
+        const out=replayTrial(c,rounds,data.use_metadata!==false,data.capture_llm_io===true,mode);
+        const started=job('analysis',out.result,out.events);
+        jobs.get(started.job_id).logs=[
+          'PUBLIC LOCKED REPLAY · 100 封已揭盲案例，重播舊實驗；不呼叫任何模型或求解器',
+          '參考 Word 報告：/reports/adaptive_100_full_report.docx',
+          '當前階段碼本正確率：'+out.result.replay_published_metrics.correct_types+'/60',
+          '逐碼位置：'+out.result.replay_published_metrics.correct_positions+'/852',
+          '完整電文：'+out.result.replay_published_metrics.complete_messages+'/100'
+        ];
+        return started;
+      }
       if(mode!=='static')return startAdaptive(c,rounds,data.use_metadata!==false,mode,data.capture_llm_io===true);
       const out=analysis(c,rounds,data.use_metadata!==false,data.capture_llm_io===true);
       return job('analysis',out.result,out.events);

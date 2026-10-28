@@ -20,6 +20,7 @@ sys.path.insert(0,str(ROOT/"src"))
 from han_codebook.agent import run_agent
 from han_codebook.core import validate_case
 from gpt_gateway import LoopbackGateway,openai_responses
+from codex_subscription import codex_subscription_reply,check_codex_subscription
 
 SIZES=(10,25,50,100)
 
@@ -32,7 +33,8 @@ def json_sha(obj:object)->str:
 def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:int,
                    max_calls:int,timeout:int,provider,conditions=("with_aux","without_aux"),
                    real_api:bool=False,solver_iterations:int=8,solver_restarts:int=4,
-                   max_estimated_usd:float=100.0) -> dict:
+                   max_estimated_usd:float=100.0,
+                   provider_name:str|None=None) -> dict:
     public_dir=public_dir.resolve();out_dir=out_dir.resolve()
     if public_dir==out_dir or out_dir in public_dir.parents or public_dir in out_dir.parents:
         raise ValueError("Public input and result directories must be separate")
@@ -50,6 +52,11 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
     if expected_calls>max_calls:
         raise ValueError(f"Expected {expected_calls} GPT API calls exceeds --max-calls {max_calls}")
     if max_estimated_usd<=0:raise ValueError("--max-estimated-usd must be positive")
+    provider_name=provider_name or ("OPENAI_RESPONSES" if real_api else "TEST_DOUBLE")
+    if provider_name not in {"OPENAI_RESPONSES","CODEX_CLI_CHATGPT_PLAN","TEST_DOUBLE"}:
+        raise ValueError("Unsupported inference provider")
+    if real_api!=(provider_name!="TEST_DOUBLE"):
+        raise ValueError("A test double cannot be scored as a real model provider")
     counter={"calls":0,"prompt_tokens":0,"cached_input_tokens":0,
              "completion_tokens":0,"reasoning_tokens":0,"estimated_usd":0.0}
     model_ids={}
@@ -75,17 +82,16 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
         counter["cached_input_tokens"]+=cached
         counter["completion_tokens"]+=outs
         counter["reasoning_tokens"]+=reason
-        # Official 2026-10-29 GPT-6 Astra Standard prices: input $10/MTok,
-        # cached input $1/MTok, output incl reasoning $50/MTok.
-        # >272K input tokens trigger higher whole-request prices.
-        scale_in=2 if ins>272000 else 1
-        scale_out=1.5 if ins>272000 else 1
-        estimated=(max(0,ins-cached)*10*scale_in+cached*1*scale_in+
-                   outs*50*scale_out)/1_000_000
-        counter["estimated_usd"]=round(counter["estimated_usd"]+estimated,6)
-        if counter["estimated_usd"]>max_estimated_usd:
-            raise RuntimeError("Estimated Standard token spend exceeded configured cap; "
-                               "aborting without a falsely completed benchmark")
+        if provider_name=="OPENAI_RESPONSES":
+            # Official 2026-10-29 GPT-6 Astra Standard prices.
+            scale_in=2 if ins>272000 else 1
+            scale_out=1.5 if ins>272000 else 1
+            estimated=(max(0,ins-cached)*10*scale_in+cached*1*scale_in+
+                       outs*50*scale_out)/1_000_000
+            counter["estimated_usd"]=round(counter["estimated_usd"]+estimated,6)
+            if counter["estimated_usd"]>max_estimated_usd:
+                raise RuntimeError("Estimated API spend exceeded configured cap")
+        # ChatGPT-plan Codex CLI has a usage allowance, not API-token billing.
         return answer
     experiments=[]
     with LoopbackGateway(provider=counted_provider) as gateway:
@@ -146,11 +152,13 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
     if counter["calls"]!=expected_calls:
         raise RuntimeError(f"Expected {expected_calls} actual model requests, saw {counter['calls']}")
     lock={"kind":"ACTUAL_MULTI_ROUND_BLIND_EVALUATION" if real_api else "TEST_DOUBLE_SMOKE_NOT_SCORED",
-          "provider":"OPENAI_RESPONSES" if real_api else "TEST_DOUBLE", "model":model,
+          "provider":provider_name, "model":model,
           "reasoning_effort":effort, "n_rounds":rounds,
           "n_model_calls":counter["calls"],"usage":counter,
           "reported_api_model_ids":model_ids,
-          "cost_notice":"Estimated 2026-10-29 Standard token prices, not confirmed invoice",
+          "cost_notice":("API Standard token price estimate, not confirmed invoice"
+                         if provider_name=="OPENAI_RESPONSES" else
+                         "ChatGPT-plan Codex allowance; no additional API-token bill; quota applies"),
           "configured_max_estimated_usd":max_estimated_usd,
           "includes_hidden_reference":False,
           "n_experiments":len(experiments),"cases":experiments}
@@ -174,21 +182,39 @@ def main():
     parser.add_argument("--max-calls",type=int,default=240)
     parser.add_argument("--max-estimated-usd",type=float,default=100.0,
                         help="Abort before further calls after estimated Standard token charges exceed this cap")
-    parser.add_argument("--timeout",type=int,default=240)
+    parser.add_argument("--timeout",type=int,default=600)
+    parser.add_argument("--provider",choices=["openai-api","codex-subscription"],
+                        default="openai-api")
+    parser.add_argument("--allow-subscription-usage",action="store_true",
+                        help="Explicit consent to consume the locally logged-in ChatGPT Codex allowance")
+    parser.add_argument("--codex-bin",default="codex")
     parser.add_argument("--allow-cloud-api",action="store_true")
     args=parser.parse_args()
-    if not args.allow_cloud_api:
-        parser.error("External model calls require explicit --allow-cloud-api")
-    if not os.environ.get("OPENAI_API_KEY"):
-        parser.error("Set OPENAI_API_KEY as an environment variable; never commit it")
+    if args.provider=="openai-api":
+        if not args.allow_cloud_api:
+            parser.error("Paid API requires --allow-cloud-api")
+        if not os.environ.get("OPENAI_API_KEY"):
+            parser.error("Set OPENAI_API_KEY to use the separately billed API")
+    else:
+        if not args.allow_subscription_usage:
+            parser.error("Codex subscription requires --allow-subscription-usage")
+        check_codex_subscription(args.codex_bin)
     if not 1<=args.rounds<=20:
         parser.error("--rounds must be 1..20")
-    def provider(packet):
-        return openai_responses(packet,key=os.environ["OPENAI_API_KEY"],
-                               model=args.model,effort=args.effort,timeout=args.timeout)
+    if args.provider=="openai-api":
+        def provider(packet):
+            return openai_responses(packet,key=os.environ["OPENAI_API_KEY"],
+                                   model=args.model,effort=args.effort,timeout=args.timeout)
+        provider_name="OPENAI_RESPONSES"
+    else:
+        def provider(packet):
+            return codex_subscription_reply(packet,model=args.model,effort=args.effort,
+                                            timeout=max(30,args.timeout-10),
+                                            codex_bin=args.codex_bin)
+        provider_name="CODEX_CLI_CHATGPT_PLAN"
     run_experiment(args.public_dir,args.out_dir,model=args.model,effort=args.effort,
                    rounds=args.rounds,max_calls=args.max_calls,timeout=args.timeout,
-                   provider=provider,real_api=True,
+                   provider=provider,real_api=True,provider_name=provider_name,
                    max_estimated_usd=args.max_estimated_usd)
 
 

@@ -163,6 +163,40 @@ class KnownPairHoldoutTests(unittest.TestCase):
         self.assertTrue(all(fold["status"] == "no_newly_unanchored_codes"
                             for fold in report["folds"]))
 
+    def test_nullable_annotations_are_normalized_in_fold(self):
+        case = small_case()
+        case["hypothesis_marks"] = None
+        case["bold_hypotheses"] = None
+        folded = _fold_input(case, "m1", {"101", "102"})
+        self.assertEqual(folded["hypothesis_marks"], {})
+        self.assertEqual(folded["bold_hypotheses"], {})
+        report = verify_known_pairs(case, iterations=1, restarts=1)
+        self.assertEqual(report["evaluated_fold_count"], 2)
+        self.assertIsNone(case["hypothesis_marks"])
+        self.assertIsNone(case["bold_hypotheses"])
+
+    def test_empty_vocabulary_is_reported_without_using_withheld_plaintext(self):
+        case = small_case()
+        case["profiles"] = {"neutral": {}}
+        case["known_pairs"] = [case["known_pairs"][0]]
+        with patch("han_codebook.holdout_verification.analyze",
+                   side_effect=AssertionError("cannot run empty-vocab solver")):
+            report = verify_known_pairs(case)
+        self.assertEqual(report["evaluated_fold_count"], 1)
+        self.assertEqual(report["folds"][0]["status"], "no_candidate_vocabulary")
+        self.assertEqual(report["summary"]["independently_testable_fold_code_assessments"], 2)
+        self.assertEqual(report["summary"]["top1_hits"], 0)
+        self.assertEqual(report["summary"]["top5_hits"], 0)
+        self.assertEqual(report["summary"]["failure_categories"]["term_missing_from_candidate_vocabulary"], 2)
+        self.assertNotIn("兵力", json.dumps(report, ensure_ascii=False))
+        with TemporaryDirectory() as temp:
+            case_path = Path(temp) / "case.json"
+            out = Path(temp) / "report.json"
+            case_path.write_text(json.dumps(case, ensure_ascii=False), encoding="utf-8")
+            self.assertEqual(main(["--case", str(case_path), "--out", str(out)]), 0)
+            self.assertEqual(json.loads(out.read_text(encoding="utf-8"))["folds"][0]["status"],
+                             "no_candidate_vocabulary")
+
     def test_reject_oracle_invalid_arguments_and_unsegmented_only(self):
         case = small_case()
         for key in ("ground_truth", "gold", "codebook"):

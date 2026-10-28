@@ -113,7 +113,29 @@ def verify_known_pairs(case: dict[str, Any], *, max_folds: int = 10,
         vocab.update(mark["preferred"] for mark in marks.values()
                      if mark.get("preferred"))
         no_candidates = bool(independent) and not vocab
-        if no_candidates:
+        # A nonempty global vocabulary does not guarantee that every unanchored
+        # code still has a legal candidate. An unrelated researcher's exclusions
+        # can exhaust all remaining choices after an anchor is withheld.
+        # Mirror analyze()'s pinned / excluded filtering before executing it,
+        # without disabling exclusions or restoring withheld plaintext.
+        unknown = {code for m in folded["messages"] for code in m["codes"]} - set(retained)
+        blocked_codes = sorted(code for code in unknown
+                               if not ((
+                                   [marks[code]["preferred"]]
+                                   if marks.get(code, {}).get("pinned")
+                                   else [word for word in vocab
+                                         if word not in marks.get(code, {}).get("excluded", [])]
+                               ))) if not no_candidates else []
+        blocked_fold = bool(independent) and bool(blocked_codes)
+        if blocked_fold:
+            # No hypothesis was produced for this fold: exclude these codes
+            # from the measured Top-1/Top-5 denominator, and report the
+            # inability to score separately from a wrong prediction.
+            for code in independent:
+                details.append({
+                    "code": code, "outcome": "not_scored_due_to_candidate_exclusions"
+                })
+        elif no_candidates:
             for code in independent:
                 failures["term_missing_from_candidate_vocabulary"] += 1
                 details.append({
@@ -153,14 +175,20 @@ def verify_known_pairs(case: dict[str, Any], *, max_folds: int = 10,
             "independently_testable_codes": len(independent),
             "correct_top1": failures["correct_top1"],
             "correct_top5": failures["correct_top1"] + failures["top5_only_ranking_error"],
+            "scored_code_assessments": 0 if blocked_fold else len(independent),
+            "not_scored_due_to_candidate_exclusions": len(independent) if blocked_fold else 0,
+            "blocking_code_groups": blocked_codes,
             "failure_categories": dict(sorted(failures.items())),
             "outcomes_without_plaintext": details,
-            "status": ("no_candidate_vocabulary" if no_candidates else
+            "status": ("candidate_exclusions_blocked_inference" if blocked_fold else
+                       "no_candidate_vocabulary" if no_candidates else
                        "scored" if independent else "no_newly_unanchored_codes"),
         }
         folds.append(fold)
         totals.update({
             "fold_code_assessments": len(independent),
+            "scored_code_assessments": fold["scored_code_assessments"],
+            "not_scored_due_to_candidate_exclusions": fold["not_scored_due_to_candidate_exclusions"],
             "top1_hits": fold["correct_top1"],
             "top5_hits": fold["correct_top5"],
             "overlapping_anchored_codes_excluded": overlap,
@@ -168,6 +196,7 @@ def verify_known_pairs(case: dict[str, Any], *, max_folds: int = 10,
         totals.update(failures)
 
     count = totals["fold_code_assessments"]
+    scored = totals["scored_code_assessments"]
     return {
         "case_id": case.get("case_id", "unnamed"),
         "method": "offline leave-one-aligned-message-out; no LLM; no gold file",
@@ -176,10 +205,12 @@ def verify_known_pairs(case: dict[str, Any], *, max_folds: int = 10,
         "unaligned_plaintext_records_not_scored": unsegmented,
         "summary": {
             "independently_testable_fold_code_assessments": count,
+            "scored_fold_code_assessments": scored,
+            "not_scored_due_to_candidate_exclusions": totals["not_scored_due_to_candidate_exclusions"],
             "top1_hits": totals["top1_hits"],
             "top5_hits": totals["top5_hits"],
-            "top1_rate": round(totals["top1_hits"] / count, 4) if count else None,
-            "top5_rate": round(totals["top5_hits"] / count, 4) if count else None,
+            "top1_rate": round(totals["top1_hits"] / scored, 4) if scored else None,
+            "top5_rate": round(totals["top5_hits"] / scored, 4) if scored else None,
             "overlapping_anchored_codes_excluded": totals["overlapping_anchored_codes_excluded"],
             "failure_categories": {
                 key: totals[key] for key in (
@@ -196,6 +227,8 @@ def verify_known_pairs(case: dict[str, Any], *, max_folds: int = 10,
             "The same code may be assessed in multiple folds; denominators are fold-code assessments, not globally independent codes.",
             "Operator lexicons, sentence priors, ciphertext and contextual metadata can still contain strong hints; this is NOT blind decipherment.",
             "Researcher candidate hints for newly unanchored held-out codes are removed; unrelated candidate hints remain.",
+            "If remaining researcher exclusions exhaust another code's candidates, the entire fold is marked unscorable and excluded from Top-1/Top-5 rate denominators.",
+            "The potential fold-code count includes unscorable folds; see scored_fold_code_assessments for the actual rate denominator.",
             "Unaligned plaintext is never promoted to a verified anchor or scored as segmented truth.",
             "Outputs are unverified hypotheses, not historical plaintext verification.",
         ],
@@ -224,7 +257,9 @@ def main(argv: list[str] | None = None) -> int:
                             encoding="utf-8")
         summary = result["summary"]
         print(f"Offline hold-out: {result['evaluated_fold_count']}/{result['available_fold_count']} folds; "
-              f"independently testable {summary['independently_testable_fold_code_assessments']} fold-codes; "
+              f"potential fold-codes {summary['independently_testable_fold_code_assessments']}; "
+              f"scored {summary['scored_fold_code_assessments']}; "
+              f"unscorable exclusions {summary['not_scored_due_to_candidate_exclusions']}; "
               f"Top-1 {summary['top1_hits']}, Top-5 {summary['top5_hits']}.")
         print(f"Saved: {args.out}; no reference plaintext included in report.")
         return 0

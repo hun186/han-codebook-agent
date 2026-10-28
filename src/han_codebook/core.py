@@ -82,6 +82,8 @@ def validate_case(case: dict[str, Any]) -> None:
                 raise CaseError(f"known pair {m_id}: segments do not concatenate to plaintext")
 
 
+    from .candidate_ideas import normalize_ideas
+    normalize_ideas(case)
     if 'hypothesis_marks' in case:
         from .hypothesis_marks import normalize_marks
         anchors, _, _ = anchors_and_review(case)
@@ -242,7 +244,11 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
     anchors, reviews, vocab = anchors_and_review(case)
     from .hypothesis_marks import normalize_marks
     marks = normalize_marks(case, anchors)
+    from .candidate_ideas import idea_vocabulary, shortlisted_bonus
+    idea_terms = idea_vocabulary(case)
+    idea_hints = shortlisted_bonus(case)
     extra_terms = {m["preferred"] for m in marks.values() if m["preferred"]}
+    extra_terms.update(idea_terms)
     vocab.update(extra_terms)
     if not vocab:
         raise CaseError("empty vocabulary; provide profile lexicon or sample sentences")
@@ -268,7 +274,7 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
         raw = hints.get(code, {}).get(word, 0.0)
         if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not math.isfinite(raw):
             raise CaseError('LLM hint weights must be finite numeric values')
-        return hint_scale * min(0.6, max(0.0, raw))
+        return hint_scale * min(0.6, max(0.0, raw)) + idea_hints.get(code, {}).get(word, 0.0)
     for code, values in hints.items():
         if not isinstance(values, dict):
             raise CaseError('LLM code hints must be objects')

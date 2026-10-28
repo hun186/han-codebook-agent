@@ -1,8 +1,82 @@
 <!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Han Codebook Agent | 密電研究工作台</title>
 <style>
 :root{color-scheme:dark;font-family:system-ui,"Microsoft JhengHei",sans-serif;--bg:#0c1524;--panel:#142339;--line:#33475b;--ink:#e8f0f6;--sub:#a4b9ce;--accent:#4bd0bc}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink)}header{padding:24px max(22px,4vw);background:#122238;border-bottom:1px solid var(--line)}h1{font-size:22px;margin:0 0 4px}h2{font-size:17px;margin:4px 0 14px}h3{font-size:14px;margin:8px 0}small,.muted{color:var(--sub)}main{max-width:1440px;margin:auto;padding:20px;display:grid;gap:18px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}nav{display:flex;flex-wrap:wrap;gap:8px}button,select,input,textarea{background:#0c1b2d;color:var(--ink);border:1px solid #50647a;border-radius:6px;font:inherit;padding:9px}button{cursor:pointer}button.primary{background:#087f78;border-color:#42b4a6;font-weight:650}button:disabled{opacity:.5}textarea{width:100%;resize:vertical;min-height:80px}input[type="text"],input[type="number"]{width:100%}label{display:block;color:var(--sub);font-size:13px;margin:8px 0 4px}.row{display:flex;align-items:center;flex-wrap:wrap;gap:10px}.row>*{flex:1 1 150px}.tabs button.active{border-color:var(--accent);color:var(--accent)}.page{display:none}.page.active{display:block}.columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px}table{width:100%;border-collapse:collapse}td,th{font-size:13px;padding:8px;border-bottom:1px solid #2e4156;text-align:left;vertical-align:top}td input{min-width:90px}pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:430px;overflow:auto;padding:12px;background:#091629;border-radius:7px;font-size:12px}.pill{display:inline-block;border:1px solid #45687a;border-radius:99px;padding:4px 10px;color:var(--sub);font-size:12px}.good{color:#74deb1}.bad{color:#ffc083}.chartrow{display:grid;grid-template-columns:116px 1fr 80px;gap:10px;margin:9px 0;align-items:center;font-size:12px}.track{height:14px;border-radius:5px;background:#0a1527;overflow:hidden}.fill{height:100%;background:var(--accent)}.compact{max-height:450px;overflow:auto}.message{margin:8px 0;padding:10px;background:#0b1b2e;border:1px solid #304455;border-radius:8px}.gridfield{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}.alert{border-left:3px solid #f4c36b;padding:8px 12px;background:#292b31}.kpi{display:flex;gap:10px;flex-wrap:wrap}.kpi>div{padding:12px;border-radius:8px;background:#0c1b2d;flex:1 1 130px}.kpi strong{display:block;font-size:22px}summary{cursor:pointer;padding:8px;color:var(--accent)}details{border-bottom:1px solid var(--line)}.hypo-read{display:inline-flex;align-items:center;gap:3px;padding:4px;margin:2px;border:1px dashed #60748a;border-radius:6px;background:#102c40;cursor:pointer}.hypo-read.active-mark{border-color:#f7c66a}.hypo-read small{font-size:10px}.hypo-action{margin:6px 2px}.wrap{overflow-x:auto}
+/* Desktop workflow sidebar, mobile scrollable navigation. */
+main{grid-template-columns:220px minmax(0,1fr);align-items:start}
+main>.panel:first-child{grid-column:1/-1}
+main>.page{grid-column:2;grid-row:2;min-width:0}
+.workspace-sidebar{grid-column:1;grid-row:2;position:sticky;top:12px;max-height:calc(100vh - 24px);overflow-y:auto;background:#142339;border:1px solid var(--line);border-radius:12px;padding:13px}
+.workspace-sidebar h2{font-size:15px;color:var(--accent)}
+.tabs{display:flex;flex-direction:column;gap:6px}
+.tabs button{text-align:left;width:100%;line-height:1.35;border:1px solid transparent;background:transparent;padding:10px 12px}
+.tabs button:hover{background:#233a50}
+.tabs button.active{background:#103e47;border-color:var(--accent);color:#84eee0}
+.nav-heading{font-size:11px;color:var(--sub);font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin:12px 9px 3px}
+.guide-intro{font-size:15px;line-height:1.8;color:#dce9f1}
+.guide-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.guide-step{background:#0c2033;border:1px solid #355268;border-radius:10px;padding:15px;min-width:0}
+.guide-step strong{font-size:15px;color:#86e4db}
+.guide-step p{line-height:1.6;font-size:13px;color:#c2d4e2}
+.guide-step button{width:100%;margin-top:9px}
+.guide-table td:first-child{font-weight:650;white-space:nowrap}
+.guide-callout{background:#122c41;border-left:3px solid var(--accent);padding:13px 15px;line-height:1.7}
+@media(max-width:900px){
+ main{display:block;padding:12px}
+ main>.panel:first-child{margin-bottom:12px}
+ .workspace-sidebar{position:static;max-height:none;margin-bottom:12px;padding:8px}
+ .workspace-sidebar h2,.nav-heading{display:none}
+ .tabs{flex-direction:row;overflow-x:auto;scrollbar-width:thin;gap:5px}
+ .tabs button{white-space:nowrap;width:auto;flex:0 0 auto;padding:9px 11px}
+ main>.page{display:none}
+ main>.page.active{display:block}
+}
 </style></head><body><header><h1>Han Codebook Agent　中文詞組密電研究工作台</h1><small>本機瀏覽器介面 · 歷史虛構案例 · 未驗證候選絕不等於真實破譯</small></header><main>
-<div class="panel"><div class="row"><div><label for="caseList">研究案例</label><select id="caseList" style="width:100%"></select></div><button id="loadCase">載入案例</button><button id="newCase">＋ 建立空白案例</button><button id="addMessage">＋ 新增電文</button><button id="delMessage">刪除目前電文</button><button id="newProfile">＋ 新增語境領域</button><div><label>模型服務</label><div id="modelInfo" class="muted">載入中…</div></div></div><nav class="tabs" id="tabs"><button data-page="overview" class="active">研究與執行</button><button data-page="vocab">詞彙先驗</button><button data-page="evidence">電文與第三方觀察</button><button data-page="marks">假說標註／復原</button><button data-page="trace">逐輪分析／Prompt</button><button data-page="benchmark">基準評測</button></nav><p id="notice" class="muted" aria-live="polite"></p></div>
+<div class="panel"><div class="row"><div><label for="caseList">研究案例</label><select id="caseList" style="width:100%"></select></div><button id="loadCase">載入案例</button><button id="newCase">＋ 建立空白案例</button><button id="addMessage">＋ 新增電文</button><button id="delMessage">刪除目前電文</button><button id="newProfile">＋ 新增語境領域</button><div><label>模型服務</label><div id="modelInfo" class="muted">載入中…</div></div></div><p id="notice" class="muted" aria-live="polite"></p></div>
+<aside class="workspace-sidebar" aria-label="研究工作台導航"><h2>研究導航</h2><nav class="tabs" id="tabs" aria-label="工作流程與功能">
+<div class="nav-heading">入門與建立研究</div>
+<button data-page="guide">◎　研究流程／架構說明</button>
+<button data-page="evidence">01　密電與第三方情報</button>
+<button data-page="vocab">02　候選詞庫／LLM 建議</button>
+<div class="nav-heading">驗證與探索</div>
+<button data-page="overview" class="active">03　推論與解讀</button>
+<button data-page="marks">04　研究假說／撤銷</button>
+<button data-page="trace">05　逐輪紀錄／Prompt</button>
+<div class="nav-heading">研究評測</div>
+<button data-page="benchmark">06　基準評測</button>
+</nav></aside>
+
+<section id="guide" class="page" aria-label="研究流程及破譯架構說明">
+<div class="panel"><h2>研究流程與系統架構</h2>
+<p class="guide-intro">本工作台不是輸入密電就能自動證實明文的「解密器」，而是協助研究員將<strong>可觀察情報、候選詞與競爭假說</strong>整理成可追溯的分析過程。數字碼組可能對應單字、詞組或固定句；在沒有可靠逐碼明文對照前，模型提供的中文都屬<strong>未驗證假說</strong>。</p>
+<div class="guide-callout"><strong>建議操作順序：</strong>建立案例 → 輸入密電／觀察 → LLM 建議詞庫 → 人工覆核與補充多個想法 → 事件與碼組交叉推論 → 檢查解讀與差異 → 撤銷／修正 → 再次求解。</div>
+</div>
+<div class="panel">
+<h2>七個操作階段</h2>
+<div class="guide-steps">
+ <div class="guide-step"><strong>01｜建立研究案例</strong><p>按頁首「＋ 建立空白案例」，輸入案例代號。新增每封密電，依空白分隔數字碼組。修改完按「套用此封情報」，並用「另存案例」寫入本機。尚無明文也可以開始。</p><button data-go-page="evidence">前往輸入密電與目擊</button></div>
+ <div class="guide-step"><strong>02｜記錄外部觀察</strong><p>輸入收發者、收報時間、目擊日期／行動、來源與可信度。用時序關聯查看可能在事件前後出現的電文。時間接近不代表語意相關，清單保留「完全無關」。</p><button data-go-page="evidence">檢查事件與電文線索</button></div>
+ <div class="guide-step"><strong>03｜建立候選詞庫</strong><p>可自行新增詞組／範例句，或明確確認後呼叫 config.yaml 指定的內網 LLM，讓它依密文及背景情報提出待審詞彙。模型建議不會自動納入詞庫。</p><button data-go-page="vocab">覆核 LLM 候選</button></div>
+ <div class="guide-step"><strong>04｜執行推論</strong><p>統計求解器先提出初始碼本，再依選擇的 LLM 回合數提出候選與重新評分。0 回合完全離線；大於 0 回合才會向配置的本機／內網模型送出資料。主要結果是最後一輪。</p><button data-go-page="overview">執行與閱讀密電</button></div>
+ <div class="guide-step"><strong>05｜保留競爭假說</strong><p>一個碼組可以記錄多個研究員／LLM／觀察來源的詞組，分別標示「待審、優先考慮、否定」。另有偏好、排除與試鎖供局部實驗，這些都不是 verified anchor。</p><button data-go-page="marks">加入多個研究想法</button></div>
+ <div class="guide-step"><strong>06｜追蹤改變的理由</strong><p>比較更新前後的碼組 Top-1、逐輪統計目標與模型建議。如果調高提示權重只增加採納數，卻沒有增加盲測正確率，不能宣稱破譯有進展。</p><button data-go-page="trace">查看逐輪紀錄</button></div>
+ <div class="guide-step"><strong>07｜撤銷、修正與評測</strong><p>研究員可以復原／重做標註，選擇新假說再重新求解。合成基準的正解只供推論完成後評分，不得放回模型提示或當作真實歷史破譯成功。</p><button data-go-page="benchmark">開啟合成基準評測</button></div>
+</div>
+</div>
+<div class="panel">
+<h2>三層證據與求解架構</h2>
+<table class="guide-table"><thead><tr><th>證據層</th><th>如何使用</th><th>重要界線</th></tr></thead><tbody>
+<tr><td>電文與元數據</td><td>數字碼組、電文時序、收發者、領域線索。統計／bigram 形成初始詞序先驗。</td><td>重複出現不等於找到真正明文。</td></tr>
+<tr><td>第三方動態觀察</td><td>目擊事件與多封密電的日期距離、來源可信度、可能相關碼組，產生跨電文假說供 LLM 或研究員查核。</td><td>目前是保守的時間關聯候選，尚非經校準的因果事件推理；可能全部無關。</td></tr>
+<tr><td>LLM 與人工建議</td><td>先探索候選詞庫，再提出碼組對應。研究員可標示支持、否定或試鎖；重新求解產生可比較版本。</td><td>候選詞、模型信心、統計分數都不等於破解成功率。</td></tr>
+<tr><td>可靠已知明文</td><td>有可信來源且逐碼對齊的明密文對，才可進入已驗證錨點。</td><td>未證實的模型建議不得升格為已知明文。</td></tr>
+</tbody></table>
+</div>
+<div class="panel"><h2>多輪的意思與資料保存</h2>
+<p class="guide-intro">Round 0 是統計初始求解。之後每一輪由模型參考現有候選，提出建議，再由統計求解器整批重新計算。主畫面呈現最後一輪；「逐輪紀錄」能查看過程。CMD 與 GUI 是各自獨立的執行，不會自動共用另一個工作的輸出。</p>
+<p class="guide-intro">「另存案例」保存目前密電、詞庫與候選想法，但<strong>想法庫 Undo／Redo 快照僅在本次網頁工作階段有效</strong>。輸出結果與稽核會存於本機 artifacts 目錄。若研究案例於 LLM 呼叫期間切換或修改，舊工作回覆不得採納到新案例。</p>
+<p class="guide-callout"><strong>安全與有效性：</strong>本機介面綁定 127.0.0.1；LLM 網路請求需明確選擇與確認，僅發往設定且允許的私有端點。資料與密碼組請視為敏感研究材料。Vercel 公開 PoC 只做合成 Mock 展示，沒有此本機真實模型流程。</p>
+</div>
+</section>
 <section id="overview" class="page active"><div class="columns"><div class="panel"><h2>執行研究</h2><p class="muted">所有密碼組維持原始字串，已知對齊是確定錨點；收發者與第三方觀察只作推測先驗。</p><div class="row"><div><label>LLM 回合數</label><select id="rounds"><option value="0">0 — 完全離線</option><option value="1">1 — 呼叫內網 LLM</option><option value="2">2 — 呼叫內網 LLM</option><option value="3">3 — 呼叫內網 LLM</option></select></div><div><label>元數據分析</label><select id="metadata"><option value="true">啟用收發者／第三方情報</option><option value="false">停用，作消融比較</option></select></div></div><p><label><input type="checkbox" id="capture"> 在本機 SQLite 保存**完整** LLM Prompt 與回覆（可能包含敏感情報）</label></p><div class="row"><button id="run" class="primary">執行分析</button><button id="save">另存案例</button></div><p class="alert">預設 0 輪不連 LLM；選擇大於 0 輪並按「執行分析」才會將研究案例送往 config.yaml 指定的內網服務。</p><h3>工作進度</h3><pre id="progress">尚未啟動</pre></div><div class="panel"><h2>最新結果總覽</h2><div id="summary" class="muted">先載入案例並執行分析。</div><div id="reportLink"></div><div id="bars"></div></div></div><div class="panel"><h2>每封電文候選解讀</h2><div id="readings" class="wrap muted">尚無結果</div></div></section>
 <section id="vocab" class="page"><div class="panel"><h2>詞彙與語言先驗</h2><p class="muted">編輯會直接影響解碼候選與頻率分布；權重不是已驗證答案，範例句為 token 清單，一句一行，以空格區隔。</p><div class="row"><div><label>領域</label><select id="profilePick"></select></div><div><label>搜尋詞彙</label><input id="wordSearch" type="text" placeholder="搜尋詞組"></div></div><div class="wrap compact"><table><thead><tr><th>詞組</th><th>先驗權重</th><th></th></tr></thead><tbody id="vocabTable"></tbody></table></div><div class="row"><input type="text" id="newWord" placeholder="新增詞組"><input type="number" id="newWeight" min="0" max="1000" value="3"><button id="addWord">新增</button></div><label>領域判定關鍵詞（逗號分隔）</label><textarea id="keywords"></textarea><label>範例句（每行一筆，詞組間以空格分隔）</label><textarea id="sentences" rows="5"></textarea><button id="saveProfile" class="primary">套用詞彙與範例句修改</button><hr><h3>LLM 自動提出候選詞庫（人工覆核）</h3><p class="muted">只把密文與可觀察情報送至設定的內網模型；不使用合成金標，回覆不會自動進入候選詞庫。</p><button id="askVocabulary">請內網 LLM 產生候選詞（需確認）</button><pre id="vocabProgress" class="muted"></pre><div id="vocabSuggestions" class="compact"></div></div></section>
 <section id="evidence" class="page"><div class="panel"><h2>電文與第三方情報</h2><p class="muted">第三方觀察可以記錄目擊者、目的地、活動、狀態、可信度；它只用於語意與領域推測，不會自動升格為明文對照。</p><div class="row"><div><label>選擇電文</label><select id="messagePick"></select></div><div><label>密碼組（可用空白分隔編輯）</label><textarea id="cipherEdit" rows="2"></textarea></div></div><div class="gridfield"><div><label>發送者</label><input id="sender" type="text"></div><div><label>接收者</label><input id="recipient" type="text"></div><div><label>收報日期時間（ISO 格式）</label><input id="received_at" type="text" placeholder="1942-05-03T16:00:00"></div><div><label>備註</label><input id="notes" type="text"></div><div><label>指定領域（非必填）</label><input id="domain" type="text"></div></div><label>新增第三方觀察（可逐項填寫）</label>
@@ -170,7 +244,7 @@ function renderVocabularyIdeas(){
  if(!matchesOrigin(vocabOrigin)){notice('研究案例已變更；此批 LLM 詞庫建議不可採納，請重新產生',true);return}
  const selected=vocabCandidateRecord[Number(b.dataset.adoptVocab)];if(!selected)return;
  const word=selected.term;
- profile().lexicon[word]=Math.max(1,Number(profile().lexicon[word]||2));renderVocab();notice('已將未驗證候選「'+word+'」加入 '+el('profilePick').value+' 詞庫；另存案例後持久化')})}
+ profile().lexicon[word]=Math.max(1,Number(profile().lexicon[word]||2));vocabOrigin={...vocabOrigin,fingerprint:caseFingerprint()};renderVocab();notice('已將未驗證候選「'+word+'」加入 '+el('profilePick').value+' 詞庫；另存案例後持久化')})}
 async function askVocabulary(){
  if(!research)return;
  const origin=captureOrigin();
@@ -261,6 +335,10 @@ async function start(){
 }
 
 async function save(){if(!research)return;let name=prompt('輸入新案例英文檔名（不含副檔名）：','research_'+Date.now());if(!name)return;try{let s=await api('/api/save',{case:research,name});notice('保存成功：'+s.saved_as);await listCases();el('caseList').value=s.saved_as}catch(e){notice(e.message,true)}}
+document.querySelectorAll('[data-go-page]').forEach(b=>b.onclick=()=>{
+ const target=el('tabs').querySelector('[data-page="'+b.dataset.goPage+'"]');
+ if(target)target.click();
+});
 el('tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{el('tabs').querySelectorAll('button').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id===b.dataset.page))});
 el('markCode').onchange=()=>{loadMark();renderIdeas()};el('markPrefer').onclick=()=>modifyMark('prefer');el('markExclude').onclick=()=>modifyMark('exclude');el('markPin').onclick=()=>modifyMark('pin');el('markClear').onclick=()=>modifyMark('clear');el('markUndo').onclick=()=>navigateMarks(-1);el('markRedo').onclick=()=>navigateMarks(1);el('markReset').onclick=()=>commitMark({},'重設全部人工標註');el('markRun').onclick=()=>{el('tabs').querySelector('[data-page=overview]').click();start()};el('newCase').onclick=newResearchCase;el('addMessage').onclick=addNewMessage;el('delMessage').onclick=deleteMessage;el('newProfile').onclick=newProfile;
 el('addIdea').onclick=()=>addResearchIdea(el('ideaTerm').value,el('ideaSource').value,el('ideaStatus').value,el('ideaNote').value);

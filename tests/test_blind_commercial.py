@@ -202,7 +202,7 @@ class BlindExperimentTests(unittest.TestCase):
         fake={"messages":[{"role":"system","content":"x"},
                           {"role":"user","content":"{}"}]}
         saved=session.invoke(fake,provider=lambda chat:
-            {"choices":[{"message":{"content":"{}"}}]}},
+            {"choices":[{"message":{"content":"{}"}}]},
             model="gpt-6-astra",effort="high",provider_name="TEST_DOUBLE")
         self.assertEqual(saved["choices"][0]["message"]["content"],"{}")
         session.mark("paused_quota",reason="mock",current="one")

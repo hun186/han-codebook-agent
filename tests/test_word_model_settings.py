@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
+import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import threading
@@ -163,6 +165,15 @@ class WordAndLLMHTTPTests(unittest.TestCase):
         with self.assertRaises(error.HTTPError) as err:
             request.urlopen(self.base+"/api/jobs/../../config.yaml/report.docx")
         self.assertIn(err.exception.code,(400,404))
+
+class BoldReviewUITests(unittest.TestCase):
+    def test_explicit_alternative_confirmed_and_reversible(self):
+        if not shutil.which("node"):
+            self.skipTest("Node.js not installed")
+        r = subprocess.run(["node",str(ROOT/"tests/js/test_bold_review_ui.js"),
+                            str(ROOT/"src/han_codebook/static/index.html")],
+                           text=True,capture_output=True,timeout=12,check=False)
+        self.assertEqual(r.returncode,0,r.stdout+"\n"+r.stderr)
 
 
 if __name__ == "__main__":

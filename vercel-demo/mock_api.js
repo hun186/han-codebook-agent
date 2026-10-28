@@ -80,7 +80,7 @@
     })();
     return initialized;
   }
-  function mockMapping(caseData, rounds) {
+  function mockMapping(caseData, rounds, useMetadata) {
     const n = caseData.messages.length;
     const source = seed.records.find(x => x.size >= n) || seed.records.at(-1);
     const base = source.statistical;
@@ -110,6 +110,7 @@
       const ideas = ((caseData.candidate_ideas || {})[code] || []).filter(x => x.status !== 'rejected');
       const ranked = unique([
         ...ideas.filter(x => x.status === 'shortlisted').map(x => x.term),
+        ...(mark.preferred ? [mark.preferred] : []),
         ...(fromData[code]?.alternatives || []),
         ...ideas.map(x => x.term),
         ...vocab,
@@ -135,7 +136,7 @@
     }
     const decoded_messages = caseData.messages.map(m => {
       const pieces = m.codes.map(c => proposals[c].term);
-      const domain = m.domain || (m.sender?.includes('軍') ? 'operations' : 'logistics');
+      const domain = useMetadata ? (m.domain || (m.sender?.includes('軍') ? 'operations' : 'logistics')) : null;
       return {id:m.id, codes:clone(m.codes), suggested_segments:pieces,
         reading:pieces.join(''),domain_inferred:domain,
         verified_codes:m.codes.filter(c => Object.hasOwn(verified,c)).length,
@@ -145,13 +146,13 @@
       agent_rounds_completed:rounds, known_code_count:Object.keys(verified).length,
       unknown_code_count:codes.length-Object.keys(verified).length,
       objective_score:-codes.length,
-      model:'BROWSER MOCK — no actual model inference', metadata_used:true,
+      model:'BROWSER MOCK — no actual model inference', metadata_used:useMetadata,
       limitations:['PUBLIC MOCK: rankings are simulated, not real decryption.',
         'No real LLM calls; never treat generated Chinese as historical plaintext.']};
   }
-  function analysis(caseData, rounds) {
-    const baseline=mockMapping(caseData, 0);
-    const result=mockMapping(caseData, rounds);
+  function analysis(caseData, rounds, useMetadata) {
+    const baseline=mockMapping(caseData, 0, useMetadata);
+    const result=mockMapping(caseData, rounds, useMetadata);
     const events=[{round:0,stage:'statistical_baseline',payload:{score:baseline.objective_score,changed_count:0}}];
     for(let n=1;n<=rounds;n++){
       const accepted = Object.entries(result.proposals)
@@ -243,7 +244,9 @@
       const c=safeCase(data.case);
       const rounds=data.rounds??0;
       if(!Number.isInteger(rounds)||rounds<0||rounds>20)throw Error('Rounds must be 0..20');
-      const out=analysis(c,rounds);
+      if(typeof data.use_metadata!=='undefined' && typeof data.use_metadata!=='boolean')
+        throw Error('use_metadata must be boolean');
+      const out=analysis(c,rounds,data.use_metadata!==false);
       return job('analysis',out.result,out.events);
     }
     if(route==='/api/benchmark')return benchmark();
@@ -361,6 +364,20 @@
     const match=path.match(/^\/api\/jobs\/([0-9a-f]{16})\/report\.(docx|md)$/);
     if(match){event.preventDefault();downloadMock(link,match[2],match[1])}
   },true);
+
+  document.addEventListener('DOMContentLoaded', () => {
+    // Keep all structural/functional controls identical to the canonical GUI,
+    // while correcting backend-specific wording on this PUBLIC MOCK surface.
+    const benchmark = document.getElementById('runBenchmark');
+    if (benchmark) benchmark.textContent = '執行公開合成 Mock 基準（10／25／50／100）';
+    const settingsPage = document.getElementById('modelSettings');
+    if (settingsPage) settingsPage.querySelector('.panel')?.insertAdjacentHTML(
+      'afterbegin',
+      '<p class="alert" role="status">【展示模式】模型設定欄位僅供觀看本機操作版面；此頁不會儲存或使用任何端點設定，連線測試永遠顯示未連線。</p>'
+    );
+    const status = document.getElementById('llmSettingStatus');
+    if (status) status.textContent = 'PUBLIC MOCK：不提供任何真實模型連線或端點設定';
+  });
 
   globalThis.HanMockDemo = Object.freeze({
     // Read-only inspection helpers for automated regression tests.

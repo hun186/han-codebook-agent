@@ -116,6 +116,64 @@ const { TextEncoder } = require('node:util');
   assert.equal(run.result.proposals['0007'].status,'verified_alignment');
   assert.equal(run.result.proposals['0007'].term,'可信詞');
   assert.equal(run.result.proposals['123'].term,'逐碼明文');
+  // Codex P1: contradictory plaintext/segments must never be upgraded
+  // to verified_alignment in analysis or accepted by the Mock save path.
+  const inconsistent=JSON.parse(JSON.stringify(caseData));
+  inconsistent.messages[0].codes=['0007'];
+  inconsistent.known_pairs=[{
+    message_id:inconsistent.messages[0].id,
+    plaintext:'可信原文',segments:['相反假說']
+  }];
+  for(const route of ['/api/start','/api/save','/api/event-links']){
+    const payload=route==='/api/start'?{case:inconsistent,rounds:0}:
+      route==='/api/save'?{case:inconsistent,name:'unsafe_alignment'}:
+      {case:inconsistent};
+    const response=await sandbox.fetch(route,{
+      method:'POST',body:JSON.stringify(payload)
+    });
+    assert.equal(response.status,400,route+' must reject contradictory aligned truth');
+    assert.match((await response.json()).error,/do not concatenate to plaintext/);
+  }
+  assert.equal(sandbox.HanMockDemo.getSavedCase('unsafe_alignment'),null);
+  const consistent=JSON.parse(JSON.stringify(inconsistent));
+  consistent.known_pairs[0].segments=['可信原文'];
+  const accepted=(await post('/api/start',{case:consistent,rounds:0})).job_id;
+  const validResult=(await get('/api/jobs/'+accepted)).result;
+  assert.equal(validResult.proposals['0007'].term,'可信原文');
+  assert.equal(validResult.proposals['0007'].status,'verified_alignment');
+
+  const crossConflict=JSON.parse(JSON.stringify(caseData));
+  crossConflict.messages[0].codes=['0007'];
+  crossConflict.messages[1].codes=['0007'];
+  crossConflict.known_pairs=[
+    {message_id:crossConflict.messages[0].id,segments:['甲']},
+    {message_id:crossConflict.messages[1].id,segments:['乙']}
+  ];
+  const cross=await sandbox.fetch('/api/start',{method:'POST',body:JSON.stringify({
+    case:crossConflict,rounds:0
+  })});
+  assert.equal(cross.status,400);
+  assert.match((await cross.json()).error,/Contradictory verified known plaintext/);
+
+  const repeated=JSON.parse(JSON.stringify(caseData));
+  repeated.messages[0].codes=['0007','0007'];
+  repeated.known_pairs=[{message_id:repeated.messages[0].id,segments:['甲','乙']}];
+  const repeatedResponse=await sandbox.fetch('/api/start',{
+    method:'POST',body:JSON.stringify({case:repeated,rounds:0})
+  });
+  assert.equal(repeatedResponse.status,400);
+  assert.match((await repeatedResponse.json()).error,/Contradictory verified known plaintext/);
+
+  const unsegmented=JSON.parse(JSON.stringify(caseData));
+  unsegmented.known_pairs=[{
+    message_id:unsegmented.messages[0].id,
+    plaintext:'尚未切詞的虛構明文'
+  }];
+  const unsegmentedId=(await post('/api/start',{case:unsegmented,rounds:0})).job_id;
+  const unsegmentedResult=(await get('/api/jobs/'+unsegmentedId)).result;
+  assert.ok(Object.values(unsegmentedResult.proposals)
+    .every(p=>p.status!=='verified_alignment'));
+
   const leak=await sandbox.fetch('/api/start',{
     method:'POST',body:JSON.stringify({case:{...caseData,ground_truth:{'0007':'答案'}},rounds:2})
   });

@@ -576,7 +576,9 @@ function renderPendingVocabularyReview(j,origin){
      .map(x=>pending.candidates[Number(x.dataset.reviewTerm)].term);
    const button=pane.querySelector('#approveVocabulary');button.disabled=true;
    try{
-    await api('/api/jobs/'+encodeURIComponent(j.id)+'/review',{approved});
+    await api('/api/jobs/'+encodeURIComponent(j.id)+'/review',{
+     approved,round:pending.round,review_token:pending.review_token
+    });
     button.textContent='已提交，模型繼續運算中…';
    }catch(e){button.disabled=false;notice('人工覆核未送出：'+e.message,true)}
   };

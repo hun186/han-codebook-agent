@@ -118,7 +118,7 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
 </main><script>
 const el=id=>document.getElementById(id);let research=null,lastJob=null,poll=null,markSnapshots=[],markCursor=-1,markActions=[],priorResult=null,ideaSnapshots=[],ideaCursor=-1,lastLLMEntries=[];
 let caseGeneration=0,lastLLMOrigin=null,vocabOrigin=null,vocabTimer=null;
-let vocabRequestSerial=0,vocabActiveJobId=null,analysisRequestSerial=0;
+let vocabRequestSerial=0,vocabActiveJobId=null,analysisRequestSerial=0,activeHumanReviewJobId=null;
 function caseFingerprint(){
  if(!research)return null;
  const item={...research};delete item.hypothesis_revision_history;
@@ -130,6 +130,12 @@ function matchesOrigin(origin){
  return !!(matchesCaseReference(origin)&&origin.fingerprint===caseFingerprint());
 }
 function invalidateOldJobs(){
+ // Case replacement stops polling immediately, so cancel any pending human
+ // decision at the server BEFORE dropping the old job identity.
+ const staleHumanJob=activeHumanReviewJobId;
+ activeHumanReviewJobId=null;
+ if(staleHumanJob)api('/api/jobs/'+encodeURIComponent(staleHumanJob)+'/cancel',{})
+  .catch(e=>notice('取消舊人工審核工作未成功：'+e.message,true));
  caseGeneration++;vocabRequestSerial++;vocabActiveJobId=null;analysisRequestSerial++;
  if(poll!==null){clearInterval(poll);poll=null}
  if(vocabTimer!==null){clearInterval(vocabTimer);vocabTimer=null}
@@ -604,11 +610,13 @@ async function start(){
    return;
   }
   lastJob=jobId;
+  if(candidateMode==='human')activeHumanReviewJobId=jobId;
   const active=()=>current()&&lastJob===jobId;
   let reviewCancellationSent=false;
   async function cancelStaleHumanReview(){
    if(candidateMode!=='human'||reviewCancellationSent)return;
    reviewCancellationSent=true;
+   if(activeHumanReviewJobId===jobId)activeHumanReviewJobId=null;
    try{
     await api('/api/jobs/'+encodeURIComponent(jobId)+'/cancel',{});
     notice('研究案例已變更：正在取消舊人工審核工作，未審候選不會被採納',true);
@@ -645,6 +653,7 @@ async function start(){
     renderJob(result,origin);
     renderPendingVocabularyReview(result,origin);
     if(['completed','failed'].includes(result.status)){
+     if(activeHumanReviewJobId===jobId)activeHumanReviewJobId=null;
      stopPoll();analysisRequestSerial++; // retire all concurrent GETs for this job
      el('run').disabled=false;
      notice(result.status==='completed'?'執行完成：結果已存入 artifacts/web_runs/'+jobId:'執行失敗：'+result.error,result.status==='failed');

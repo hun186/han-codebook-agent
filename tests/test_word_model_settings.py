@@ -148,12 +148,21 @@ class WordAndLLMHTTPTests(unittest.TestCase):
                 break
             time.sleep(0.1)
         self.assertEqual(state["status"],"completed",state["error"])
+        # Mimic a historical job that had a Markdown report, but no DOCX.
+        word_path=self.root/"artifacts"/"web_runs"/job/"report.docx"
+        word_path.unlink()
         response=request.urlopen(self.base+"/api/jobs/"+job+"/report.docx")
         self.assertEqual(response.status,200)
         self.assertEqual(response.headers.get_content_type(),
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
         with ZipFile(io.BytesIO(response.read())) as z:
             self.assertIsNone(z.testzip())
+        self.assertTrue(word_path.exists())
+        md=request.urlopen(self.base+"/api/jobs/"+job+"/report.md").read().decode()
+        self.assertIn("研究報告",md)
+        with self.assertRaises(error.HTTPError) as err:
+            request.urlopen(self.base+"/api/jobs/../../config.yaml/report.docx")
+        self.assertIn(err.exception.code,(400,404))
 
 
 if __name__ == "__main__":

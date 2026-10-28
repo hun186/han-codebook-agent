@@ -243,7 +243,7 @@ def main():
     parser.add_argument("--public-dir",type=Path,required=True)
     parser.add_argument("--out-dir",type=Path,required=True)
     parser.add_argument("--model",default="gpt-6-astra",
-                        choices=("gpt-6-astra","gpt-6-sol","gpt-6-luna"))
+                        choices=("gpt-6-astra","gpt-6-sol","gpt-6-luna","gpt-5.6-sol"))
     parser.add_argument("--effort",default="high",
                         choices=("low","medium","high","xhigh","max"))
     parser.add_argument("--rounds",type=int,default=5)
@@ -260,6 +260,11 @@ def main():
                         help="Resume a prior paused/failed run using saved successful model responses")
     parser.add_argument("--allow-cloud-api",action="store_true")
     args=parser.parse_args()
+    if args.provider=="openai-api" and args.model=="gpt-5.6-sol":
+        parser.error("This benchmark's billed API gateway currently supports only GPT-6; "
+                     "use --provider codex-subscription for GPT-5.6 Sol")
+    if args.provider=="codex-subscription" and args.model not in ("gpt-6-astra","gpt-5.6-sol"):
+        parser.error("Subscription benchmark supports --model gpt-6-astra or gpt-5.6-sol")
     if args.provider=="openai-api":
         if not args.allow_cloud_api:
             parser.error("Paid API requires --allow-cloud-api")

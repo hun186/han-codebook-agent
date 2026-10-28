@@ -319,7 +319,7 @@ async function start(){
   let localPoll=null;
   function stopPoll(){if(localPoll!==null)clearInterval(localPoll);if(poll===localPoll)poll=null}
   async function update(){
-   if(!matchesOrigin(origin)){stopPoll()return}
+   if(!matchesOrigin(origin)){stopPoll();return}
    try{
     const result=await api('/api/jobs/'+jobId);
     if(!matchesOrigin(origin))return;

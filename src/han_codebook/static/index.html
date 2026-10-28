@@ -672,6 +672,12 @@ async function start(){
      notice(result.status==='completed'?'執行完成：結果已存入 artifacts/web_runs/'+jobId:'執行失敗：'+result.error,result.status==='failed');
     }
    }catch(e){
+    if(candidateMode==='human'&&active()){
+     // Retain the same job and scheduled GETs after a temporary network error.
+     // Abandoning polling would strand an awaiting_review job until timeout.
+     notice('人工覆核工作查詢暫時失敗，正在保留同一工作並重試：'+e.message,true);
+     return;
+    }
     stopPoll();
     if(!current())await cancelStaleHumanReview();
     // Restore only the control still owned by this request. Same-case edits

@@ -15,7 +15,7 @@ sys.path.insert(0,str(ROOT/"benchmarks"/"blind_commercial"))
 sys.path.insert(0,str(ROOT/"src"))
 from generate import generate, digest
 from run import run_experiment
-from score import score,score_case
+from score import score,score_case,verify_locked_audits
 from han_codebook.adaptive_vocabulary import vocabulary_packet
 
 class BlindExperimentTests(unittest.TestCase):
@@ -109,8 +109,21 @@ class BlindExperimentTests(unittest.TestCase):
             self.assertIn("rescore",stages)
             self.assertIn("vocabulary_rescore",stages)
         self.assertEqual(len((self.output/"predictions_LOCKED.sha256").read_text().strip()),64)
+        self.assertTrue(all("audit_sha256" in x for x in result["cases"]))
+        verify_locked_audits(result,self.output)
         with self.assertRaisesRegex(ValueError,"real LLM"):
             score(self.private,self.public,self.output)
+        # Tampering with ANY round audit must invalidate the entire lock
+        # before private reference is opened by scorer or Word renderer.
+        audit=self.output/result["cases"][0]["audit_sqlite"]
+        original=audit.read_bytes()
+        try:
+            audit.write_bytes(original+b"\nPOST_LOCK_TAMPER")
+            with self.assertRaisesRegex(ValueError,"Locked audit SHA256 mismatch"):
+                verify_locked_audits(result,self.output)
+        finally:
+            audit.write_bytes(original)
+        verify_locked_audits(result,self.output)
 
     def test_score_is_exact_and_repeatable_without_shortcuts(self):
         public=json.loads((self.public/"blind_01.json").read_text(encoding="utf-8"))

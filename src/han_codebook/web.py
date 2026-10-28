@@ -205,15 +205,21 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                 if review_match:
                     job_id = review_match.group(1)
                     approved = data.get("approved")
-                    if (set(data) != {"approved"} or not isinstance(approved, list)
-                            or len(approved) > 32 or any(not isinstance(w, str) for w in approved)
+                    round_number, token = data.get("round"), data.get("review_token")
+                    if (set(data) != {"approved", "round", "review_token"}
+                            or type(round_number) is not int or round_number < 1
+                            or not isinstance(token, str) or not 8 <= len(token) <= 128
+                            or not isinstance(approved, list) or len(approved) > 32
+                            or any(not isinstance(w, str) for w in approved)
                             or len(set(approved)) != len(approved)):
-                        raise CaseError("Approved words must be a distinct string list (at most 32)")
+                        raise CaseError("Review requires exact round, review_token and distinct approved words")
                     with jobs_lock:
                         waiter = review_waiters.get(job_id)
                         job = jobs.get(job_id)
                         if not waiter or not job or job["status"] != "awaiting_review" or waiter["submitted"]:
                             return self._json(409, {"error": "No active vocabulary review for this job"})
+                        if waiter["round"] != round_number or not secrets.compare_digest(waiter["token"], token):
+                            return self._json(409, {"error": "Stale vocabulary review round or token"})
                         offered = set(waiter["offered"])
                         if any(w not in offered for w in approved):
                             raise CaseError("Cannot approve words outside this round's pending candidates")
@@ -372,17 +378,18 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                             if not proposed:
                                 return []
                             event = threading.Event()
+                            review_token = secrets.token_urlsafe(24)
                             with jobs_lock:
                                 if jobs[job_id].get("cancel_requested"):
                                     raise CaseError("Review job canceled before new vocabulary proposals")
                                 jobs[job_id]["status"] = "awaiting_review"
                                 jobs[job_id]["pending_review"] = {
-                                    "round": round_number,
+                                    "round": round_number, "review_token": review_token,
                                     "candidates": copy.deepcopy(proposed),
                                 }
                                 jobs[job_id]["review_submitted"] = False
                                 review_waiters[job_id] = {
-                                    "event": event,
+                                    "event": event, "round": round_number, "token": review_token,
                                     "offered": [item["term"] for item in proposed],
                                     "approved": [], "submitted": False,
                                 }

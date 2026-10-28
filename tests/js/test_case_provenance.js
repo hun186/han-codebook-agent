@@ -271,7 +271,7 @@ const clone=x=>JSON.parse(JSON.stringify(x));
  };
  run('research=_A;invalidateOldJobs()');
  await run('start()');
- assert.equal(el('run').disabled,true);
+ assert.equal(el('run').disabled,true,'analysis start failed: '+JSON.stringify(notices.slice(-5)));
  run('research.messages[0].notes="new field note"');
  rejectAnalysisPoll(Error('analysis HTTP 503'));
  for(let n=0;n<6;n++)await Promise.resolve();

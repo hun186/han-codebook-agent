@@ -234,11 +234,12 @@ curl.exe --max-time 10 -i http://192.168.0.134:18080/v1/models
 新增已確認的逐碼明文後，系統會同步清理舊假說版本中涉及該已確認碼組的人工試鎖／偏好／排除，避免按「復原」重新帶回與真實已知明文衝突的標註；不受影響的其他碼組歷史仍可繼續使用。
 
 
-## Vercel 靜態 Mock 展示站
+## Vercel 靜態 Mock 展示站（本機 GUI 同介面）
 
-- `vercel-demo/`：Vercel 專用公開合成資料 PoC，模型呼叫一律改為確定性 Mock，不連內網 Qwen／Ollama；`vercel-demo/vercel.json` 為靜態安全標頭設定。
-- 功能：10／25／50／100 封選擇、原始碼組／候選中文／可撤銷人工假說、分批模擬紀錄、手動揭曉合成明文。此版並非實際 Python 求解器，**不得把 Mock 成績當作真正 LLM 破譯成效**。
-- 新增 Vercel Project 請將 **Root Directory** 設為 `vercel-demo`，Framework 選 Other。公開版只應使用合成資料，沒有存放任何私有網路設定、LLM API Key 或 SQLite 審計庫。
+- `vercel-demo/index.html` 與 `vercel-demo/workbench.js` 由**本機 GUI 唯一來源** `src/han_codebook/static/index.html` 同步產生，沿用同一套深色介面、工作流程導航、密電編輯、候選詞庫、可逆研究假說、逐輪模擬、基準評測及 Word／Markdown 下載入口。
+- Vercel 只載入 `mock_api.js` 的瀏覽器內純合成回應，絕不連線到內網 Qwen／Ollama，模型設定頁僅供展示且不允許設定真實端點。編輯案例僅存在本次瀏覽器頁面，重載即消失。**Mock 輸出不是可靠的歷史解密或實際 LLM 測試**。
+- GUI 同步指令：`python scripts/sync_vercel_workbench.py --write`；CI 以 `--check` 防止本機／Vercel 版本不一致。
+- Vercel Root Directory 保持 `vercel-demo`，Framework 選 Other，僅使用公開合成資料，沒有私有網路設定、API Key 或 SQLite 審計庫。完整限制與驗證見 [vercel-demo/README.md](vercel-demo/README.md)。
 
 
 ## LLM 提示敏感度與動態目擊可靠性（研究實驗）

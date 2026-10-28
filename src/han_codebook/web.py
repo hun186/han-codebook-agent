@@ -181,6 +181,9 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
             try:
                 data = self._body()
                 if self.path == "/api/settings/llm":
+                    with jobs_lock:
+                        if any(j["status"] in ("queued", "running") for j in jobs.values()):
+                            return self._json(409, {"error": "Cannot change LLM settings while an investigation is active"})
                     from .model_settings import save_model_settings
                     new_settings = save_model_settings(settings_path, data)
                     return self._json(200, {**new_settings, "endpoint": new_settings["base_url"]})

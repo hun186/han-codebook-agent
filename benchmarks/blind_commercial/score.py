@@ -86,6 +86,27 @@ def score_round_trace(public:dict,gold:dict,run:dict,results_dir:Path)->list[dic
     return trace
 
 
+def verify_locked_audits(src:dict,results_dir:Path)->None:
+    """Check ALL frozen audit hashes before opening any secret reference file."""
+    base=results_dir.resolve()
+    seen=set()
+    for item in src["cases"]:
+        name=item.get("audit_sqlite")
+        expected=item.get("audit_sha256")
+        if (not isinstance(name,str) or Path(name).name!=name
+                or not name.endswith(".sqlite")
+                or not isinstance(expected,str) or len(expected)!=64):
+            raise ValueError("Missing or unsafe locked audit filename/digest")
+        if name in seen:
+            raise ValueError("Multiple runs use the same audit file")
+        seen.add(name)
+        path=base/name
+        if path.parent.resolve()!=base:
+            raise ValueError("Locked audit path escapes results")
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest()!=expected:
+            raise ValueError(f"Locked audit SHA256 mismatch for {name}; refuse scoring")
+
+
 def score(private_dir:Path,public_dir:Path,results_dir:Path)->dict:
     locked=results_dir/"predictions_LOCKED.json"
     sha=(results_dir/"predictions_LOCKED.sha256").read_text(encoding="ascii").strip()
@@ -96,6 +117,7 @@ def score(private_dir:Path,public_dir:Path,results_dir:Path)->dict:
         raise ValueError("Not a finished and unscored real LLM inference lock")
     if src.get("n_model_calls",0)!=src["n_experiments"]*src["n_rounds"]*2:
         raise ValueError("Not all real model calls were completed")
+    verify_locked_audits(src,results_dir)
     cache={}
     measures=[]
     all_rounds=[]

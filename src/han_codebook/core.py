@@ -83,6 +83,8 @@ def _observation_relevance(message: dict[str, Any], observation: dict[str, Any])
     """
     from datetime import datetime
     status = observation.get("status", "")
+    if not isinstance(status, str):
+        return 0.0
     if any(flag in status for flag in ("無關", "不相關", "已排除")):
         return 0.0
     weight = 0.35 if "未確認" in status else 1.0

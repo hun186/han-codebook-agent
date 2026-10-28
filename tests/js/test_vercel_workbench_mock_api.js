@@ -190,6 +190,24 @@ const { TextEncoder } = require('node:util');
   assert.ok(Object.values(automatic.result.proposals)
     .every(p=>p.status==='hypothesis_unverified'));
 
+  assert.equal(automatic.events.filter(e=>e.stage==='vocabulary_llm_request').length,0,
+    'Full I/O audit must remain opt-in even for browser-only synthetic traces');
+  const captured=(await post('/api/start',{
+    case:caseData,rounds:2,candidate_mode:'automatic',capture_llm_io:true
+  })).job_id;
+  const trace=(await get('/api/jobs/'+captured)).events;
+  for(const stage of ['vocabulary_llm_request','vocabulary_llm_response',
+                      'llm_request','llm_response']){
+    assert.equal(trace.filter(e=>e.stage===stage).length,2,stage+' should have 2 synthetic records');
+  }
+  for(const round of [1,2]){
+    const vocab=trace.find(e=>e.round===round&&e.stage==='vocabulary_llm_response');
+    const code=trace.find(e=>e.round===round&&e.stage==='llm_response');
+    assert.ok(JSON.parse(vocab.payload.response).vocabulary);
+    assert.ok(JSON.parse(code.payload.response).hypotheses);
+    assert.ok(trace.filter(e=>e.round===round&&e.stage.endsWith('llm_request'))
+      .every(e=>e.payload.body.model==='PUBLIC MOCK'));
+  }
   const human=(await post('/api/start',{
     case:caseData,rounds:2,candidate_mode:'human',use_metadata:true
   })).job_id;

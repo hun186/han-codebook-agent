@@ -4,6 +4,7 @@ import json
 import unittest
 import shutil
 import subprocess
+import sys
 
 BASE = Path(__file__).resolve().parents[1]
 DEMO = BASE / 'vercel-demo'
@@ -58,6 +59,27 @@ class VercelMockDemoTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'), 'Node unavailable; skip browser-VM check')
     def test_feedback_browser_interaction(self):
         proc=subprocess.run(['node',str(BASE/'tests/js/test_vercel_demo.js')],capture_output=True,text=True,timeout=20,check=False)
+        self.assertEqual(proc.returncode,0,proc.stdout+'\n'+proc.stderr)
+
+    def test_canonical_gui_parity_and_simulated_browser_contract(self):
+        proc=subprocess.run([sys.executable,str(BASE/'scripts/sync_vercel_workbench.py'),'--check'],
+                            capture_output=True,text=True,timeout=20,check=False)
+        self.assertEqual(proc.returncode,0,proc.stdout+'\n'+proc.stderr)
+        html=(DEMO/'index.html').read_text(encoding='utf-8')
+        self.assertIn('data-page="guide"',html)
+        self.assertIn('data-page="modelSettings"',html)
+        self.assertIn('id="vocabSuggestions"',html)
+        self.assertIn('id="readings"',html)
+        self.assertIn('MOCK LLM',html)
+        self.assertIn('src="/mock_api.js"',html)
+        self.assertIn('src="/workbench.js"',html)
+        self.assertNotIn('<script>',html)
+        self.assertFalse((DEMO/'mock_api.js').read_text(encoding='utf-8').find('localStorage')>=0)
+
+    @unittest.skipUnless(shutil.which('node'), 'Node unavailable; skip browser mock API test')
+    def test_canonical_gui_mock_api_contract(self):
+        proc=subprocess.run(['node',str(BASE/'tests/js/test_vercel_workbench_mock_api.js')],
+                            capture_output=True,text=True,timeout=25,check=False)
         self.assertEqual(proc.returncode,0,proc.stdout+'\n'+proc.stderr)
 
     def test_static_only_never_calls_model_and_no_private_config(self):

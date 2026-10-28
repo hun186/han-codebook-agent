@@ -56,7 +56,7 @@ def subscription_home() -> Path:
     return root
 
 
-ALLOWED_MODELS = {"gpt-6-astra"}
+ALLOWED_MODELS = {"gpt-6-astra", "gpt-5.6-sol"}
 ALLOWED_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 SENSITIVE_ENV = ("OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN")
 
@@ -112,7 +112,7 @@ def codex_subscription_reply(chat: dict, *, model: str = "gpt-6-astra",
                              subprocess_run=subprocess.run) -> dict:
     """Exchange one original-agent packet for one real Codex CLI model turn."""
     if model not in ALLOWED_MODELS or effort not in ALLOWED_EFFORTS:
-        raise ValueError("Only the explicitly selected GPT-6 Astra subscription baseline is allowed")
+        raise ValueError("Only explicitly approved Astra or GPT-5.6 Sol subscription baselines are allowed")
     messages=chat.get("messages")
     if (not isinstance(messages,list) or len(messages)!=2 or
         [m.get("role") for m in messages]!=["system","user"] or

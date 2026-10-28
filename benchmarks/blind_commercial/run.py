@@ -31,7 +31,8 @@ def json_sha(obj:object)->str:
 
 def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:int,
                    max_calls:int,timeout:int,provider,conditions=("with_aux","without_aux"),
-                   real_api:bool=False,solver_iterations:int=8,solver_restarts:int=4) -> dict:
+                   real_api:bool=False,solver_iterations:int=8,solver_restarts:int=4,
+                   max_estimated_usd:float=100.0) -> dict:
     public_dir=public_dir.resolve();out_dir=out_dir.resolve()
     if public_dir==out_dir or out_dir in public_dir.parents or public_dir in out_dir.parents:
         raise ValueError("Public input and result directories must be separate")
@@ -48,7 +49,10 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
     expected_calls=n_runs*rounds*2
     if expected_calls>max_calls:
         raise ValueError(f"Expected {expected_calls} GPT API calls exceeds --max-calls {max_calls}")
-    counter={"calls":0,"prompt_tokens":0,"completion_tokens":0}
+    if max_estimated_usd<=0:raise ValueError("--max-estimated-usd must be positive")
+    counter={"calls":0,"prompt_tokens":0,"cached_input_tokens":0,
+             "completion_tokens":0,"reasoning_tokens":0,"estimated_usd":0.0}
+    model_ids={}
     def counted_provider(packet):
         if counter["calls"]>=max_calls:
             raise RuntimeError("API call budget exhausted")
@@ -57,8 +61,31 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
         if not isinstance(answer,dict) or "choices" not in answer:
             raise RuntimeError("LLM provider did not return a real/valid Chat Completions response")
         usage=answer.get("usage",{})
-        counter["prompt_tokens"]+=usage.get("prompt_tokens",0)
-        counter["completion_tokens"]+=usage.get("completion_tokens",0)
+        ins=usage.get("prompt_tokens",0)
+        cached=usage.get("cached_input_tokens",0)
+        outs=usage.get("completion_tokens",0)
+        reason=usage.get("reasoning_tokens",0)
+        if any(type(x) is not int or x<0 for x in (ins,cached,outs,reason)) or cached>ins or reason>outs:
+            raise RuntimeError("Invalid usage counters, cannot price this API call")
+        if real_api and not (ins>0 and outs>0 and answer.get("model")):
+            raise RuntimeError("Actual GPT API response missing model ID or billable token counts")
+        actual=str(answer.get("model") or "TEST_DOUBLE")
+        model_ids[actual]=model_ids.get(actual,0)+1
+        counter["prompt_tokens"]+=ins
+        counter["cached_input_tokens"]+=cached
+        counter["completion_tokens"]+=outs
+        counter["reasoning_tokens"]+=reason
+        # Official 2026-10-29 GPT-6 Astra Standard prices: input $10/MTok,
+        # cached input $1/MTok, output incl reasoning $50/MTok.
+        # >272K input tokens trigger higher whole-request prices.
+        scale_in=2 if ins>272000 else 1
+        scale_out=1.5 if ins>272000 else 1
+        estimated=(max(0,ins-cached)*10*scale_in+cached*1*scale_in+
+                   outs*50*scale_out)/1_000_000
+        counter["estimated_usd"]=round(counter["estimated_usd"]+estimated,6)
+        if counter["estimated_usd"]>max_estimated_usd:
+            raise RuntimeError("Estimated Standard token spend exceeded configured cap; "
+                               "aborting without a falsely completed benchmark")
         return answer
     experiments=[]
     with LoopbackGateway(provider=counted_provider) as gateway:
@@ -122,6 +149,9 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
           "provider":"OPENAI_RESPONSES" if real_api else "TEST_DOUBLE", "model":model,
           "reasoning_effort":effort, "n_rounds":rounds,
           "n_model_calls":counter["calls"],"usage":counter,
+          "reported_api_model_ids":model_ids,
+          "cost_notice":"Estimated 2026-10-29 Standard token prices, not confirmed invoice",
+          "configured_max_estimated_usd":max_estimated_usd,
           "includes_hidden_reference":False,
           "n_experiments":len(experiments),"cases":experiments}
     final=out_dir/"predictions_LOCKED.json"
@@ -142,6 +172,8 @@ def main():
                         choices=("low","medium","high","xhigh","max"))
     parser.add_argument("--rounds",type=int,default=5)
     parser.add_argument("--max-calls",type=int,default=240)
+    parser.add_argument("--max-estimated-usd",type=float,default=100.0,
+                        help="Abort before further calls after estimated Standard token charges exceed this cap")
     parser.add_argument("--timeout",type=int,default=240)
     parser.add_argument("--allow-cloud-api",action="store_true")
     args=parser.parse_args()
@@ -156,7 +188,8 @@ def main():
                                model=args.model,effort=args.effort,timeout=args.timeout)
     run_experiment(args.public_dir,args.out_dir,model=args.model,effort=args.effort,
                    rounds=args.rounds,max_calls=args.max_calls,timeout=args.timeout,
-                   provider=provider,real_api=True)
+                   provider=provider,real_api=True,
+                   max_estimated_usd=args.max_estimated_usd)
 
 
 if __name__=="__main__":

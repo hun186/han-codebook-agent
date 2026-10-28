@@ -310,10 +310,11 @@ async function previewEventLinks(){
 let vocabCandidateRecord=[];
 function renderVocabularyIdeas(){
  if(!matchesOrigin(vocabOrigin)){el('vocabSuggestions').replaceChildren();return}
+ const displayedJobSerial=vocabRequestSerial;
  el('vocabSuggestions').innerHTML=vocabCandidateRecord.map((x,i)=>'<div class="message"><strong>'+esc(x.term)+'</strong> <small>'+esc(x.reason||'未附理由')+
  '</small> <button data-adopt-vocab="'+i+'">加入目前領域詞庫</button></div>').join('');
  el('vocabSuggestions').querySelectorAll('[data-adopt-vocab]').forEach(b=>b.onclick=()=>{
- if(!matchesOrigin(vocabOrigin)){notice('研究案例已變更；此批 LLM 詞庫建議不可採納，請重新產生',true);return}
+ if(displayedJobSerial!==vocabRequestSerial||!matchesOrigin(vocabOrigin)){notice('研究案例或 LLM 工作已變更；此批詞庫建議不可採納，請重新產生',true);return}
  const selected=vocabCandidateRecord[Number(b.dataset.adoptVocab)];if(!selected)return;
  const word=selected.term;
  profile().lexicon[word]=Math.max(1,Number(profile().lexicon[word]||2));vocabOrigin={...vocabOrigin,fingerprint:caseFingerprint()};renderVocab();notice('已將未驗證候選「'+word+'」加入 '+el('profilePick').value+' 詞庫；另存案例後持久化')})}

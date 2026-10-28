@@ -231,6 +231,8 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                             raise CaseError("Cannot approve words outside this round's pending candidates")
                         if any(w in offered or w in approved for w in added):
                             raise CaseError("Researcher-added words must be distinct from offered proposals")
+                        if any(w in waiter["existing_terms"] for w in added):
+                            raise CaseError("Researcher-added word already exists in the current candidate vocabulary")
                         waiter["approved"] = approved[:]
                         waiter["added"] = added[:]
                         waiter["submitted"] = True
@@ -384,6 +386,11 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                                 if jobs[job_id].get("cancel_requested"):
                                     raise CaseError("Research case changed; review job canceled without accepting new candidates")
 
+                        review_known_words = {
+                            word for profile in input_case["profiles"].values()
+                            for word in profile.get("lexicon", {})
+                        }
+
                         def reviewer(round_number: int, proposed: list[dict]) -> dict:
                             # Even if the LLM returns zero new terms, a researcher
                             # may enter their own words in the same paused stage.
@@ -401,6 +408,7 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                                 review_waiters[job_id] = {
                                     "event": event, "round": round_number, "token": review_token,
                                     "offered": [item["term"] for item in proposed],
+                                    "existing_terms": set(review_known_words),
                                     "approved": [], "added": [], "submitted": False,
                                 }
                             try:
@@ -413,6 +421,8 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                                         "approved": review_waiters[job_id]["approved"][:],
                                         "added": review_waiters[job_id]["added"][:],
                                     }
+                                    review_known_words.update(selected["approved"])
+                                    review_known_words.update(selected["added"])
                                     jobs[job_id]["status"] = "running"
                                     jobs[job_id].pop("pending_review", None)
                                     jobs[job_id].pop("review_submitted", None)

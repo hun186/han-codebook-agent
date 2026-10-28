@@ -144,9 +144,21 @@ function addNewMessage(){if(!research)return;let id=prompt('新電文 ID（不�
  research.messages.push({id,codes});el('messagePick').add(new Option(id,id));el('messagePick').value=id;loadEvidence();initializeMarks();notice('已建立 '+id+'，尚未存檔')}
 function deleteMessage(){let m=msg();if(!research||!m||research.messages.length<2){notice('至少須保留一封電文',true);return}
  if(!confirm('刪除 '+m.id+'？此動作只在本次未存檔研究案例中發生。'))return;
- research.messages=research.messages.filter(x=>x!==m);research.known_pairs=(research.known_pairs||[]).filter(x=>x.message_id!==m.id);
- const remaining=new Set(research.messages.flatMap(x=>x.codes));for(let c of Object.keys(research.candidate_ideas||{}))if(!remaining.has(c))delete research.candidate_ideas[c];
- for(let c of Object.keys(research.hypothesis_marks||{}))if(!remaining.has(c))delete research.hypothesis_marks[c];
+ research.messages=research.messages.filter(x=>x!==m);
+ research.known_pairs=(research.known_pairs||[]).filter(x=>x.message_id!==m.id);
+ const remaining=new Set(research.messages.flatMap(x=>x.codes));
+ const keep=record=>Object.fromEntries(Object.entries(record||{}).filter(([code])=>remaining.has(code)));
+ research.candidate_ideas=keep(research.candidate_ideas);
+ research.hypothesis_marks=keep(research.hypothesis_marks);
+ // presentCase() reloads history from the persisted case object. Prune it
+ // BEFORE rebuilding the editor or an old Undo can resurrect deleted codes.
+ const history=research.hypothesis_revision_history;
+ if(history&&Array.isArray(history.snapshots)){
+  history.snapshots=history.snapshots.map(snapshot=>keep(snapshot));
+ }
+ // Also prune in-memory snapshots for callers still holding their references.
+ ideaSnapshots=ideaSnapshots.map(snapshot=>keep(snapshot));
+ markSnapshots=markSnapshots.map(snapshot=>keep(snapshot));
  presentCase()}
 function newProfile(){if(!research)return;let name=prompt('新語境領域名稱（例如 logistics）','new_domain');if(!name)return;
  if(research.profiles[name]){notice('語境領域已存在',true);return}
@@ -372,7 +384,13 @@ async function askVocabulary(){
     }
    }catch(e){
     stopVocabTimer();
-    if(active()){vocabActiveJobId=null;vocabRequestSerial++;el('askVocabulary').disabled=false;notice(e.message,true)}
+    // A changed case fingerprint makes active() false, but the failing
+    // request still owns the disabled control until its serial is retired.
+    if(serial===vocabRequestSerial&&matchesCaseReference(origin)&&vocabActiveJobId===jobId){
+     vocabActiveJobId=null;vocabRequestSerial++;
+     el('askVocabulary').disabled=false;
+     notice(matchesOrigin(origin)?e.message:'案例內容已修改，舊詞庫工作失效；請重新產生',!matchesOrigin(origin));
+    }
    }
   }
   localTimer=setInterval(update,1500);vocabTimer=localTimer;update();
@@ -443,8 +461,14 @@ async function start(){
      notice(result.status==='completed'?'執行完成：結果已存入 artifacts/web_runs/'+jobId:'執行失敗：'+result.error,result.status==='failed');
     }
    }catch(e){
-    stopPoll()
-    if(active()){analysisRequestSerial++;el('run').disabled=false;notice(e.message,true)}
+    stopPoll();
+    // Restore only the control still owned by this request. Same-case edits
+    // invalidate content fingerprints but must not strand a disabled button.
+    if(serial===analysisRequestSerial&&matchesCaseReference(origin)&&lastJob===jobId){
+     analysisRequestSerial++;lastJob=null;
+     el('run').disabled=false;
+     notice(matchesOrigin(origin)?e.message:'研究資料已修改，舊分析工作失效；請重新執行',!matchesOrigin(origin));
+    }
    }
   }
   localPoll=setInterval(update,1300);poll=localPoll;update();

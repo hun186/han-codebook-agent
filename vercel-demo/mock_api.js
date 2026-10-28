@@ -123,7 +123,7 @@
       messages:publicData.messages.map(m=>({
         ...clone(m),received_at:m.sent_at,
         observations:m.observations.map(o=>({
-          ...clone(o),note:'模擬第三方觀察，未驗證與密電關聯'})
+          ...clone(o),note:'模擬第三方觀察，未驗證與密電關聯'}))
       })),
       known_pairs:[],candidate_ideas:{}
     };

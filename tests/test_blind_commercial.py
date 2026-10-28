@@ -38,6 +38,9 @@ class BlindExperimentTests(unittest.TestCase):
         self.assertTrue(codes.issubset(set(gold["code_to_word"])))
         self.assertGreaterEqual(len(codes),35)
         self.assertEqual(digest(public),gold["public_sha256"])
+        self.assertEqual(len(gold["latent_thread_ids"]),100)
+        self.assertEqual(len(set(gold["latent_thread_ids"])),12)
+        self.assertNotIn("latent_thread_ids",json.dumps(public,ensure_ascii=False))
         self.assertFalse(any(
             c in public["profiles"]["neutral"]["lexicon"]
             for c in codes))

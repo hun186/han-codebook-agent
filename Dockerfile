@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 WORKDIR /app
-RUN pip install --no-cache-dir 'PyYAML>=6.0,<7'
+RUN pip install --no-cache-dir 'PyYAML>=6.0,<7' 'python-docx>=1.1,<2'
 COPY src ./src
 COPY examples ./examples
 COPY config.yaml config.offline.yaml ./

@@ -87,6 +87,10 @@ def validate_case(case: dict[str, Any]) -> None:
         from .hypothesis_marks import normalize_marks
         anchors, _, _ = anchors_and_review(case)
         normalize_marks(case, anchors)
+    if 'bold_hypotheses' in case:
+        from .bold_hypotheses import normalize_bold_hypotheses
+        anchors, _, _ = anchors_and_review(case)
+        normalize_bold_hypotheses(case, anchors)
 
 def _observation_relevance(message: dict[str, Any], observation: dict[str, Any]) -> float:
     """Non-oracle, optional time and status discount; not proof of a link.

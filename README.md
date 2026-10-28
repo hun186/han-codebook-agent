@@ -56,22 +56,22 @@ python -m han_codebook --config config.yaml
 
 ### Linux / macOS 安裝
 
-Python 3.10 以上。YAML 使用經驗證的安全解析器 `yaml.safe_load`，需要一次性安裝 `PyYAML`：
+Python 3.10 以上。Web Word 報告需要 `python-docx`，YAML 使用經驗證的 `yaml.safe_load`；請從本 repo 一次安裝完整套件依賴：
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install 'PyYAML>=6.0,<7'
+python -m pip install -e .
 export PYTHONPATH=src
 python -m han_codebook --config config.offline.yaml  # 離線演算，無模型呼叫
 python -m han_codebook --config config.yaml          # 呼叫區網 LLM
 ```
 
-不能從外網下載套件的環境，可預先在可連網的電腦下載**符合目標作業系統與 Python 版本**的 PyYAML wheel，帶入封閉網路後執行 `python -m pip install --no-index --find-links wheels 'PyYAML>=6,<7'`。舊式不用 YAML 的位置參數執行模式仍不依賴 PyYAML。
+不能從外網下載套件的環境，請預先在可連網的電腦取得目標作業系統／Python 版本適用的 **PyYAML、python-docx、lxml 及所需相依 wheel**，再使用 `python -m pip install --no-index --find-links wheels -e .`；不能只準備 PyYAML。舊式不用 YAML 的位置參數模式仍不需 PyYAML；但完整 GUI 的 Word 功能需要額外依賴。
 
 ### Windows 安裝
 
-1. 執行 `setup_windows.bat`：建立虛擬環境、安裝 PyYAML、執行測試。需事先安裝 Python 3.10+；首次安裝通常需要網路或離線 wheel。
+1. 執行 `setup_windows.bat`：建立虛擬環境、執行 `pip install -e .` 安裝 PyYAML／python-docx 等依賴並執行測試。需事先安裝 Python 3.10+；首次安裝通常需要網路或離線 wheel。
 2. `run_demo_windows.bat`：只進行本機數字碼本求解，不會呼叫 LLM。
 3. `run_agent_windows.bat`：讀取 `config.yaml` 並向指定的區網模型服務發送研究案例。 啟動時先做 TCP 與 `/v1/models` 輕量檢查，之後每輪呼叫 LLM 會即時顯示等待與執行進度。
 
@@ -99,7 +99,7 @@ docker run --rm -v "$(pwd)/artifacts:/app/artifacts" han-codebook-agent --config
 # 先確認容器內可連上 192.168.0.134:18080，再改為 --config config.yaml
 ```
 
-Docker image 只包含研究程式與 YAML 解析器，不包含本機 LLM；建置時預設從套件來源取得 PyYAML。若完全隔網，請預先準備依賴套件及基礎 image。
+Docker image 包含研究程式、YAML 解析器和 Word 匯出依賴，不包含 LLM；建置時預設從套件來源取得 Python 相依套件。若完全隔網，請預先準備依賴套件及基礎 image。
 
 ## 資料格式
 
@@ -286,3 +286,13 @@ Codex Review 防止跨案例污染的兩項 P2 已實作：
 - 詞庫生成除了「同一個研究案例」外，現在另核對**每一次模型請求序號**及**目前 Job ID**。即使同一個 Job 因間隔輪詢產生多個尚未回覆的 HTTP GET，完成或失敗時也會退休該 Job 的所有舊回覆；下一個 Job 的候選與按鈕不能被上一個 Job 的延遲結果改動。分析工作也採取相同的回覆失效處理。候選採納按鈕綁定生成它的展示工作序號。
 - 研究員在「密電與第三方情報」修改碼組時，系統先驗證完整輸入並檢查是否存在逐碼或非逐碼已知明文對照：**有已知明文對照時不得直接更改對應密碼組**，需先獨立覆核。若某個舊碼組在所有電文中都不再出現，系統會要求確認移除它的候選想法及標註；確認後同步清理 Undo/Redo 快照、儲存歷史並刷新碼組選單。取消不會部分寫入。仍在其他電文出現的碼組不會被清除。
 - 新增 `tests/js/test_cipher_edit_integrity.js` 與 `tests/js/test_case_provenance.js` 相關情境；由 `tests/test_case_provenance_ui.py` 在 Hosted CI 執行 Node VM 的實際輸入／輪詢／撤銷測試。
+
+
+## 本機研究工作台：模型設定、長回合與 Word 匯出（PR #6）
+
+- 「**LLM 端點設定**」頁參考 `AI-Simulated-Patient` 的 Provider/Model 人機介面，但**本研究系統只開放 OpenAI-compatible 本機／明確允許的 RFC1918 私人網路端點**，拒絕公網、DNS 與 URL 內嵌帳密。設定只存到本機 `config.yaml`；API Key 只能填**伺服器已有的環境變數名稱**，不得貼入金鑰本體。可測試 TCP 與 `/v1/models`，不包含任何研究電文，且此測試**不等於驗證 chat completion**。正在執行分析／產生詞庫時禁止改連線設定。
+- 原 GUI 只有 0～3 輪，下拉式選單只是當時的 UI 限制；現在使用**整數數字輸入**，前後端均驗證 0～20；0 輪完全離線，1～20 輪會連模型，較多回合並不等於更準確或更多有效證據。建議先 1～3 輪檢查逐輪改變與是否陷入重複，再自行比較其他輪數。
+- 執行完成後同時提供**Word（`.docx`）**及 Markdown 研究報告，Word 表格含統計摘要、每輪模型建議／變化、碼組狀態與候選、逐封密電解讀及限制。舊的保存分析若有 `result.json`、`audit.sqlite`，也能以同一 Job ID 的 `/api/jobs/<id>/report.docx` 補產 Word；不能讀取使用者電腦以外的 `127.0.0.1` 結果。
+- 「**先驗權重**」是研究員提供給詞彙的初始偏好，不是實測頻率、校準機率或已驗證錨點；GUI 現已內建定義與數值例子。
+- 逐碼閱讀畫面標色：**綠色**＝可信逐碼已知明文、**藍色**＝未驗證候選、**紫紅色**＝研究員明知與可靠錨點不同、仍經顯式確認提出的**大膽反對假說**。操作錯誤有顯眼固定提示。反對假說存在獨立的 `bold_hypotheses` 資料結構，不能寫入 `known_pairs`／`hypothesis_marks` 的 verified anchors，報告也會雙欄並列「已驗證原詞」與「反對假說」。**大膽指定僅改變研究顯示與報告，不會偷偷將未驗證詞組送入求解器當作真實錨點**；真正的反事實求解模式仍屬後續研究。
+- `python-docx>=1.1,<2` 是新的 Word 匯出安裝依賴。部署時更新 Python 套件，請勿只將新的 HTML 複製到舊程式。研究資料與完整模型輸出仍僅在本機；Vercel 靜態 Mock PoC 不具備此後端功能。

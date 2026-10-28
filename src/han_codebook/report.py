@@ -39,6 +39,16 @@ def investigation_report(result: dict[str, Any], events: list[dict[str, Any]]) -
         after = proposal['term']
         status = '已對齊明文' if proposal['status']=='verified_alignment' else '尚待驗證'
         lines.append(f"| `{code}` | {status} | {first} | {after} | {'是' if first != after else '否'} |")
+    bold = result.get("bold_hypotheses", {})
+    if bold:
+        lines += ['', '## 研究員大膽指定（獨立反對假說，非已驗證明文）', '',
+                  '以下指定僅供對照，**不會更改逐碼明文錨點，也不代表求解器認定這個替代詞正確**。', '',
+                  '| 碼組 | 已驗證明文 | 大膽假說 | 研究理由 |',
+                  '|---|---|---|---|']
+        for code, item in sorted(bold.items()):
+            original = result.get("verified_anchors", {}).get(code, "")
+            clean = lambda v: str(v).replace("|", "／").replace("\\n", " ")
+            lines.append(f"| \`{code}\` | {clean(original)} | {clean(item['term'])} | {clean(item['note'])} |")
     lines += ['', '## AI 請求及回覆摘要', '']
     if not llm_responses:
         lines.append('本次未存檔原始 API 回覆；請在本機瀏覽器勾選「完整 Prompt 與回覆」後重新執行。')

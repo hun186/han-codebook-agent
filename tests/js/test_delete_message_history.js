@@ -51,7 +51,15 @@ const ctx={
  el,notice(){},confirm:()=>confirmDeletion,
  esc:x=>String(x),copyMarks:copy,copyIdeas:copy,
  markedCodes(){return [...new Set(ctx.research.messages.flatMap(m=>m.codes))].sort()},
- verifiedCodes(){return new Set()},
+ verifiedCodes(){return new Set((ctx.research.known_pairs||[]).flatMap(p=>
+  ctx.research.messages.find(m=>m.id===p.message_id)?.codes||[]))},
+ verifiedWord(code){
+  const pair=(ctx.research.known_pairs||[]).find(p=>
+    ctx.research.messages.some(m=>m.id===p.message_id&&m.codes.includes(code)));
+  if(!pair||!Array.isArray(pair.segments))return null;
+  const msg=ctx.research.messages.find(m=>m.id===pair.message_id);
+  return pair.segments[msg.codes.indexOf(code)]||null;
+ },
  loadMark(){},renderMarks(){rendered++},renderIdeas(){},
  presentCase(){
   ctx.ideaSnapshots=[copy(ctx.research.candidate_ideas)];ctx.ideaCursor=0;
@@ -108,5 +116,35 @@ const canceled=copy(second);
 confirmDeletion=false;
 ctx.deleteMessage();
 assert.deepEqual(copy(second),canceled,'cancelled deletion altered case');
+
+// Another message retains code 101, but no longer retains the trusted
+// alignment that previously justified a purple counterfactual suggestion.
+const withBold={
+ case_id:'bold-deletion',
+ messages:[{id:'m1',codes:['101']},{id:'m2',codes:['101','104']}],
+ profiles:{general:{keywords:[],lexicon:{},sentences:[]}},
+ known_pairs:[{message_id:'m1',segments:['車隊']}],
+ candidate_ideas:{},hypothesis_marks:{},
+ bold_hypotheses:{'101':{term:'火車',note:'unchecked idea',confirmed:true}}
+};
+ctx.research=withBold;confirmDeletion=true;
+ctx.deleteMessage();
+assert.equal(withBold.messages.length,1);
+assert(withBold.messages[0].codes.includes('101'));
+assert.equal(Object.keys(withBold.bold_hypotheses).length,0,
+ 'orphan bold alternative remained after its only known-plaintext anchor was deleted');
+
+const withSurvivingAnchor={
+ case_id:'bold-retained',
+ messages:[{id:'m1',codes:['101']},{id:'m2',codes:['101','104']}],
+ profiles:{general:{keywords:[],lexicon:{},sentences:[]}},
+ known_pairs:[{message_id:'m1',segments:['車隊']},{message_id:'m2',segments:['車隊','橋梁']}],
+ candidate_ideas:{},hypothesis_marks:{},
+ bold_hypotheses:{'101':{term:'火車',note:'alternative',confirmed:true}}
+};
+ctx.research=withSurvivingAnchor;
+ctx.deleteMessage();
+assert.equal(withSurvivingAnchor.bold_hypotheses['101'].term,'火車',
+ 'valid bold alternative was removed even though independent aligned anchor survived');
 
 console.log('Delete-message history pruning, undo/redo and retained-code preservation PASS');

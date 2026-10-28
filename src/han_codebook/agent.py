@@ -327,6 +327,10 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                        for code, previous in baseline_mapping.items() if previous != new_mapping[code]}
             log_event(conn, num, "rescore", {"score": current["objective_score"],
                                               "mapping": new_mapping, "changes": changes, "changed_count": len(changes)})
+        # Display/report-only counterfactuals; never enter the solver or LLM
+        # as a verified anchor, and never replace immutable known plaintext.
+        from .bold_hypotheses import normalize_bold_hypotheses
+        current["bold_hypotheses"] = normalize_bold_hypotheses(case, current["verified_anchors"])
         current["agent_rounds_completed"] = rounds
         current["run_id"] = run_id
         current["audit_database"] = str(db_path)

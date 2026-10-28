@@ -248,6 +248,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         hints: dict[str, dict[str, float]] = {}
         if progress:
             progress("[analysis] Computing local statistical baseline ...")
+        from .llm_evidence import safe_llm_message
         current = analyze(case, use_metadata=metadata, iterations=solver_iterations, restarts=solver_restarts)
         log_event(conn, 0, "statistical_baseline", {"score": current["objective_score"],
                                                      "mapping": {c: p["term"] for c, p in current["proposals"].items()}})
@@ -263,9 +264,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 "available_vocabulary": sorted(vocab),
                 "profiles": {name: {"keywords": p.get("keywords", []), "lexicon": p.get("lexicon", {})}
                              for name, p in case["profiles"].items()},
-                "messages": (case["messages"][:50] if metadata else [
-                    {"id": m["id"], "codes": m["codes"]} for m in case["messages"][:50]
-                ]),
+                "messages": [safe_llm_message(m, metadata=metadata) for m in case["messages"][:50]],
                 "unresolved": unresolved,
             }
             if progress:

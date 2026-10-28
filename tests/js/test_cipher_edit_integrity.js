@@ -62,8 +62,8 @@ assert.equal(markedRefreshed,0);
 // Accept the change; keep 104 because it still exists in another message.
 acceptCleanup=true;
 ctx.applyEvidence();
-assert.deepEqual(obj.messages[0].codes,['102','104']);
-assert.deepEqual(obj.candidate_ideas['104'],[mkIdea('補給')]);
+assert.deepEqual(deepcopy(obj.messages[0].codes),['102','104']);
+assert.deepEqual(deepcopy(obj.candidate_ideas['104']),[mkIdea('補給')]);
 assert(!('101' in obj.candidate_ideas),'orphaned idea survived');
 assert(!('101' in obj.hypothesis_marks),'orphaned mark survived');
 for(const snapshot of ctx.ideaSnapshots)assert(!('101' in snapshot),'undo resurrects orphan idea');
@@ -85,7 +85,7 @@ obj.known_pairs=[{message_id:'m1',segments:['車隊','補給']}];
 const existing=deepcopy(obj);
 setFields('103 104');
 ctx.applyEvidence();
-assert.deepEqual(obj,existing,'known-plaintext pair changed with ciphertext');
+assert.deepEqual(deepcopy(obj),existing,'known-plaintext pair changed with ciphertext');
 assert(messages.at(-1).isError,'known-pair edit rejection did not report error');
 
 console.log('Cipher edit cleanup, cancellation, historical snapshots, code navigation, known anchor integrity PASS');

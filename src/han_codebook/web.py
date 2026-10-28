@@ -124,11 +124,30 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                     return self._json(404, {"error": "No offline benchmark report saved yet"})
                 return self._json(200, json.loads(target.read_text(encoding="utf-8")))
             if url.path == "/api/settings":
-                cfg = load_settings(settings_path)
-                llm = cfg["llm"]
-                self._json(200, {"model": llm.get("model"), "endpoint": llm.get("base_url"),
+                from .model_settings import model_settings
+                settings = model_settings(settings_path)
+                self._json(200, {**settings, "endpoint": settings["base_url"],
                                  "capture_io_available": True,
-                                 "note": "LLM network calls happen only after explicitly pressing the LLM run button."})
+                                 "note": "Local/private OpenAI-compatible model only; credentials remain in environment variables."})
+                return
+            if url.path.startswith("/api/jobs/") and url.path.endswith("/report.docx"):
+                job_id = url.path.split('/')[3] if len(url.path.split('/')) == 5 else ''
+                with jobs_lock:
+                    j = jobs.get(job_id)
+                if not j or j.get("status") != "completed" or j.get("type") != "analysis":
+                    return self._json(404, {"error": "Word research report unavailable"})
+                report_file = root / "artifacts" / "web_runs" / job_id / "report.docx"
+                if not report_file.is_file():
+                    return self._json(404, {"error": "Word report not generated"})
+                document = report_file.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                self.send_header("Content-Disposition", 'attachment; filename="investigation-report.docx"')
+                self.send_header("Content-Length", str(len(document)))
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.end_headers()
+                self.wfile.write(document)
                 return
             if url.path.startswith("/api/jobs/") and url.path.endswith("/report.md"):
                 job_id = url.path.split('/')[3] if len(url.path.split('/')) == 5 else ''
@@ -161,6 +180,23 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                 return
             try:
                 data = self._body()
+                if self.path == "/api/settings/llm":
+                    from .model_settings import save_model_settings
+                    new_settings = save_model_settings(settings_path, data)
+                    return self._json(200, {**new_settings, "endpoint": new_settings["base_url"]})
+                if self.path == "/api/settings/test":
+                    if data.get("confirmed") is not True or set(data) != {"confirmed"}:
+                        raise CaseError("Confirm a metadata-only connection check first")
+                    from .agent import probe_llm_service
+                    cfg = load_settings(settings_path)["llm"]
+                    trace = []
+                    ok = probe_llm_service(cfg.get("base_url","http://127.0.0.1:11434"),
+                        timeout=min(cfg.get("timeout_seconds",90),8),
+                        allow_private_network=cfg.get("allow_private_network",False),
+                        allowed_hosts=cfg.get("allowed_hosts",[]),
+                        api_key_env=cfg.get("api_key_env"), report=trace.append)
+                    return self._json(200, {"connected":ok,"diagnostics":trace,
+                           "note":"Only TCP and /v1/models checked; chat completions not verified."})
                 if self.path == "/api/event-links":
                     case = data.get("case")
                     if not isinstance(case, dict) or any(k in case for k in ("gold", "codebook", "ground_truth")):
@@ -252,8 +288,8 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                         raise CaseError("Inference case must exclude ground_truth")
                     validate_case(case)
                     rounds = data.get("rounds", 0)
-                    if type(rounds) is not int or rounds not in (0, 1, 2, 3):
-                        raise CaseError("Rounds must be an integer from 0 to 3")
+                    if type(rounds) is not int or not 0 <= rounds <= 20:
+                        raise CaseError("Rounds must be an integer from 0 to 20")
                     metadata = data.get("use_metadata", True)
                     if type(metadata) is not bool:
                         raise CaseError("use_metadata must be boolean")
@@ -291,7 +327,9 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                             (target / "result.json").write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
                             events = audit_timeline(target / "audit.sqlite")
                             from .report import investigation_report
+                            from .report_docx import investigation_docx
                             (target / "report.md").write_text(investigation_report(result, events), encoding="utf-8")
+                            (target / "report.docx").write_bytes(investigation_docx(result, events))
                             with jobs_lock:
                                 jobs[job_id]["result"] = result
                                 jobs[job_id]["events"] = events

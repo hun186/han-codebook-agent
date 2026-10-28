@@ -204,7 +204,11 @@ function deleteMessage(){let m=msg();if(!research||!m||research.messages.length<
  const keep=record=>Object.fromEntries(Object.entries(record||{}).filter(([code])=>remaining.has(code)));
  research.candidate_ideas=keep(research.candidate_ideas);
  research.hypothesis_marks=keep(research.hypothesis_marks);
- research.bold_hypotheses=keep(research.bold_hypotheses);
+ // Only a still-existing trusted alignment can justify a conflicting
+ // research hypothesis. A code surviving in another message is not enough.
+ const survivingAnchors=verifiedCodes();
+ research.bold_hypotheses=Object.fromEntries(Object.entries(keep(research.bold_hypotheses))
+    .filter(([code,idea])=>survivingAnchors.has(code)&&verifiedWord(code)!==idea.term));
  // presentCase() reloads history from the persisted case object. Prune it
  // BEFORE rebuilding the editor or an old Undo can resurrect deleted codes.
  const history=research.hypothesis_revision_history;
@@ -361,7 +365,7 @@ function openMark(code){if(!research||!markedCodes().includes(code))return;el('t
 function applyBoldHypothesis(clear=false){
  if(!research)return;
  const code=el('markCode').value;
- if(!verifiedCodes().has(code)){notice('大膽指定僅限已有逐碼明文錨點的碼組；未知碼請使用普通研究標註',true);return}
+ if(!clear&&!verifiedCodes().has(code)){notice('大膽指定僅限已有逐碼明文錨點的碼組；未知碼請使用普通研究標註',true);return}
  const original=verifiedWord(code),word=el('markWord').value.trim(),note=el('markNote').value.trim();
  const next=JSON.parse(JSON.stringify(research.bold_hypotheses||{}));
  if(clear){

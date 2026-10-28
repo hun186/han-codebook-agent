@@ -107,6 +107,58 @@ class AdaptiveVocabularyTest(unittest.TestCase):
             self.assertEqual(hypotheses[1]["accepted"][0]["candidates"],["第2輪新詞"])
             self.assertNotEqual(output["proposals"]["999"]["status"],"verified_alignment")
 
+    def test_researcher_custom_terms_enter_next_round_and_are_audited(self):
+        case=sample()
+        original=deepcopy(case)
+        def fake(url,model,payload,**kw):
+            return {"vocabulary":[{"term":"模型候選詞","reason":"側面情報"}]}
+        updated,record=refresh_vocabulary(
+            case,round_number=1,metadata=True,current=None,
+            llm_settings=self.config(),query=fake,
+            review=lambda round_number,candidates:{
+                "approved":[],"added":["研究員觀察","新增軍事詞"]})
+        self.assertEqual(case,original)
+        self.assertEqual(record["review_mode"],"human")
+        self.assertEqual(record["approved"],["研究員觀察","新增軍事詞"])
+        self.assertEqual(record["rejected_count"],1)
+        self.assertEqual(
+            [x["term"] for x in record["researcher_added"]],
+            ["研究員觀察","新增軍事詞"])
+        self.assertTrue(all(x["status"]=="unverified" for x in record["researcher_added"]))
+        self.assertEqual(
+            updated["profiles"]["llm_dynamic_candidates"]["lexicon"]["研究員觀察"],1.0)
+        packet=vocabulary_packet(updated,round_number=2,metadata=True,current=None,
+                                  vocabulary={"研究員觀察","新增軍事詞"})
+        self.assertIn("研究員觀察",packet["current_vocabulary"])
+        # The inference model sees these words as vocabulary, not verified mapping.
+        self.assertEqual(packet["verified_anchors"],[])
+        self.assertNotIn("ground_truth",str(packet))
+
+    def test_custom_word_limits_and_selection_is_atomic(self):
+        case=sample()
+        before=deepcopy(case)
+        def fake(url,model,payload,**kw):
+            return {"vocabulary":[{"term":"模型詞","reason":"LLM"}]}
+        for addition in (["模型詞"],["既有詞","既有詞"],[""],["    "],
+                         ["詞"*25],["\u0001詞"],["過量"+str(i) for i in range(33)]):
+            with self.subTest(addition=addition),self.assertRaises(CaseError):
+                refresh_vocabulary(case,round_number=1,metadata=False,
+                    current=None,llm_settings=self.config(),query=fake,
+                    review=lambda n,items,addition=addition:{
+                        "approved":[],"added":addition})
+            self.assertEqual(case,before)
+        with self.assertRaises(CaseError):
+            refresh_vocabulary(case,round_number=1,metadata=False,
+                current=None,llm_settings=self.config(),query=fake,
+                review=lambda n,items:{
+                    "approved":["模型詞"],"added":["模型詞"]})
+        with self.assertRaises(CaseError):
+            refresh_vocabulary(case,round_number=1,metadata=False,
+                current=None,llm_settings=self.config(),query=fake,
+                review=lambda n,items:{"approved":["模型詞"],"added":[
+                    "人工"+str(i) for i in range(32)]})
+        self.assertEqual(case,before)
+
     def test_review_mode_may_reject_any_or_all_without_promoting_truth(self):
         case=sample()
         submitted=[]

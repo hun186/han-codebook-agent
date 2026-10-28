@@ -10,10 +10,11 @@ if errorlevel 1 (
 py -3 -m venv .venv
 if errorlevel 1 exit /b 1
 set "PYTHONPATH=%CD%\src"
-echo Installing YAML parser dependency (PyYAML). This may need network access.
-.venv\Scripts\python.exe -m pip install "PyYAML>=6.0,<7"
+echo Installing local research application dependencies (PyYAML, python-docx, lxml).
+echo This may need network access or pre-downloaded compatible wheels.
+.venv\Scripts\python.exe -m pip install -e .
 if errorlevel 1 (
-  echo ERROR: PyYAML install failed. For air-gapped use, prepare a PyYAML wheel in advance.
+  echo ERROR: dependency install failed. For air-gapped installs, prepare matching wheel files first.
   exit /b 1
 )
 .venv\Scripts\python.exe -m unittest discover -s tests -v

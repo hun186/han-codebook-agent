@@ -28,12 +28,12 @@ const { TextEncoder } = require('node:util');
   new vm.Script(code, {filename:'mock_api.js'}).runInContext(sandbox);
   const get = async path => {
     const r=await sandbox.fetch(path);
-    assert.equal(r.status,200,await r.text());
+    if(r.status!==200)throw Error('HTTP '+r.status+': '+await r.text());
     return r.json();
   };
   const post = async (path, data) => {
     const r=await sandbox.fetch(path,{method:'POST',body:JSON.stringify(data)});
-    assert.equal(r.status,200, await r.text());
+    if(r.status!==200)throw Error('HTTP '+r.status+': '+await r.text());
     return r.json();
   };
   const ids=await get('/api/cases');

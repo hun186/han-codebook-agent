@@ -22,6 +22,8 @@ def _day(text: Any):
 
 
 def _status_factor(status: str) -> float:
+    if not isinstance(status, str):
+        return 0.0
     if any(token in status for token in ("無關", "不相關", "已排除")):
         return 0.0
     return 0.35 if "未確認" in status else 1.0
@@ -76,11 +78,11 @@ def suggest_event_links(case: dict, *, limit_per_event: int = 4) -> list[dict]:
             results.append({
                 "event_id": f"{origin['id']}:observation:{index}",
                 "source_message_id": origin["id"],
-                "observed_at": obs.get("observed_at", ""),
+                "observed_at": obs["observed_at"] if isinstance(obs.get("observed_at"), str) else "",
                 "source": obs["source"],
-                "activity": obs.get("activity", ""),
-                "destination": obs.get("destination", ""),
-                "status": obs.get("status", ""),
+                "activity": obs["activity"] if isinstance(obs.get("activity"), str) else "",
+                "destination": obs["destination"] if isinstance(obs.get("destination"), str) else "",
+                "status": obs["status"] if isinstance(obs.get("status"), str) else "",
                 "confidence": confidence,
                 "note": obs.get("note", ""),
                 "association_status": "hypotheses_only",

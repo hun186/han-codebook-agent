@@ -19,6 +19,43 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+
+class QuotaExhausted(RuntimeError):
+    """Codex subscription allowance reached. Resume later, not a model response."""
+
+
+QUOTA_TEXT=("usage limit","rate limit","quota exceeded","reached your limit",
+            "usage cap","limit reached","too many requests","resets in",
+            "insufficient quota","out of credits")
+
+
+def subscription_home() -> Path:
+    """Require isolated subscription-only CODEX_HOME, never the normal Codex home."""
+    location=os.environ.get("CODEX_HOME")
+    if not location:
+        raise RuntimeError("Set CODEX_HOME to a dedicated ChatGPT subscription-only Codex home")
+    root=Path(location).expanduser().resolve()
+    default=(Path.home()/".codex").resolve()
+    if root==default:
+        raise RuntimeError("Refuse the normal Codex home; use a dedicated CODEX_HOME")
+    if not root.is_dir():
+        raise RuntimeError("Dedicated CODEX_HOME does not exist; create and log in first")
+    if any((root/name).exists() for name in
+           ("AGENTS.md","AGENTS.override.md","skills","agents","plugins")):
+        raise RuntimeError("Dedicated CODEX_HOME has global instructions/tools; keep it authentication-only")
+    auth=root/"auth.json"
+    try:
+        raw=json.loads(auth.read_text(encoding="utf-8"))
+    except (OSError,ValueError) as exc:
+        raise RuntimeError("Dedicated CODEX_HOME needs ChatGPT OAuth auth.json") from exc
+    if (not isinstance(raw,dict) or raw.get("auth_mode")!="chatgpt" or
+        raw.get("OPENAI_API_KEY") or
+        not isinstance(raw.get("tokens"),dict) or
+        not raw["tokens"].get("access_token")):
+        raise RuntimeError("Dedicated auth.json is not ChatGPT OAuth-only")
+    return root
+
+
 ALLOWED_MODELS = {"gpt-6-astra"}
 ALLOWED_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 SENSITIVE_ENV = ("OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN")
@@ -31,8 +68,12 @@ def check_codex_subscription(codex_bin: str = "codex", *,
             "Subscription experiment refuses API keys/access tokens in environment; "
             "start a clean shell and use 'codex login' with ChatGPT."
         )
-    result = subprocess_run([codex_bin, "login", "status"], text=True,
-                            capture_output=True, timeout=20, check=False)
+    subscription_home()
+    result = subprocess_run([
+        codex_bin,"-c",'forced_login_method="chatgpt"',
+        "-c",'cli_auth_credentials_store="file"',
+        "login","status"], text=True,encoding="utf-8",
+        capture_output=True, timeout=20, check=False)
     message=(result.stdout+"\n"+result.stderr).lower()
     if result.returncode != 0 or "chatgpt" not in message:
         raise RuntimeError(
@@ -103,20 +144,27 @@ def codex_subscription_reply(chat: dict, *, model: str = "gpt-6-astra",
         schema_path.write_text(json.dumps(schema_for(kind),ensure_ascii=False),encoding="utf-8")
         args=[
           codex_bin,"exec","--json","--ephemeral","--ignore-user-config","--ignore-rules",
+          "--config",'forced_login_method="chatgpt"',
+          "--config",'cli_auth_credentials_store="file"',
           "--skip-git-repo-check","--sandbox","read-only",
           "--model",model,"--config",f'model_reasoning_effort="{effort}"',
           "--output-schema",str(schema_path),
           "--output-last-message",str(last_path),"-"
         ]
+        home=subscription_home()
         env=os.environ.copy()
+        env["CODEX_HOME"]=str(home)
         if any(env.get(name) for name in SENSITIVE_ENV):
             raise RuntimeError("Subscription mode requires no API credentials in environment")
         for name in SENSITIVE_ENV:
             env.pop(name,None)
         # No repo/workspace information is deliberately available to CLI.
         # CODEX_HOME remains the user's authenticated CLI credentials store.
-        result=subprocess_run(args,input=prompt,text=True,capture_output=True,
-                              cwd=str(root),env=env,timeout=timeout,check=False)
+        result=subprocess_run(args,input=prompt,text=True,encoding="utf-8",
+                              capture_output=True,cwd=str(root),env=env,
+                              timeout=timeout,check=False)
+        if result.returncode!=0 and any(t in (result.stderr+" "+result.stdout).lower() for t in QUOTA_TEXT):
+            raise QuotaExhausted("Codex ChatGPT subscription usage limit; checkpoints preserved")
         if result.returncode!=0:
             raise RuntimeError(
                 "codex exec did not complete a ChatGPT-plan inference "
@@ -132,11 +180,16 @@ def codex_subscription_reply(chat: dict, *, model: str = "gpt-6-astra",
             typ=event.get("type","")
             if typ in ("turn.failed","error"):failures.append(typ)
             if typ=="turn.completed":completed.append(event)
+            if typ not in {"thread.started","turn.started","turn.completed",
+                           "item.started","item.updated","item.completed"}:
+                failures.append("unknown_event_type")
             item=event.get("item",{})
-            if (isinstance(item,dict) and item.get("type") in
-                    {"command_execution","file_change","mcp_tool_call","web_search",
-                     "tool_call","computer_use","browser_use"}):
-                tool_events.append(item.get("type"))
+            if typ.startswith("item."):
+                allowed={"agent_message","reasoning","todo_list","plan_update"}
+                if not isinstance(item,dict) or item.get("type") not in allowed:
+                    tool_events.append(str(item.get("type") if isinstance(item,dict) else "unknown"))
+            if typ=="item.completed" and isinstance(item,dict) and item.get("type")=="error":
+                failures.append("item_error")
         if len(completed)!=1 or failures or tool_events:
             raise RuntimeError(
                 f"Codex inference not a single tool-free turn: completed={len(completed)}, "

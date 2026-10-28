@@ -146,6 +146,9 @@ class CodexSubscriptionBridgeTests(unittest.TestCase):
         events[0]={"type":"item.completed","item":{"type":"error","message":"Partial failure"}}
         with self.assertRaisesRegex(RuntimeError,"tool-free turn"):
             codex_subscription_reply(chat,subprocess_run=tool)
+        events[:]=[{"type":"turn.failed","error":{"message":"usage limit reached"}}]
+        with self.assertRaises(QuotaExhausted):
+            codex_subscription_reply(chat,subprocess_run=tool)
 
     def test_schema_and_auth_fail_closed(self):
         with self.assertRaises(ValueError):

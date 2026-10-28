@@ -33,6 +33,11 @@ def validate_case(case: dict[str, Any]) -> None:
         if not isinstance(m.get("id"), str) or m["id"] in ids:
             raise CaseError("each message must have a unique string id")
         ids.add(m["id"])
+        # Never coerce nested objects into metadata text: they might contain
+        # an evaluation oracle that spuriously changes domain inference.
+        for key in ("sender", "recipient", "received_at", "notes", "unit", "domain"):
+            if key in m and not isinstance(m[key], str):
+                raise CaseError(f"message {m['id']}: {key} must be plain text")
         if not isinstance(m.get("codes"), list) or not m["codes"] or not all(isinstance(x, str) and x.isdigit() for x in m["codes"]):
             raise CaseError(f"message {m['id']}: codes must be a non-empty array of digit strings")
     if not isinstance(case.get("profiles"), dict) or not case["profiles"]:
@@ -54,6 +59,12 @@ def validate_case(case: dict[str, Any]) -> None:
         for o in obs:
             if not isinstance(o, dict) or not isinstance(o.get("source"), str) or not o["source"].strip():
                 raise CaseError(f"message {m['id']}: observation must have a source")
+            permitted = {"source", "observed_at", "activity", "destination", "status", "note", "confidence"}
+            if set(o) - permitted:
+                raise CaseError(f"message {m['id']}: unexpected observation fields are not inference evidence")
+            for field in ("observed_at", "activity", "destination", "status", "note"):
+                if field in o and not isinstance(o[field], str):
+                    raise CaseError(f"message {m['id']}: observation {field} must be plain text")
             if not isinstance(o.get("note", ""), str):
                 raise CaseError(f"message {m['id']}: observation note must be text")
             confidence = o.get("confidence", 0.5)
@@ -93,7 +104,7 @@ def _observation_relevance(message: dict[str, Any], observation: dict[str, Any])
     if not isinstance(observed, str) or not isinstance(received, str) or not observed or not received:
         return weight * 0.5
     try:
-        if len(observed) == 10:
+        if len(observed) == 10 or len(received) == 10:
             days = abs((datetime.fromisoformat(observed).date() - datetime.fromisoformat(received).date()).days)
             return weight * max(0.0, 1.0 - days / 3.0)
         hours = abs((datetime.fromisoformat(observed) - datetime.fromisoformat(received)).total_seconds()) / 3600
@@ -106,12 +117,12 @@ def domain_for_message(message: dict[str, Any], profiles: dict[str, Any], use_me
                        observation_policy: str = "legacy") -> str | None:
     if not use_metadata:
         return None
-    if message.get("domain") in profiles:
+    if isinstance(message.get("domain"), str) and message.get("domain") in profiles:
         return message["domain"]
-    text = " ".join(str(message.get(k, "")) for k in ("sender", "recipient", "notes", "unit"))
+    text = " ".join((message.get(k) if isinstance(message.get(k), str) else "") for k in ("sender", "recipient", "notes", "unit"))
     observations = message.get("observations", [])
     # Third-party sightings are uncertain context, not verified plaintext.
-    observation_texts = [(" ".join(str(o.get(key, "")) for key in ("note", "destination", "status", "activity")),
+    observation_texts = [(" ".join((o.get(key) if isinstance(o.get(key), str) else "") for key in ("note", "destination", "status", "activity")),
                           float(o.get("confidence", 0.5)) *
                           (_observation_relevance(message,o) if observation_policy == "time_relevance" else 1.0))
                          for o in observations]

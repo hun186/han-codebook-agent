@@ -332,9 +332,15 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                             (target / "result.json").write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
                             events = audit_timeline(target / "audit.sqlite")
                             from .report import investigation_report
-                            from .report_docx import investigation_docx
                             (target / "report.md").write_text(investigation_report(result, events), encoding="utf-8")
-                            (target / "report.docx").write_bytes(investigation_docx(result, events))
+                            try:
+                                from .report_docx import investigation_docx
+                            except ImportError:
+                                progress("[WARN] Word export unavailable (python-docx missing). "
+                                         "Install dependencies with setup_windows.bat or pip install -e .; "
+                                         "analysis and Markdown remain available.")
+                            else:
+                                (target / "report.docx").write_bytes(investigation_docx(result, events))
                             with jobs_lock:
                                 jobs[job_id]["result"] = result
                                 jobs[job_id]["events"] = events

@@ -84,6 +84,7 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
                         result=run_agent(current,rounds=rounds,model=model,llm_url=gateway.url,
                              db_path=str(audit),metadata=metadata,llm_timeout=timeout,
                              adaptive_vocabulary=True,vocabulary_reviewer=None,
+                             llm_api_key_env="HAN_BLIND_LOOPBACK_TOKEN",
                              capture_llm_io=True,solver_iterations=solver_iterations,
                              solver_restarts=solver_restarts)
                     except Exception as exc:

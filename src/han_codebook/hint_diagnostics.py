@@ -25,7 +25,7 @@ def hints_from_reply(case: dict, reply: dict) -> tuple[dict, list]:
         if not isinstance(item, dict):
             continue
         code, words = item.get("code"), item.get("candidates")
-        if code not in observed or code in hints or not isinstance(words, list):
+        if not isinstance(code, str) or code not in observed or code in hints or not isinstance(words, list):
             continue
         unique = []
         for word in words:

@@ -67,11 +67,21 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
     counter={"calls":0,"prompt_tokens":0,"cached_input_tokens":0,
              "completion_tokens":0,"reasoning_tokens":0,"estimated_usd":0.0}
     model_ids={}
+    request_scope={"cell":None,"index":0}
     def counted_provider(packet):
         if counter["calls"]>=max_calls:
             raise RuntimeError("API call budget exhausted")
+        if request_scope["cell"] is None:
+            raise RuntimeError("LLM request outside registered evaluation cell")
+        i=request_scope["index"]
+        request_scope["index"]+=1
+        phase="vocabulary" if i%2==0 else "hypotheses"
+        packet_task=json.loads(packet["messages"][1]["content"]).get("task")
+        if (phase=="vocabulary")!=(packet_task=="generate_vocabulary"):
+            raise RuntimeError("Unexpected LLM phase sequence; cannot safely replay")
+        logical_id=f'{request_scope["cell"]}:round_{i//2+1}:{phase}'
         answer=checkpoints.invoke(packet,provider=provider,model=model,effort=effort,
-                                  provider_name=provider_name)
+                                  provider_name=provider_name,logical_id=logical_id)
         counter["calls"]+=1
         if not isinstance(answer,dict) or "choices" not in answer:
             raise RuntimeError("LLM provider did not return a real/valid Chat Completions response")
@@ -137,6 +147,7 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
                     for stale in [audit,Path(str(audit)+"-wal"),Path(str(audit)+"-shm")]:
                         if stale.exists():stale.unlink()
                     checkpoints.mark("running",current=ref,reason="run active")
+                    request_scope.update(cell=ref,index=0)
                     print(f"[BLIND] {ref}: {provider_name} x {rounds*2} logical turns; automatic mode",flush=True)
                     started=time.monotonic()
                     try:
@@ -158,6 +169,9 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
                             reason="inference interruption (not a validated result)")
                         # Never print Authorization values or the original prompt.
                         raise RuntimeError(f"Inference failed at {ref}: {diagnosis}") from exc
+                    if request_scope["index"]!=rounds*2:
+                        raise RuntimeError("Unexpected number of original Agent LLM phases")
+                    request_scope["cell"]=None
                     if result["agent_rounds_completed"]!=rounds:
                         raise RuntimeError("Actual completed rounds differ from requested")
                     if not result.get("adaptive_vocabulary") or result.get("human_vocabulary_review"):

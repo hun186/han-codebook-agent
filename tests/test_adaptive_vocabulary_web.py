@@ -230,7 +230,7 @@ class HumanReviewHTTPTest(unittest.TestCase):
             id=body["job_id"]
             self.wait_status(id,"awaiting_review")
             for bad in ([""],["重複詞","重複詞"],["一"*25],
-                        ["研究\\n字"],["模型提議"],
+                        ["研究" + chr(10) + "字"],["模型提議"],
                         ["新詞"+str(n) for n in range(33)]):
                 code,_=self.post(f"/api/jobs/{id}/review",
                                   self.review_payload(id,[],bad))

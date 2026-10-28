@@ -101,3 +101,13 @@ v0.3 browser workbench implementation in progress on branch; GitHub main d602616
 ## 2026-10-27 — Vercel researcher-feedback Mock work
 - Vercel static demo now provides deterministic, inspectable mock reranking after reversible researcher preferred/excluded/trial-pin marks. This is not real Qwen inference: original statistical and mock scores remain immutable historical baselines; a new post-mark simulation uses ciphertext adjacency and unverified precomputed lexical candidate transitions to rerank and list affected code groups. Undo/Redo recomputes from the same baseline. Gold is loaded only after explicit reveal and never enters the feedback solver.
 - Local reconstructed suite completed 86 unittest cases PASS and Node VM checks for mark propagation, exclusion, undo/redo, gold isolation. Hosted CI and deployed Vercel require independent verification.
+
+
+## 2026-10-28 — LLM hint-sensitivity and third-party sighting relevance research PR
+- Main baseline at `091a6ae` (PR #4 merged). New branch `feat/hint-sensitivity-observation-ablation-20261028`.
+- User wanted proof whether weak Qwen/GPT-6 Top-1 stems from model quality, fixed vocabulary, weak hint integration or unreliable sightings; **avoid raising default model trust merely because more model hints are adopted**.
+- `analyze` now supports explicit bounded `hint_scale` (0..4, default 1) and optional `case.observation_policy="time_relevance"`. Default `legacy` keeps old context scoring. Time-aware observations are discounted when uncertain, distant, invalid or explicitly unrelated; they are not verified evidence.
+- Offline `hint_diagnostics` replays saved hypotheses without model API calls, compares scales 0/1/2.4 and sighting ablations (with/without/time-aware/no metadata), and optionally scores synthetic gold only AFTER every inference run. Never use gold to tune live weights. It prints hint adoption and mapping changes separately from accuracy.
+- On the previously locked GPT-6 Seed 202 n10 hints: 5/15, 7/15, 11/15 top-choice hints adopted at scales 0,1,2.4; **all 6/51 synthetic Top-1**, not an improvement. Without observations 6/51; without all metadata 3/51. Only one synthetic seed, no new Qwen or GPT API run.
+- Local targeted regression: 5 tests PASS using copied current `main` core. Full Hosted CI and formal review must be checked on GitHub; this work is not merged.
+- Still missing: calibrated event-to-telegram latent association, data-driven confidence calibration, proper cold-start vocabulary integration in ordinary GUI, and genuine matched GPT/Qwen API benchmark. Do not claim implemented.

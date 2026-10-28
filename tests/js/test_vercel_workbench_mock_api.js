@@ -9,6 +9,11 @@ const { TextEncoder } = require('node:util');
 (async () => {
   const base = path.resolve(__dirname, '../../vercel-demo');
   const fixture = JSON.parse(fs.readFileSync(path.join(base,'data/demo.json'),'utf8'));
+  const recordedFixture=JSON.parse(fs.readFileSync(
+    path.join(base,'data/adaptive_trial_100.json'),'utf8'));
+  assert.equal(recordedFixture.public.messages.length,100);
+  assert.ok(!Object.hasOwn(recordedFixture,'gold'));
+  assert.ok(!JSON.stringify(recordedFixture).includes('code_to_word'));
   const requests = [];
   const callbacks = {};
   const origin = 'https://example.test';
@@ -17,8 +22,10 @@ const { TextEncoder } = require('node:util');
     location: { origin, href:origin+'/' },
     fetch: async url => {
       requests.push(String(url));
-      assert.equal(String(url),'/data/demo.json','must never call model/public API');
-      return new Response(JSON.stringify(fixture), {status:200});
+      assert.ok(['/data/demo.json','/data/adaptive_trial_100.json'].includes(String(url)),
+        'must never call model/public API');
+      return new Response(JSON.stringify(
+        String(url)==='/data/demo.json'?fixture:recordedFixture),{status:200});
     },
     document: {addEventListener: (event, callback) => {callbacks[event] = callback}},
   };
@@ -37,7 +44,8 @@ const { TextEncoder } = require('node:util');
     return r.json();
   };
   const ids=await get('/api/cases');
-  assert.deepEqual(Array.from(ids,x=>x.id),['demo_10','demo_25','demo_50','demo_100']);
+  assert.deepEqual(Array.from(ids,x=>x.id),
+    ['demo_10','demo_25','demo_50','demo_100','adaptive_trial_100']);
   const cfg=await get('/api/settings');
   assert.match(cfg.model,/MOCK/);
   assert.equal(cfg.allow_private_network,false);
@@ -357,12 +365,53 @@ const { TextEncoder } = require('node:util');
   assert.deepEqual(guiResult.events.find(x=>x.stage==='vocabulary_candidates_unverified')
     .payload.researcher_added.map(x=>x.term),['研究員畫面手填一','研究員畫面手填二']);
 
+  // Recorded, previously revealed 100-report trial: never fake a fresh model run.
+  const rec=await get('/api/case?id=adaptive_trial_100');
+  assert.equal(rec.messages.length,100);
+  assert.equal(rec.known_pairs.length,0);
+  assert.ok(rec.description.includes('已揭盲'));
+  const recStatic=(await post('/api/start',{
+    case:rec,rounds:0,candidate_mode:'static',use_metadata:true
+  })).job_id;
+  const recStaticRun=await get('/api/jobs/'+recStatic);
+  assert.equal(recStaticRun.status,'completed');
+  assert.equal(recStaticRun.result.replay_published_metrics.correct_types,8);
+  assert.equal(recStaticRun.result.replay_published_metrics.correct_positions,156);
+  const recDynamic=(await post('/api/start',{
+    case:rec,rounds:3,candidate_mode:'automatic',use_metadata:true,
+    capture_llm_io:true
+  })).job_id;
+  const recJob=await get('/api/jobs/'+recDynamic);
+  assert.equal(recJob.status,'completed');
+  assert.equal(recJob.result.agent_rounds_completed,3);
+  assert.equal(recJob.result.locked_experiment_replay,true);
+  assert.equal(recJob.result.replay_published_metrics.correct_types,31);
+  assert.equal(recJob.result.replay_published_metrics.correct_positions,470);
+  assert.equal(recJob.result.replay_published_metrics.complete_messages,0);
+  assert.equal(recJob.events.filter(e=>e.stage==='vocabulary_candidates_unverified').length,3);
+  assert.equal(recJob.events.filter(e=>e.stage==='vocabulary_llm_response').length,3);
+  assert.ok(recJob.logs.some(x=>x.includes('已揭盲')));
+  const recNoaux=(await post('/api/start',{
+    case:rec,rounds:3,candidate_mode:'automatic',use_metadata:false
+  })).job_id;
+  assert.equal((await get('/api/jobs/'+recNoaux)).result.replay_published_metrics.correct_types,4);
+  const recModified=JSON.parse(JSON.stringify(rec));
+  recModified.messages[0].codes=['1234'];
+  const modifiedID=(await post('/api/start',{
+    case:recModified,rounds:0,candidate_mode:'static'
+  })).job_id;
+  assert.notEqual((await get('/api/jobs/'+modifiedID)).result.locked_experiment_replay,true,
+    'Edited evidence must not retain the published snapshot / scoring claims');
+  assert.equal(typeof recJob.result.verified_anchors,'object');
+  assert.deepEqual(Object.keys(recJob.result.verified_anchors),[]);
+  assert.ok(Object.values(recJob.result.proposals)
+    .every(p=>p.status==='hypothesis_unverified'));
   const leak=await sandbox.fetch('/api/start',{
     method:'POST',body:JSON.stringify({case:{...caseData,ground_truth:{'0007':'答案'}},rounds:2})
   });
   assert.equal(leak.status,400);
   await assert.rejects(()=>sandbox.fetch('https://api.openai.com/v1/chat/completions'));
-  assert.deepEqual(requests,['/data/demo.json']);
+  assert.deepEqual(requests,['/data/demo.json','/data/adaptive_trial_100.json']);
   assert.equal(typeof callbacks.click,'function');
   new vm.Script(fs.readFileSync(path.join(base,'workbench.js'),'utf8'),{filename:'workbench.js'});
   console.log('Canonical GUI Mock API: PASS, static 0/2/20 rounds, adaptive automatic + human rounds, researcher-added terms, stale approvals, report, network isolation');

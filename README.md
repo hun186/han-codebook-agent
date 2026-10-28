@@ -56,22 +56,22 @@ python -m han_codebook --config config.yaml
 
 ### Linux / macOS 安裝
 
-Python 3.10 以上。YAML 使用經驗證的安全解析器 `yaml.safe_load`，需要一次性安裝 `PyYAML`：
+Python 3.10 以上。Web Word 報告需要 `python-docx`，YAML 使用經驗證的 `yaml.safe_load`；請從本 repo 一次安裝完整套件依賴：
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install 'PyYAML>=6.0,<7'
+python -m pip install -e .
 export PYTHONPATH=src
 python -m han_codebook --config config.offline.yaml  # 離線演算，無模型呼叫
 python -m han_codebook --config config.yaml          # 呼叫區網 LLM
 ```
 
-不能從外網下載套件的環境，可預先在可連網的電腦下載**符合目標作業系統與 Python 版本**的 PyYAML wheel，帶入封閉網路後執行 `python -m pip install --no-index --find-links wheels 'PyYAML>=6,<7'`。舊式不用 YAML 的位置參數執行模式仍不依賴 PyYAML。
+不能從外網下載套件的環境，請預先在可連網的電腦取得目標作業系統／Python 版本適用的 **PyYAML、python-docx、lxml 及所需相依 wheel**，再使用 `python -m pip install --no-index --find-links wheels -e .`；不能只準備 PyYAML。舊式不用 YAML 的位置參數模式仍不需 PyYAML；但完整 GUI 的 Word 功能需要額外依賴。
 
 ### Windows 安裝
 
-1. 執行 `setup_windows.bat`：建立虛擬環境、安裝 PyYAML、執行測試。需事先安裝 Python 3.10+；首次安裝通常需要網路或離線 wheel。
+1. 執行 `setup_windows.bat`：建立虛擬環境、執行 `pip install -e .` 安裝 PyYAML／python-docx 等依賴並執行測試。需事先安裝 Python 3.10+；首次安裝通常需要網路或離線 wheel。
 2. `run_demo_windows.bat`：只進行本機數字碼本求解，不會呼叫 LLM。
 3. `run_agent_windows.bat`：讀取 `config.yaml` 並向指定的區網模型服務發送研究案例。 啟動時先做 TCP 與 `/v1/models` 輕量檢查，之後每輪呼叫 LLM 會即時顯示等待與執行進度。
 
@@ -99,7 +99,7 @@ docker run --rm -v "$(pwd)/artifacts:/app/artifacts" han-codebook-agent --config
 # 先確認容器內可連上 192.168.0.134:18080，再改為 --config config.yaml
 ```
 
-Docker image 只包含研究程式與 YAML 解析器，不包含本機 LLM；建置時預設從套件來源取得 PyYAML。若完全隔網，請預先準備依賴套件及基礎 image。
+Docker image 包含研究程式、YAML 解析器和 Word 匯出依賴，不包含 LLM；建置時預設從套件來源取得 Python 相依套件。若完全隔網，請預先準備依賴套件及基礎 image。
 
 ## 資料格式
 

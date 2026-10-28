@@ -130,6 +130,7 @@ def refresh_vocabulary(case: dict, *, round_number: int, metadata: bool,
                 or any(not 1 <= len(w) <= 24 or w != w.strip()
                        or any(ord(ch) < 32 for ch in w)
                        or w in current_terms or w in selection
+                       or w in {x["term"] for x in candidates}
                        for w in researcher_added)):
             raise CaseError("Researcher-added candidates must be unique new words, 1..24 chars")
     else:

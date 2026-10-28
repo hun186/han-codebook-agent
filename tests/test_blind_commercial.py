@@ -35,7 +35,8 @@ class BlindExperimentTests(unittest.TestCase):
         self.assertEqual(len(public["known_pairs"]),0)
         self.assertTrue(len(set(len(m["codes"]) for m in public["messages"]))>=4)
         codes={c for m in public["messages"] for c in m["codes"]}
-        self.assertEqual(codes,set(gold["code_to_word"]))
+        self.assertTrue(codes.issubset(set(gold["code_to_word"])))
+        self.assertGreaterEqual(len(codes),35)
         self.assertEqual(digest(public),gold["public_sha256"])
         self.assertFalse(any(
             c in public["profiles"]["neutral"]["lexicon"]

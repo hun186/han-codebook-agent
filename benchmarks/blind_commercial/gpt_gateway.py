@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib import request, error
@@ -19,10 +20,7 @@ MODEL="gpt-6-astra"
 
 def openai_responses(chat: dict, *, key: str, model: str, effort: str, timeout: int) -> dict:
     """Return a Chat Completions-shaped reply for the unchanged original agent."""
-    if not key or not key.startswith("sk-"):
-        # API keys may have several formats, so check presence only in caller;
-        # this early assertion is deliberately not used for format validation.
-        pass
+    if not key:raise ValueError("Missing API token")
     if model not in {"gpt-6-astra","gpt-6-sol","gpt-6-luna"}:
         raise ValueError("Explicitly select an audited GPT-6 API model")
     messages=chat.get("messages",[])
@@ -72,13 +70,15 @@ def openai_responses(chat: dict, *, key: str, model: str, effort: str, timeout: 
 class LoopbackGateway:
     def __init__(self,*,provider:Callable[[dict],dict]):
         self.provider=provider
+        self.token=secrets.token_urlsafe(32)
         gateway=self
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*args):pass
             def do_POST(self):
                 if self.path!="/v1/chat/completions":
                     self.send_error(404);return
-                if self.client_address[0] not in ("127.0.0.1","::1"):
+                if (self.client_address[0] not in ("127.0.0.1","::1") or
+                    self.headers.get("Authorization")!="Bearer "+gateway.token):
                     self.send_error(403);return
                 try:
                     size=int(self.headers.get("Content-Length","0"))
@@ -103,12 +103,18 @@ class LoopbackGateway:
         self.errors:list[str]=[]
         self.calls:list[dict]=[]
     def __enter__(self):
+        self.previous_token=os.environ.get("HAN_BLIND_LOOPBACK_TOKEN")
+        os.environ["HAN_BLIND_LOOPBACK_TOKEN"]=self.token
         self.thread.start()
         return self
     def __exit__(self,*_):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=5)
+        if self.previous_token is None:
+            os.environ.pop("HAN_BLIND_LOOPBACK_TOKEN",None)
+        else:
+            os.environ["HAN_BLIND_LOOPBACK_TOKEN"]=self.previous_token
     @property
     def url(self)->str:
         return f"http://127.0.0.1:{self.server.server_port}"

@@ -61,9 +61,9 @@ def validate_case(case: dict[str, Any]) -> None:
                 raise CaseError(f"message {m['id']}: observation must have a source")
             # Unknown fields are allowed for archival records, but no solver
             # or LLM path may use them as evidence (strict field whitelist).
-            for field in ("observed_at", "activity", "destination", "status", "note"):
-                if field in o and not isinstance(o[field], str):
-                    raise CaseError(f"message {m['id']}: observation {field} must be plain text")
+            # Historical records may contain nested ancillary fields. Keep
+            # them archived but only primitive whitelisted fields enter model
+            # or inference; see domain_for_message and safe_llm_message.
             if not isinstance(o.get("note", ""), str):
                 raise CaseError(f"message {m['id']}: observation note must be text")
             confidence = o.get("confidence", 0.5)

@@ -239,9 +239,26 @@
       .map(term=>({term,reason:'PUBLIC MOCK · 第'+state.round+'輪跨電文與第三方情報模擬候選',
         source_round:state.round,status:'unverified'}));
   }
+  function traceMockExchange(item,round,phase,requestPacket,responsePacket) {
+    const prefix=phase==='vocabulary'?'vocabulary_':'';
+    item.events.push({round,stage:prefix+'llm_request',payload:{
+      url:'PUBLIC MOCK — no HTTP model request',
+      model:'PUBLIC MOCK',body:{model:'PUBLIC MOCK',messages:[
+        {role:'system',content:'公開展示：所有詞彙都只是未驗證候選'},
+        {role:'user',content:JSON.stringify(requestPacket)}]}}});
+    item.events.push({round,stage:prefix+'llm_response',payload:{
+      response:JSON.stringify(responsePacket),elapsed_ms:0,usage:null,
+      note:'Synthetic browser-only payload, not a real model response'}});
+  }
   function pendingReview(state) {
     const item=jobs.get(state.id);
     const candidates=syntheticCandidates(state);
+    if(state.capture)traceMockExchange(item,state.round,'vocabulary',{
+      task:'generate_vocabulary',metadata_enabled:state.metadata,
+      round:state.round,case_id:state.caseData.case_id,
+      observable_message_count:state.caseData.messages.length,
+      current_hypotheses_unverified:Object.keys(state.current.proposals).length
+    },{vocabulary:candidates,patterns:[],label:'PUBLIC MOCK'});
     const review_token='PUBLIC-MOCK-'+state.id+'-ROUND-'+state.round+'-TOKEN-'+(++sequence);
     item.status='awaiting_review';
     item.review_submitted=false;
@@ -283,6 +300,12 @@
         code,candidates:p.alternatives.map(x=>x.term).slice(0,2),
         reason:'PUBLIC MOCK · simulated code-hypothesis ranking, not a verified decoding'
       }));
+    if(state.capture)traceMockExchange(item,state.round,'code',{
+      task:'hypothesis_reranking',round:state.round,
+      available_vocabulary:lexicalCandidates(state.caseData).slice(0,128),
+      verified_anchors:rescored.verified_anchors,
+      note:'PUBLIC MOCK input packet summary, no model call'
+    },{hypotheses:accepted,label:'PUBLIC MOCK · no LLM call'});
     item.events.push({round:state.round,stage:'llm_proposals_unverified',
       payload:{accepted,rejected_count:0,returned_count:accepted.length}});
     const fullDelta=mappingDelta(prior,rescored);
@@ -307,18 +330,24 @@
       pendingReview(state);
     }
   }
-  function startAdaptive(c,rounds,metadata,mode) {
+  function startAdaptive(c,rounds,metadata,mode,capture) {
     const base=mockMapping(c,0,metadata);
     const start=job('analysis',null,[{round:0,stage:'statistical_baseline',
       payload:{score:base.objective_score,mapping:mappingDelta(null,base).mapping}}]);
     const item=jobs.get(start.job_id);
     item.logs=['PUBLIC MOCK · '+mode+' 自適應詞庫分析：完全在瀏覽器記憶體執行，沒有模型呼叫'];
-    const state={id:start.job_id,round:1,rounds,metadata,mode,
+    const state={id:start.job_id,round:1,rounds,metadata,mode,capture,
       caseData:c,current:base,dynamicWords:[]};
     investigations.set(state.id,state);
     if(mode==='human')pendingReview(state);
     else while(state.round<=rounds){
       const suggestions=syntheticCandidates(state);
+      if(state.capture)traceMockExchange(item,state.round,'vocabulary',{
+        task:'generate_vocabulary',metadata_enabled:metadata,
+        round:state.round,case_id:c.case_id,
+        observable_message_count:c.messages.length,
+        current_hypotheses_unverified:Object.keys(state.current.proposals).length
+      },{vocabulary:suggestions,patterns:[],label:'PUBLIC MOCK'});
       const approved=suggestions.map(x=>x.term);
       applyAdaptiveRound(state,approved,[],suggestions);
     }
@@ -442,7 +471,7 @@
         validationError('candidate_mode must be static, automatic or human');
       if(mode!=='static' && rounds===0)
         validationError('Dynamic vocabulary requires at least one Mock LLM round');
-      if(mode!=='static')return startAdaptive(c,rounds,data.use_metadata!==false,mode);
+      if(mode!=='static')return startAdaptive(c,rounds,data.use_metadata!==false,mode,data.capture_llm_io===true);
       const out=analysis(c,rounds,data.use_metadata!==false);
       return job('analysis',out.result,out.events);
     }

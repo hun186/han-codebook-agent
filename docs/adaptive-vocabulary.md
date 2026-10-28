@@ -28,4 +28,8 @@ GUI「推論與解讀」→「候選詞庫更新／人工覆核」提供三種�
 
 人工審核時 `GET /api/jobs/{job_id}` 回傳 `status: awaiting_review` 和 `pending_review: {round,candidates}`；`POST /api/jobs/{job_id}/review` body 為 `{"approved": ["候選詞一", ...]}`。核准詞必須包含於當前待審項目，提交一次即鎖定；候選全拒絕可使用空陣列。
 
+人工模式下，若研究員在等待審核時修改或切換案例，舊研究的結果已不可套入新頁面。GUI 將呼叫 `POST /api/jobs/{job_id}/cancel`（空 JSON）取消**該人工覆核工作**；取消可在排隊、模型執行中或等待審核時提出。若模型請求已送出，會在該次請求返回後、下一次推論階段前安全結束，不能瞬間中斷外部模型運算。取消時不能繼續核准舊候選，也不會自動接受候選；不會提前釋出尚未真正停止的 job gate。
+
+若開啟完整 Prompt/回覆稽核，動態詞庫階段分別記為 `vocabulary_llm_request`／`vocabulary_llm_response`，碼組推論階段保留 `llm_request`／`llm_response`。GUI 的逐輪紀錄依**回合與階段**配對請求／回覆，避免把詞庫的答覆誤貼到碼組推論 prompt 上。
+
 `python -m unittest discover -s tests -v` 覆蓋詞庫迭代、來源安全、手動拒絕與舊模式相容性。所有修改以 PR 為準，未通過 Hosted CI／Codex Review 前不得合併。

@@ -343,7 +343,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 "available_vocabulary": sorted(vocab),
                 "profiles": {name: {"keywords": p.get("keywords", []), "lexicon": p.get("lexicon", {})}
                              for name, p in case["profiles"].items()},
-                "messages": [safe_llm_message(m, metadata=metadata) for m in case["messages"][:50]],
+                "messages": [safe_llm_message(m, metadata=metadata) for m in case["messages"][:100]],
                 "unresolved": unresolved,
             }
             if progress:

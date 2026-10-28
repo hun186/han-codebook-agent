@@ -758,6 +758,16 @@
     );
     const status = document.getElementById('llmSettingStatus');
     if (status) status.textContent = 'PUBLIC MOCK：不提供任何真實模型連線或端點設定';
+    const caseSelect=document.getElementById('caseList');
+    if(caseSelect && caseSelect.parentNode){
+      const detail=document.createElement('p');
+      detail.className='muted';
+      detail.id='adaptiveTrialReference';
+      detail.innerHTML='公開案例「adaptive_trial_100」提供已揭盲、可重播的跨報測試：'
+        +'<a href="/reports/adaptive_100_full_report.docx" download>下載完整 100 封原文／還原／正確明文對照 Word 報告</a>。'
+        +'報告內的正確答案只供離線檢核；網站的模型與分析均為 MOCK。';
+      caseSelect.parentNode.appendChild(detail);
+    }
   });
 
   globalThis.HanMockDemo = Object.freeze({

@@ -239,3 +239,20 @@ curl.exe --max-time 10 -i http://192.168.0.134:18080/v1/models
 - `vercel-demo/`：Vercel 專用公開合成資料 PoC，模型呼叫一律改為確定性 Mock，不連內網 Qwen／Ollama；`vercel-demo/vercel.json` 為靜態安全標頭設定。
 - 功能：10／25／50／100 封選擇、原始碼組／候選中文／可撤銷人工假說、分批模擬紀錄、手動揭曉合成明文。此版並非實際 Python 求解器，**不得把 Mock 成績當作真正 LLM 破譯成效**。
 - 新增 Vercel Project 請將 **Root Directory** 設為 `vercel-demo`，Framework 選 Other。公開版只應使用合成資料，沒有存放任何私有網路設定、LLM API Key 或 SQLite 審計庫。
+
+
+## LLM 提示敏感度與動態目擊可靠性（研究實驗）
+
+破譯研究有兩個不同的 LLM 工作：**(A) 根據可觀察情報產生候選詞庫**（`volume_llm --auto-vocabulary`，非預設），以及 **(B) 在既有詞庫內為各碼組提議候選**（一般 `run_agent` / `volume_llm` 的工作）。目前不會自動把 A 與 B 當成已驗證破譯；無已知明文時仍需可靠的外部約束。
+
+本輪加入 **離線提示權重診斷**：核心 `analyze(..., hint_scale=0..4)`，預設 1.0 維持正常推理，0 表示忽略模型提示；建議只把 2.4 當作實驗比較，**不要因為它採納較多 LLM 詞組就宣稱準確率提高**。診斷器比較 0／1／2.4，報出候選採納數、碼組變動、不同目擊處理方式，並可在全數推論完成後才讀合成標準答案。
+
+```powershell
+.venv\Scripts\python.exe -m han_codebook.hint_diagnostics --case benchmarks/volume/seed_202_case.json --reply YOUR_SAVED_HYPOTHESES.json --messages 10 --gold benchmarks/volume/seed_202_gold.json --out artifacts/hint_diagnostics.json
+```
+
+`YOUR_SAVED_HYPOTHESES.json` 格式為 `{"hypotheses":[{"code":"123","candidates":["車隊"],"reason":"..."}]}`；必須是**已保存的模型實際候選**。這個診斷指令**不呼叫 LLM、不重複產生新建議，也不把合成答案送回求解器**。真實調查時省略 `--gold`；不要用合成真值挑選正式部署權重。
+
+另加入可選的 `case.observation_policy: "time_relevance"`（預設 `legacy` 不改變既有計算）：第三方目擊狀態若明確標示無關／已排除，則不作為領域推斷證據；未確認相關性會降低權重；遙遠或無法解析的觀察時間會減權。日期只有日精度時不虛構精確時刻。這些權重是**待校準的研究假設**，並不代表已實現特定事件對密電的完整配對、時序因果判讀或真假識別。
+
+診斷對照會比較「保留目擊／移除目擊／時間相關性減權／關閉全部元資料」，以區分究竟是收發者先驗還是動態觀察促成排名差異。即使有更多密電，若缺少獨立可驗證線索，正確率也未必增加。

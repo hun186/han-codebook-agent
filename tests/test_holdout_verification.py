@@ -129,6 +129,28 @@ class KnownPairHoldoutTests(unittest.TestCase):
         self.assertEqual(len(observed_inputs), 1)
         self.assertNotIn("祕密答案", json.dumps(observed_inputs[0], ensure_ascii=False))
 
+    def test_correct_top1_and_available_term_ranked_below_top5(self):
+        case = small_case()
+        case["known_pairs"] = [case["known_pairs"][0]]
+        def fake_solver(payload, **kwargs):
+            self.assertEqual(payload["known_pairs"], [])
+            return {
+                "verified_anchors": {},
+                "researcher_marks": {},
+                "proposals": {
+                    "101": {"term": "兵力", "status": "hypothesis_unverified",
+                            "alternatives": [{"term": "兵力"}]},
+                    "102": {"term": "集結", "status": "hypothesis_unverified",
+                            "alternatives": [{"term": "集結"}]},
+                },
+            }
+        with patch("han_codebook.holdout_verification.analyze", side_effect=fake_solver):
+            result = verify_known_pairs(case)
+        self.assertEqual(result["summary"]["top1_hits"], 1)
+        self.assertEqual(result["summary"]["top5_hits"], 1)
+        self.assertEqual(result["summary"]["failure_categories"]["candidate_ranked_below_top5"], 1)
+        self.assertEqual(result["summary"]["top1_rate"], 0.5)
+
     def test_all_codes_reanchored_yields_no_valid_independent_score(self):
         case = small_case()
         case["messages"][1]["codes"] = ["101", "102"]

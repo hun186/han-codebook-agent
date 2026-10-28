@@ -97,6 +97,9 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
                         raise RuntimeError("Not fully automatic dynamic vocabulary execution")
                     if any(p.get("status")=="verified_alignment" for p in result["proposals"].values()):
                         raise RuntimeError("Found unexpected verified plaintext in blind no-anchor case")
+                    # run_agent has closed its audit connection; hash exact DB
+                    # bytes before this prediction is locked and before gold is read.
+                    audit_hash=hashlib.sha256(audit.read_bytes()).hexdigest()
                     out={"study":case["case_id"],"n_messages":n,"condition":condition,
                          "public_sha256":case["public_sha256"],
                          "model":model,"reasoning_effort":effort,"rounds":rounds,
@@ -105,7 +108,7 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
                          "alternatives":{c:[a["term"] for a in p.get("alternatives",[])]
                                          for c,p in result["proposals"].items()},
                          "dynamic_vocabulary_terms":result.get("dynamic_vocabulary_terms",[]),
-                         "audit_sqlite":audit.name,
+                         "audit_sqlite":audit.name,"audit_sha256":audit_hash,
                          "code_types":len(result["proposals"])}
                     experiments.append(out)
                     # Append-only checkpoint; never a scored artifact.

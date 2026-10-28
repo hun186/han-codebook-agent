@@ -18,7 +18,7 @@ function el(id){return dom[id]||(dom[id]={value:'',textContent:'',innerHTML:'',h
  style:{},focus(){},classList:{toggle(){}},querySelectorAll(){return[]}})}
 const ctx={el,research,confirm:()=>decision,notice:(v,b)=>notices.push({v,b}),
  esc:x=>String(x),markedCodes:()=>['101','102'],verifiedCodes:()=>new Set(['101','102']),
- verifiedWord:c=>c==='101'?'車隊':'橋梁',loadMark(){},document:{querySelectorAll(){return[]}}};
+ verifiedWord:c=>c==='101'?'車隊':'橋梁',loadMark(){},renderIdeas(){},document:{querySelectorAll(){return[]}}};
 vm.createContext(ctx);
 vm.runInContext(grab('function applyBoldHypothesis(', 'function renderPriorComparison('),ctx);
 vm.runInContext(grab('function openMark(', 'function applyBoldHypothesis('),ctx);

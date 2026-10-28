@@ -150,6 +150,30 @@ class CodexSubscriptionBridgeTests(unittest.TestCase):
         with self.assertRaises(QuotaExhausted):
             codex_subscription_reply(chat,subprocess_run=tool)
 
+    def test_gpt56_sol_uses_real_codex_model_option_and_keeps_provider_separate(self):
+        """No network: assert the requested model flows through exact CLI args."""
+        captured=[]
+        answer={"vocabulary":[{"term":"補給","reason":"候選詞"}],"patterns":[]}
+        def fake_exec(argv,**kwargs):
+            captured.append(argv)
+            self.assertEqual(argv[argv.index("--model")+1],"gpt-5.6-sol")
+            self.assertIn('forced_login_method="chatgpt"',argv)
+            self.assertEqual(kwargs.get("encoding"),"utf-8")
+            Path(argv[argv.index("--output-last-message")+1]).write_text(
+                json.dumps(answer,ensure_ascii=False),encoding="utf-8")
+            events=[{"type":"turn.started"},
+                    {"type":"item.completed","item":{"type":"agent_message","text":json.dumps(answer)}},
+                    {"type":"turn.completed","usage":{"input_tokens":90,"output_tokens":40}}]
+            return SimpleNamespace(returncode=0,stdout="\\n".join(json.dumps(x) for x in events),stderr="")
+        chat={"messages":[{"role":"system","content":"提出中文候選詞，只輸出 JSON"},
+                          {"role":"user","content":json.dumps({"task":"generate_vocabulary"})}]}
+        out=codex_subscription_reply(chat,model="gpt-5.6-sol",
+                                     effort="high",subprocess_run=fake_exec)
+        self.assertEqual(out["model"],"gpt-5.6-sol")
+        self.assertEqual(out["provider"],"CODEX_CLI_CHATGPT_PLAN")
+        self.assertEqual(out["usage"]["prompt_tokens"],90)
+        self.assertEqual(len(captured),1)
+
     def test_schema_and_auth_fail_closed(self):
         with self.assertRaises(ValueError):
             schema_for("other")

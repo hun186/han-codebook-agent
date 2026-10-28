@@ -25,7 +25,8 @@ def normalize_ideas(case: dict[str, Any]) -> dict[str, list[dict]]:
             term, source, status, note = (idea.get("term"), idea.get("source","researcher"),
                                           idea.get("status","suggested"), idea.get("note",""))
             if (not isinstance(term,str) or not 1 <= len(term.strip()) <= 32 or term != term.strip()
-                    or source not in IDEA_SOURCES or status not in IDEA_STATUSES
+                    or not isinstance(source, str) or source not in IDEA_SOURCES
+                    or not isinstance(status, str) or status not in IDEA_STATUSES
                     or not isinstance(note,str) or len(note) > 500):
                 raise CaseError("invalid unverified candidate idea")
             if term in seen:

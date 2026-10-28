@@ -53,10 +53,14 @@ class HumanWorkbenchTests(unittest.TestCase):
     def test_nested_oracle_cannot_enter_solver_as_metadata(self):
         case=_case()
         case["messages"][0]["observations"][0]["activity"]={"ground_truth":"車隊"}
-        with self.assertRaises(CaseError):
-            analyze(case,iterations=1,restarts=1)
-        with self.assertRaises(CaseError):
-            make_vocabulary_packet(case,metadata=True)
+        # Nested values in observational fields are silently ignored, not
+        # stringified and not interpreted as plaintext-domain keywords.
+        clean=deepcopy(case)
+        del clean["messages"][0]["observations"][0]["activity"]
+        dirty_result=analyze(case,iterations=1,restarts=1)
+        clean_result=analyze(clean,iterations=1,restarts=1)
+        self.assertEqual(dirty_result["proposals"],clean_result["proposals"])
+        self.assertNotIn("ground_truth",json.dumps(make_vocabulary_packet(case,metadata=True),ensure_ascii=False))
         # Unknown nested archival fields can exist; they must never be sent.
         case=_case()
         packet=make_vocabulary_packet(case,metadata=True)

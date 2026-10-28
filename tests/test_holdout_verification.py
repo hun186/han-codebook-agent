@@ -197,6 +197,83 @@ class KnownPairHoldoutTests(unittest.TestCase):
             self.assertEqual(json.loads(out.read_text(encoding="utf-8"))["folds"][0]["status"],
                              "no_candidate_vocabulary")
 
+    def test_remaining_exclusions_block_fold_without_losing_earlier_results(self):
+        # Reproduce the formal Codex P2: m1's anchor makes the ORIGINAL case
+        # solvable, but withholding it leaves code 102 with no legal candidates.
+        case = {
+            "case_id": "candidate-exclusion-race",
+            "profiles": {"neutral": {"lexicon": {"甲": 2}}},
+            "messages": [
+                {"id": "m1", "codes": ["101"]},
+                {"id": "m2", "codes": ["102"]},
+                {"id": "m3", "codes": ["103"]},
+            ],
+            "known_pairs": [
+                {"message_id": "m3", "segments": ["甲"]},
+                {"message_id": "m1", "segments": ["乙"]},
+            ],
+            "hypothesis_marks": {
+                "102": {"preferred": None, "pinned": False,
+                        "excluded": ["甲"], "note": "independent researcher veto"}
+            },
+        }
+        original = deepcopy(case)
+        # The original, fully anchored input is valid and solvable.
+        analyze(case, iterations=1, restarts=1)
+        with patch("han_codebook.holdout_verification.analyze", wraps=analyze) as runner:
+            report = verify_known_pairs(case, iterations=1, restarts=1)
+        self.assertEqual(runner.call_count, 1)
+        self.assertEqual(case, original)
+        self.assertEqual(report["evaluated_fold_count"], 2)
+        first, second = report["folds"]
+        self.assertEqual(first["status"], "scored")
+        self.assertEqual(first["scored_code_assessments"], 1)
+        self.assertEqual(second["heldout_message_id"], "m1")
+        self.assertEqual(second["status"], "candidate_exclusions_blocked_inference")
+        self.assertEqual(second["blocking_code_groups"], ["102"])
+        self.assertEqual(second["scored_code_assessments"], 0)
+        self.assertEqual(second["not_scored_due_to_candidate_exclusions"], 1)
+        self.assertEqual(second["outcomes_without_plaintext"],
+                         [{"code": "101", "outcome": "not_scored_due_to_candidate_exclusions"}])
+        summary = report["summary"]
+        self.assertEqual(summary["independently_testable_fold_code_assessments"], 2)
+        self.assertEqual(summary["scored_fold_code_assessments"], 1)
+        self.assertEqual(summary["not_scored_due_to_candidate_exclusions"], 1)
+        self.assertNotIn("乙", json.dumps(report, ensure_ascii=False))
+        with TemporaryDirectory() as td:
+            case_path = Path(td) / "case.json"
+            out = Path(td) / "report.json"
+            case_path.write_text(json.dumps(case, ensure_ascii=False), encoding="utf-8")
+            self.assertEqual(main(["--case", str(case_path), "--out", str(out),
+                                   "--iterations", "1", "--restarts", "1"]), 0)
+            self.assertEqual(json.loads(out.read_text(encoding="utf-8"))["folds"][1]["status"],
+                             "candidate_exclusions_blocked_inference")
+
+    def test_all_folds_blocked_show_null_rates_not_fabricated_zero_accuracy(self):
+        case = {
+            "case_id": "all-blocked",
+            "profiles": {"neutral": {"lexicon": {"甲": 2}}},
+            "messages": [
+                {"id": "m1", "codes": ["101"]},
+                {"id": "m2", "codes": ["102"]},
+            ],
+            "known_pairs": [{"message_id": "m1", "segments": ["乙"]}],
+            "hypothesis_marks": {
+                "102": {"excluded": ["甲"], "preferred": None,
+                        "pinned": False, "note": ""}
+            },
+        }
+        with patch("han_codebook.holdout_verification.analyze",
+                   side_effect=AssertionError("blocked solver must not be run")):
+            report = verify_known_pairs(case)
+        summary = report["summary"]
+        self.assertEqual(summary["independently_testable_fold_code_assessments"], 1)
+        self.assertEqual(summary["scored_fold_code_assessments"], 0)
+        self.assertEqual(summary["not_scored_due_to_candidate_exclusions"], 1)
+        self.assertIsNone(summary["top1_rate"])
+        self.assertIsNone(summary["top5_rate"])
+        self.assertEqual(report["folds"][0]["blocking_code_groups"], ["102"])
+
     def test_reject_oracle_invalid_arguments_and_unsegmented_only(self):
         case = small_case()
         for key in ("ground_truth", "gold", "codebook"):

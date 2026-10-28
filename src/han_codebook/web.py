@@ -183,11 +183,13 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
             try:
                 data = self._body()
                 if self.path == "/api/settings/llm":
+                    from .model_settings import save_model_settings
+                    # The active-job check and the entire config write form one
+                    # critical section with job admission and its LLM snapshot.
                     with jobs_lock:
                         if any(j["status"] in ("queued", "running") for j in jobs.values()):
                             return self._json(409, {"error": "Cannot change LLM settings while an investigation is active"})
-                    from .model_settings import save_model_settings
-                    new_settings = save_model_settings(settings_path, data)
+                        new_settings = save_model_settings(settings_path, data)
                     return self._json(200, {**new_settings, "endpoint": new_settings["base_url"]})
                 if self.path == "/api/settings/test":
                     if data.get("confirmed") is not True or set(data) != {"confirmed"}:
@@ -220,6 +222,7 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                     with jobs_lock:
                         if any(j["status"] in ("queued", "running") for j in jobs.values()):
                             return self._json(409, {"error": "An investigation is already running"})
+                        llm_snapshot = copy.deepcopy(load_settings(settings_path)["llm"])
                         job_id = secrets.token_hex(8)
                         jobs[job_id] = {"id":job_id,"type":"vocabulary","status":"queued",
                                         "logs":[],"result":None,"events":[],"error":None}
@@ -232,9 +235,8 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                                 jobs[job_id]["logs"].append(str(message))
                         try:
                             from .auto_vocabulary import generate_vocabulary
-                            cfg = load_settings(settings_path)["llm"]
                             _,record = generate_vocabulary(input_case,metadata=data.get("use_metadata", True),
-                                 llm_settings=cfg,progress=progress,capture_io=False)
+                                 llm_settings=llm_snapshot,progress=progress,capture_io=False)
                             # Do not mutate user profiles/ideas; proposals remain pending review.
                             with jobs_lock:
                                 jobs[job_id]["result"] = {"terms":record["terms"],
@@ -304,6 +306,9 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                     with jobs_lock:
                         if sum(j["status"] in ("queued", "running") for j in jobs.values()) >= 1:
                             return self._json(409, {"error": "An investigation is already running"})
+                        # Pin the approved LLM destination/model at job admission;
+                        # background execution must never reread mutable YAML.
+                        llm_snapshot = copy.deepcopy(load_settings(settings_path)["llm"])
                         job_id = secrets.token_hex(8)
                         jobs[job_id] = {"id": job_id, "type": "analysis", "status": "queued", "logs": [], "result": None,
                                         "events": [], "error": None}
@@ -317,8 +322,7 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                                 jobs[job_id]["logs"].append(str(message))
                         try:
                             target.mkdir(parents=True, exist_ok=True)
-                            cfg = load_settings(settings_path)
-                            llm = cfg["llm"]
+                            llm = llm_snapshot
                             result = run_agent(input_case, rounds=rounds,
                                 llm_url=llm.get("base_url", "http://127.0.0.1:11434/v1"),
                                 model=llm.get("model", "qwen3:14b"),

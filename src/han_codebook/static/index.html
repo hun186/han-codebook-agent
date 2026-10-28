@@ -522,7 +522,31 @@ el('readings').querySelectorAll('[data-readcode]').forEach(b=>b.onclick=()=>{ope
 }
 function renderTrace(j){let failedNotice=j.status==='failed'?'<p class="alert">分析失敗；以下為失敗前已取得的部分稽核事件，並非已完成的破譯。</p>':'';let events=j.events||[];let rounds=events.filter(x=>x.stage==='statistical_baseline'||x.stage==='rescore');el('roundChart').innerHTML=failedNotice+lineChart(rounds.map(x=>({score:x.payload.score})))+rounds.map(x=>`<div class="message"><strong>${x.stage==='statistical_baseline'?'Baseline':'Round '+x.round}</strong>　內部目標分數：${esc(x.payload.score)}<br><small>相較上一輪變更：${x.payload.changed_count??'—'} 碼</small></div>`).join('')+'<small>目標分數不是機率，不適合跨不同資料集直接比較。</small>';
 el('changes').innerHTML=events.filter(x=>x.stage==='rescore').map(x=>`<details><summary>Round ${x.round}: ${Object.keys(x.payload.changes||{}).length} 個變更</summary><pre>${esc(JSON.stringify(x.payload.changes||{},null,2))}</pre></details>`).join('');
-let requests=events.filter(x=>x.stage==='llm_request'),responses=events.filter(x=>x.stage==='llm_response'),proposed=events.filter(x=>x.stage==='llm_proposals_unverified');el('exchanges').innerHTML=responses.map(x=>{let v=x.payload;return `<div class="message"><small>Round ${x.round} · HTTP ${esc(v.http_status??200)} · API ${esc((Number(v.elapsed_ms||0)/1000).toFixed(1))} 秒 · token：${esc(JSON.stringify(v.usage||'未提供'))}</small></div>`}).join('')+proposed.map(x=>`<details><summary>Round ${x.round}: 接受 ${x.payload.accepted?.length||0} 個建議；拒絕 ${x.payload.rejected_count||0} 個</summary><pre>${esc(JSON.stringify(x.payload.accepted,null,2))}</pre></details>`).join('')+requests.map((x,i)=>`<details><summary>Round ${x.round}：完整請求與回覆</summary><h3>送往 LLM 的訊息</h3><pre>${esc(JSON.stringify(x.payload.body,null,2))}</pre><h3>API 原始回覆</h3><pre>${esc(responses.find(r=>r.round===x.round)?.payload?.response||'尚無回覆')}</pre></details>`).join('');if(!requests.length)el('exchanges').innerHTML+='<p class="muted">尚無完整 Prompt 擷取資料（可能未啟用，或此次尚未呼叫模型）。</p>';
+let phases=[
+ {name:'動態候選詞庫',request:'vocabulary_llm_request',response:'vocabulary_llm_response'},
+ {name:'碼組候選',request:'llm_request',response:'llm_response'}
+];
+let proposed=events.filter(x=>x.stage==='llm_proposals_unverified');
+let vocabRounds=events.filter(x=>x.stage==='vocabulary_candidates_unverified');
+let requestRecords=phases.flatMap(phase=>{
+ const responses=events.filter(x=>x.stage===phase.response);
+ return events.filter(x=>x.stage===phase.request).map(x=>({
+  ...x,phase:phase.name,
+  response:responses.find(r=>r.round===x.round)?.payload||null
+ }));
+});
+el('exchanges').innerHTML=vocabRounds.map(x=>
+ `<div class="message"><strong>Round ${x.round} · 動態詞庫（未驗證）</strong>　新增採納 ${esc(x.payload.approved?.length||0)} 詞，拒絕 ${esc(x.payload.rejected_count||0)} 詞 · ${esc(x.payload.review_mode)}</div>`
+).join('')+proposed.map(x=>
+ `<details><summary>Round ${x.round}：碼組建議接受 ${x.payload.accepted?.length||0} 項；拒絕 ${x.payload.rejected_count||0} 項</summary><pre>${esc(JSON.stringify(x.payload.accepted,null,2))}</pre></details>`
+).join('')+requestRecords.map(x=>{
+ const v=x.response||{};
+ return `<details><summary>Round ${x.round} · ${esc(x.phase)}：完整請求與回覆</summary>
+ <p class="muted">HTTP ${esc(v.http_status??200)} · API ${esc((Number(v.elapsed_ms||0)/1000).toFixed(1))} 秒 · token：${esc(JSON.stringify(v.usage||'未提供'))}</p>
+ <h3>送往 LLM 的訊息</h3><pre>${esc(JSON.stringify(x.payload.body,null,2))}</pre>
+ <h3>API 原始回覆</h3><pre>${esc(v.response||'尚無對應回覆')}</pre></details>`;
+}).join('');
+if(!requestRecords.length)el('exchanges').innerHTML+='<p class="muted">尚無完整 Prompt 擷取資料（可能未啟用，或此次尚未呼叫模型）。</p>';
 }
 async function startBenchmark(){try{let id=(await api('/api/start-benchmark',{})).job_id;el('runBenchmark').disabled=true;notice('基準評測已啟動');let timer=setInterval(async()=>{try{let j=await api('/api/jobs/'+id);renderJob(j);if(['completed','failed'].includes(j.status)){clearInterval(timer);el('runBenchmark').disabled=false;notice(j.status==='completed'?'基準評測完成':'基準評測失敗：'+j.error,j.status==='failed')}}catch(e){clearInterval(timer);el('runBenchmark').disabled=false;notice(e.message,true)}},1300)}catch(e){notice(e.message,true)}}
 function renderPendingVocabularyReview(j,origin){

@@ -213,3 +213,28 @@ python benchmarks/blind_commercial/score.py `
 - Hosted CI 的 Linux 非 root Docker 模式（0600/0700 真實讀寫）與
   真實 Loopback HTTP 逾時競態是驗收的一部分；這不等於已經
   成功以使用者的 ChatGPT 訂閱執行商用模型推論。
+
+## 2026-10-29：Docker CLI 逾時後的容器終止保證
+
+在 Codex 訂閱推論階段，不能把 Python 結束 `docker start --attach`
+視為服務端容器已結束。新的隔離管理改為：
+
+1. `docker create --name han-blind-<random> --pull=never` 先建立
+   可定位的唯一容器；只有建立成功，才可 `docker start --attach --interactive`
+   送出模型請求。
+2. 每次執行的 `finally`（正常結束、模型超時、例外中斷）
+   均使用 `docker rm --force <name>` 強制停止、移除，然後
+   `docker inspect --type container <name>` 確認已不存在。
+   完整清理程序在 Provider Handler 內完成，因此整段仍受
+   跨程序研究鎖保護。
+3. 如 Docker daemon 無法證明容器不存在，回傳
+   `ContainerCleanupUnconfirmed`，研究狀態記為 `failed` 並以
+   `unverified_container_cleanup` 隔離，禁止 `--resume`；
+   不得將該情形當成配額已釋放或計分成功。管理員必須先用
+   `docker ps -a --filter name=han-blind-` 和
+   `docker inspect` 核對並清理殘留容器，確認無在途模型，
+   再循人工修復程序處理 checkpoint；不要任意刪除 `.run.lock`
+   或清除稽核資料。
+4. Hosted CI 使用真實 Docker Alpine 容器，故意讓容器的
+   `sleep` 超過 CLI timeout，再驗證該唯一名稱的容器已由 daemon
+   停止移除。這不是實際 GPT-6／GPT-5.6 訂閱推論。

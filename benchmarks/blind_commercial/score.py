@@ -107,6 +107,37 @@ def verify_locked_audits(src:dict,results_dir:Path)->None:
             raise ValueError(f"Locked audit SHA256 mismatch for {name}; refuse scoring")
 
 
+
+def verify_published_evaluation(src:dict,evaluation:dict,public_dir:Path,
+                                private_dir:Path,results_dir:Path)->None:
+    """Verify report scores against frozen predictions, audit and private gold.
+
+    The predictions SHA only ties evaluation to a *source*, not its scores.
+    Recalculate EVERY study and round rather than trusting an editable JSON.
+    This is used only after the lock and audit fingerprints are validated;
+    it must never be called by inference, the network gateway or the Agent.
+    """
+    expected_results=[]
+    expected_trajectories=[]
+    sources={}
+    for run in src["cases"]:
+        study=run["study"]
+        if study not in sources:
+            public=json.loads((public_dir/(study+".json")).read_text(encoding="utf-8"))
+            gold=json.loads((private_dir/(study+".gold.json")).read_text(encoding="utf-8"))
+            if digest(public)!=run["public_sha256"] or gold["public_sha256"]!=run["public_sha256"]:
+                raise ValueError("Report public/gold digest differs from locked study")
+            sources[study]=(public,gold)
+        public,gold=sources[study]
+        expected_results.append(score_case(public,gold,run))
+        expected_trajectories.extend(score_round_trace(public,gold,run,results_dir))
+    if (evaluation.get("model")!=src["model"] or
+            evaluation.get("total_runs")!=len(src["cases"]) or
+            evaluation.get("results")!=expected_results or
+            evaluation.get("round_trajectories")!=expected_trajectories):
+        raise ValueError("Published evaluation scores/round trajectories differ from locked predictions, audit and private gold")
+
+
 def score(private_dir:Path,public_dir:Path,results_dir:Path)->dict:
     locked=results_dir/"predictions_LOCKED.json"
     sha=(results_dir/"predictions_LOCKED.sha256").read_text(encoding="ascii").strip()

@@ -56,7 +56,9 @@ def main(argv=None) -> int:
                            llm_allowed_hosts=llm.get("allowed_hosts", []),
                            llm_api_key_env=llm.get("api_key_env"),
                            progress=lambda message: print(message, flush=True),
-                           capture_llm_io=llm.get("capture_io", False))
+                           capture_llm_io=llm.get("capture_io", False),
+                           llm_reasoning_effort=llm.get("reasoning_effort"),
+                           llm_response_format=llm.get("response_format"))
         if evaluate:
             result["evaluation"] = evaluate_demo(result, case)
         dest = Path(out)

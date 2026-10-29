@@ -128,12 +128,14 @@ def exclusive_run_lock(root: Path):
 DOCKER_INFLIGHT="codex_container_inflight.json"
 
 
-def reconcile_stale_codex_container(root:Path,*,subprocess_run=subprocess.run)->None:
+def reconcile_stale_codex_container(root:Path,*,subprocess_run=None)->None:
     """After SIGKILL, force-remove a durable container name under the study lock.
 
     Unknown daemon state, corrupted evidence or unverified inspect result
     quarantines the checkpoint. Never infer cleanup from docker start --attach.
     """
+    if subprocess_run is None:
+        subprocess_run=subprocess.run
     marker=Path(root)/DOCKER_INFLIGHT
     if not marker.exists():return
     try:

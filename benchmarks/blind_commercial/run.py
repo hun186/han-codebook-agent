@@ -21,7 +21,7 @@ sys.path.insert(0,str(ROOT/"src"))
 from han_codebook.agent import run_agent
 from han_codebook.core import validate_case
 from gpt_gateway import LoopbackGateway,openai_responses
-from codex_subscription import codex_subscription_reply,check_codex_subscription
+from codex_subscription import codex_subscription_reply,check_codex_subscription,ContainerCleanupUnconfirmed
 from checkpoint import ResumeStore, atomic_json, atomic_text, exclusive_run_lock
 
 SIZES=(10,25,50,100)
@@ -115,8 +115,16 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
             raise RuntimeError("Unexpected LLM phase sequence; cannot safely replay")
         logical_id=f'{request_scope["cell"]}:round_{i//2+1}:{phase}'
         prior_new=checkpoints.real_new_calls
-        answer=checkpoints.invoke(packet,provider=provider,model=model,effort=effort,
-                                  provider_name=provider_name,logical_id=logical_id)
+        try:
+            answer=checkpoints.invoke(packet,provider=provider,model=model,effort=effort,
+                                      provider_name=provider_name,logical_id=logical_id)
+        except ContainerCleanupUnconfirmed:
+            # A client timeout can finish before the handler sees Docker
+            # cleanup failure. Handler itself must durably poison checkpoint
+            # even if main thread has already marked an ordinary failure.
+            checkpoints.mark("failed",current=request_scope["cell"],
+                             reason="unverified_container_cleanup: operator verification required")
+            raise
         is_new=checkpoints.real_new_calls>prior_new
         counter["calls"]+=1
         if not isinstance(answer,dict) or "choices" not in answer:

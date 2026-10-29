@@ -16,6 +16,10 @@ import json
 import os
 import tempfile
 import threading
+import re
+import secrets
+import subprocess
+from gpt_gateway import BillableResponseRejected
 from datetime import datetime,timezone
 from pathlib import Path
 
@@ -120,6 +124,45 @@ def exclusive_run_lock(root: Path):
             os.close(fd)
 
 
+
+DOCKER_INFLIGHT="codex_container_inflight.json"
+
+
+def reconcile_stale_codex_container(root:Path,*,subprocess_run=subprocess.run)->None:
+    """After SIGKILL, force-remove a durable container name under the study lock.
+
+    Unknown daemon state, corrupted evidence or unverified inspect result
+    quarantines the checkpoint. Never infer cleanup from docker start --attach.
+    """
+    marker=Path(root)/DOCKER_INFLIGHT
+    if not marker.exists():return
+    try:
+        data=json.loads(marker.read_text(encoding="utf-8"))
+        name=data.get("name")
+        if (not isinstance(name,str) or
+            re.fullmatch(r"han-blind-[0-9a-f]{32}",name) is None or
+            data.get("version")!=1):
+            raise ValueError("Malformed durable Docker in-flight marker")
+        removed=subprocess_run(["docker","rm","--force",name],
+                               capture_output=True,text=True,timeout=40,check=False)
+        inspected=subprocess_run(["docker","inspect","--type","container",name],
+                                 capture_output=True,text=True,timeout=20,check=False)
+        missing=(inspected.returncode!=0 and
+                 any(q in inspected.stderr.lower()
+                     for q in ("no such object","no such container")))
+        accepted_remove=(removed.returncode==0 or
+                         (removed.returncode!=0 and
+                          "no such" in removed.stderr.lower()))
+        if not missing or not accepted_remove:
+            raise RuntimeError("Docker termination not verifiable")
+        marker.unlink()
+        _sync_directory(marker.parent)
+    except BaseException as exc:
+        raise RuntimeError(
+            "Unsafe resume: unverified_container_cleanup; Docker in-flight marker retained for operator action"
+        ) from exc
+
+
 class ResumeStore:
     VERSION=1
     def __init__(self,root:Path,*,signature:dict,resume:bool):
@@ -130,6 +173,7 @@ class ResumeStore:
         self.status=self.root/"run_status.json"
         self.requests=self.root/"successful_requests"
         self.completed=self.root/"completed_runs"
+        self.failed_requests=self.root/"rejected_billable_requests"
         self.signature=signature
         if resume:
             if not self.status.is_file():
@@ -137,8 +181,15 @@ class ResumeStore:
             old=json.loads(self.status.read_text(encoding="utf-8"))
             if old.get("signature")!=signature:
                 raise ValueError("Resume settings, corpus hashes or model differ; no reuse permitted")
-            if str(old.get("reason","")).startswith("unverified_container_cleanup"):
-                raise RuntimeError("Unsafe resume: previous Docker container termination unverified; checkpoint quarantined")
+            if str(old.get("reason","")).startswith(("unverified_container_cleanup","unverified_api_spend")):
+                raise RuntimeError("Unsafe resume: previous paid inference/cleanup unverified; checkpoint quarantined")
+            # This check precedes any new model request AND the resumed status.
+            # In-flight markers are fsynced before Docker CREATE/START.
+            try:
+                reconcile_stale_codex_container(self.root)
+            except RuntimeError:
+                self._write_status("failed",reason="unverified_container_cleanup: stale Docker state cannot be verified")
+                raise
             if old.get("state")=="completed":
                 raise RuntimeError("Benchmark is already locked; do not resume a completed run")
             if old.get("state") not in ("paused_quota","failed","running"):
@@ -150,6 +201,7 @@ class ResumeStore:
             self._write_status("running",reason="new experiment")
         durable_mkdir(self.requests)
         durable_mkdir(self.completed)
+        durable_mkdir(self.failed_requests)
         if resume:
             self._write_status("running",reason="resumed by explicit user command")
         self.cache_hits=0
@@ -163,7 +215,7 @@ class ResumeStore:
         prior={}
         if self.status.exists():
             prior=json.loads(self.status.read_text(encoding="utf-8"))
-        if str(prior.get("reason","")).startswith("unverified_container_cleanup"):
+        if str(prior.get("reason","")).startswith(("unverified_container_cleanup","unverified_api_spend")):
             # Cannot be reset by a late generic error from another thread or
             # the next stage. Quarantine survives any subsequent status update.
             state="failed"
@@ -201,12 +253,53 @@ class ResumeStore:
                 raise ValueError("Corrupt saved response")
             self.cache_hits+=1
             return result
-        answer=provider(chat)
+        try:
+            answer=provider(chat)
+        except BillableResponseRejected as exc:
+            self.record_rejected_billable(
+                request_key=key,logical_id=logical_id,model=model,exc=exc)
+            raise
         if not isinstance(answer,dict) or "choices" not in answer:
             raise RuntimeError("Provider response invalid; will not checkpoint")
         atomic_json(path,{"request_key":key,"response_digest":digest(answer),"reply":answer})
         self.real_new_calls+=1
         return answer
+
+    def record_rejected_billable(self,*,request_key:str,logical_id:str,
+                                 model:str,exc:BillableResponseRejected)->None:
+        """Write billable failed usage durably; NEVER create a successful reply."""
+        usage=exc.usage
+        vals=[usage.get(q) for q in ("prompt_tokens","completion_tokens",
+                                    "cached_input_tokens","reasoning_tokens")]
+        if (any(type(x)is not int or x<0 for x in vals) or
+            vals[2]>vals[0] or vals[3]>vals[1]):
+            self.mark("failed",reason="unverified_api_spend: rejected response lacked valid usage")
+            raise RuntimeError("Unable to durably price rejected API response")
+        entry={"request_key":request_key,"logical_id":logical_id,
+               "model":model,"usage":usage,
+               "remote_response_id":exc.remote_response_id,
+               "rejected":True}
+        entry["digest"]=digest({k:v for k,v in entry.items() if k!="digest"})
+        # Each paid retry must be independently accounted, even for an
+        # identical prompt, so never overwrite a previous failed attempt.
+        filename=secrets.token_hex(16)+".json"
+        path=self.failed_requests/filename
+        atomic_json(path,entry)
+
+    def stored_rejected_billable(self)->list[dict]:
+        """Verify all separately charged failures before a resume/spend cap."""
+        records=[]
+        if not self.failed_requests.exists():
+            return records
+        for path in sorted(self.failed_requests.glob("*.json")):
+            item=json.loads(path.read_text(encoding="utf-8"))
+            if (not isinstance(item,dict) or item.get("rejected") is not True
+                or item.get("digest")!=digest({k:v for k,v in item.items() if k!="digest"})
+                or not isinstance(item.get("request_key"),str)
+                or not isinstance(item.get("usage"),dict)):
+                raise RuntimeError("Failed billable API usage ledger corrupt; refuse resume")
+            records.append(item)
+        return records
 
     def stored_replies(self)->list[dict]:
         """Verify each saved reply's filename/digests before using it for money."""

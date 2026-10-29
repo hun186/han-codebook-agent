@@ -11,7 +11,7 @@ _SCHEMAS = {
     "analysis": {"use_metadata": bool, "rounds": int, "evaluate_demo": bool},
     "llm": {"base_url": str, "model": str, "timeout_seconds": int,
             "allow_private_network": bool, "allowed_hosts": list, "api_key_env": str,
-            "capture_io": bool},
+            "capture_io": bool, "reasoning_effort": str, "response_format": str},
 }
 
 
@@ -55,4 +55,10 @@ def load_settings(path: str | Path) -> dict[str, Any]:
         raise CaseError("Config 'analysis.rounds' must be in 0..20")
     if not 1 <= result["llm"].get("timeout_seconds", 90) <= 600:
         raise CaseError("Config 'llm.timeout_seconds' must be in 1..600")
+    effort=result["llm"].get("reasoning_effort")
+    if effort is not None and effort not in ("none","minimal","low","medium","high","xhigh"):
+        raise CaseError("llm.reasoning_effort must be none/minimal/low/medium/high/xhigh")
+    fmt=result["llm"].get("response_format")
+    if fmt is not None and fmt not in ("json_object","default"):
+        raise CaseError("llm.response_format must be json_object or default")
     return result

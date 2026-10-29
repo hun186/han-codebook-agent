@@ -15,7 +15,7 @@ from docx import Document
 from docx.shared import Cm,Pt,RGBColor
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from score import digest,verify_locked_audits
+from score import digest,verify_locked_audits,verify_published_evaluation
 
 def para(doc,text,*,small=False):
     p=doc.add_paragraph()
@@ -48,10 +48,16 @@ def build(study:str,public_dir:Path,private_dir:Path,result_dir:Path,out:Path):
         locked.get("provider") not in ("OPENAI_RESPONSES","CODEX_CLI_CHATGPT_PLAN")):
         raise ValueError("Not a real model benchmark; Word report is forbidden")
     sealed=hashlib.sha256(lockfile.read_bytes()).hexdigest()
+    expected_sha=(result_dir/"predictions_LOCKED.sha256").read_text(encoding="ascii").strip()
+    if expected_sha!=sealed:
+        raise ValueError("Predictions lock fingerprint mismatch; refuse Word report")
     evaluation=json.loads((result_dir/"evaluation.json").read_text(encoding="utf-8"))
     if evaluation["locked_sha256"]!=sealed:
         raise ValueError("Report cannot use tampered/unlocked inference results")
     verify_locked_audits(locked,result_dir)
+    # Re-score the complete published evaluation from authenticated audits,
+    # locked predictions and private gold; never trust editable evaluation.json.
+    verify_published_evaluation(locked,evaluation,public_dir,private_dir,result_dir)
     case=json.loads((public_dir/(study+".json")).read_text(encoding="utf-8"))
     expected=next(x["public_sha256"] for x in locked["cases"] if x["study"]==study)
     if digest(case)!=expected:
@@ -63,7 +69,8 @@ def build(study:str,public_dir:Path,private_dir:Path,result_dir:Path,out:Path):
     if len(runs)!=8 or set(runs)!={(n,c) for n in (10,25,50,100) for c in ("with_aux","without_aux")}:
         raise ValueError("Need all eight 10/25/50/100 x two-condition runs")
     metrics=[x for x in evaluation["results"] if x["study"]==study]
-    assert len(metrics)==8
+    if len(metrics)!=8:
+        raise ValueError("Incomplete scoring rows for requested study")
     doc=Document()
     sec=doc.sections[0];sec.top_margin=Cm(1.7);sec.bottom_margin=Cm(1.6)
     sec.left_margin=Cm(1.8);sec.right_margin=Cm(1.8)

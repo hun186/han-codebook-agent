@@ -21,7 +21,7 @@ from han_codebook.agent import run_agent
 from han_codebook.core import validate_case
 from gpt_gateway import LoopbackGateway,openai_responses
 from codex_subscription import codex_subscription_reply,check_codex_subscription
-from checkpoint import ResumeStore, atomic_json
+from checkpoint import ResumeStore, atomic_json, atomic_text
 
 SIZES=(10,25,50,100)
 
@@ -29,6 +29,19 @@ SIZES=(10,25,50,100)
 def json_sha(obj:object)->str:
     return hashlib.sha256(json.dumps(obj,sort_keys=True,ensure_ascii=False,
                                     separators=(",",":")).encode("utf-8")).hexdigest()
+
+
+def estimated_standard_usd(usage:dict)->float:
+    """Official GPT-6 Standard rates; estimate, not an invoice or preflight cap."""
+    ins=usage.get("prompt_tokens",0)
+    cached=usage.get("cached_input_tokens",0)
+    outs=usage.get("completion_tokens",0)
+    reason=usage.get("reasoning_tokens",0)
+    if any(type(x) is not int or x<0 for x in (ins,cached,outs,reason)) or cached>ins or reason>outs:
+        raise RuntimeError("Invalid historical API usage counters")
+    mul=2 if ins>272000 else 1
+    return ((ins-cached)*10*mul+cached*1*mul+
+            outs*50*(1.5 if ins>272000 else 1))/1_000_000
 
 
 def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:int,
@@ -61,11 +74,18 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
         "public_sha256":{x["case_id"]:x["public_sha256"] for x in manifests["studies"]},
         "provider":provider_name,"model":model,"effort":effort,"rounds":rounds,
         "solver_iterations":solver_iterations,"solver_restarts":solver_restarts,
-        "conditions":list(conditions),
+        "conditions":list(conditions),"max_calls":max_calls,
+        "max_estimated_usd":max_estimated_usd,
     }
     checkpoints=ResumeStore(out_dir,signature=signature,resume=resume)
+    # Reconstruct whole-study charges BEFORE another paid external request.
+    historical=checkpoints.stored_replies()
+    prior_spend=sum(estimated_standard_usd(r["reply"].get("usage",{}))
+                    for r in historical) if provider_name=="OPENAI_RESPONSES" else 0.0
+    if prior_spend>max_estimated_usd:
+        raise RuntimeError("Previously incurred API usage exceeds experiment cost cap")
     counter={"calls":0,"prompt_tokens":0,"cached_input_tokens":0,
-             "completion_tokens":0,"reasoning_tokens":0,"estimated_usd":0.0}
+             "completion_tokens":0,"reasoning_tokens":0,"estimated_usd":prior_spend}
     model_ids={}
     request_scope={"cell":None,"index":0}
     def counted_provider(packet):
@@ -80,8 +100,10 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
         if (phase=="vocabulary")!=(packet_task=="generate_vocabulary"):
             raise RuntimeError("Unexpected LLM phase sequence; cannot safely replay")
         logical_id=f'{request_scope["cell"]}:round_{i//2+1}:{phase}'
+        prior_new=checkpoints.real_new_calls
         answer=checkpoints.invoke(packet,provider=provider,model=model,effort=effort,
                                   provider_name=provider_name,logical_id=logical_id)
+        is_new=checkpoints.real_new_calls>prior_new
         counter["calls"]+=1
         if not isinstance(answer,dict) or "choices" not in answer:
             raise RuntimeError("LLM provider did not return a real/valid Chat Completions response")
@@ -101,14 +123,12 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
         counter["completion_tokens"]+=outs
         counter["reasoning_tokens"]+=reason
         if provider_name=="OPENAI_RESPONSES":
-            # Official 2026-10-29 GPT-6 Astra Standard prices.
-            scale_in=2 if ins>272000 else 1
-            scale_out=1.5 if ins>272000 else 1
-            estimated=(max(0,ins-cached)*10*scale_in+cached*1*scale_in+
-                       outs*50*scale_out)/1_000_000
-            counter["estimated_usd"]=round(counter["estimated_usd"]+estimated,6)
+            # A replay of an already-paid request does not charge again.
+            if is_new:
+                counter["estimated_usd"]+=estimated_standard_usd(usage)
             if counter["estimated_usd"]>max_estimated_usd:
-                raise RuntimeError("Estimated API spend exceeded configured cap")
+                raise RuntimeError("Whole-study estimated API spend exceeded cap; "
+                                   "all valid responses have been checkpointed")
         # ChatGPT-plan Codex CLI has a usage allowance, not API-token billing.
         return answer
     experiments=[]
@@ -202,16 +222,13 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
         raise RuntimeError(f"Only {len(experiments)}/{n_runs} runs completed; refuse final lock")
     # Restarted runs can be skipped in full. Reconstruct usage/IDs from
     # the frozen request cache, not just calls replayed this invocation.
-    persisted=list(checkpoints.requests.glob("*.json"))
+    persisted=checkpoints.stored_replies()
     if len(persisted)!=expected_calls:
         raise RuntimeError(f"Expected {expected_calls} distinct persisted model requests; "
                            f"found {len(persisted)}; refuse completed benchmark")
     counter={k:0 if k!="estimated_usd" else 0.0 for k in counter}
     model_ids={}
-    for cache_file in persisted:
-        record=json.loads(cache_file.read_text(encoding="utf-8"))
-        if record["response_digest"]!=json_sha(record["reply"]):
-            raise RuntimeError("Saved model response corrupted during final lock")
+    for record in persisted:
         response=record["reply"]
         u=response.get("usage",{})
         counter["calls"]+=1
@@ -221,10 +238,7 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
         actual=str(response.get("model") or "TEST_DOUBLE")
         model_ids[actual]=model_ids.get(actual,0)+1
         if provider_name=="OPENAI_RESPONSES":
-            ins=u.get("prompt_tokens",0);cached=u.get("cached_input_tokens",0);outs=u.get("completion_tokens",0)
-            mul=2 if ins>272000 else 1
-            counter["estimated_usd"]+=((ins-cached)*10*mul+cached*1*mul+
-                                      outs*50*(1.5 if ins>272000 else 1))/1_000_000
+            counter["estimated_usd"]+=estimated_standard_usd(u)
     counter["estimated_usd"]=round(counter["estimated_usd"],6)
     lock={"kind":"ACTUAL_MULTI_ROUND_BLIND_EVALUATION" if real_api else "TEST_DOUBLE_SMOKE_NOT_SCORED",
           "provider":provider_name, "model":model,
@@ -242,10 +256,28 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
                              "cached_replies_replayed_this_invocation":checkpoints.cache_hits,
                              "completed_runs":len(experiments)}}
     final=out_dir/"predictions_LOCKED.json"
-    if final.exists():raise FileExistsError("Predictions already locked; no overwrite")
-    atomic_json(final,lock)
+    sha_file=out_dir/"predictions_LOCKED.sha256"
+    if final.exists():
+        # Crash may occur after durable prediction lock but before the SHA or
+        # completed status. Only resume when ALL immutable experiment fields
+        # still exactly match the validated finished runs/reply cache. Session
+        # progress counters are deliberately excluded from this comparison.
+        locked=json.loads(final.read_text(encoding="utf-8"))
+        def stable(d):
+            return {k:v for k,v in d.items() if k!="resume_evidence"}
+        if stable(locked)!=stable(lock):
+            raise ValueError("Existing prediction lock differs from audited checkpoints")
+        lock=locked
+    else:
+        if sha_file.exists():
+            raise ValueError("Orphan prediction SHA without lock; refuse overwriting")
+        atomic_json(final,lock)
     sha=hashlib.sha256(final.read_bytes()).hexdigest()
-    (out_dir/"predictions_LOCKED.sha256").write_text(sha+"\n",encoding="ascii")
+    if sha_file.exists():
+        if sha_file.read_text(encoding="ascii").strip()!=sha:
+            raise ValueError("Prediction SHA differs from immutable lock; refuse repair")
+    else:
+        atomic_text(sha_file,sha+"\n")
     checkpoints.mark("completed",reason="all required experiments locked")
     print(f"[LOCKED] model={model}; logical_calls={counter['calls']}; "
           f"new_in_session={checkpoints.real_new_calls}; cases={len(experiments)}; SHA256={sha}",flush=True)

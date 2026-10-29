@@ -24,10 +24,12 @@ class BillableResponseRejected(ValueError):
     Never cache this as a successful answer. Checkpoint caller durably
     records the charged usage before allowing another paid request.
     """
-    def __init__(self,reason:str,*,usage:dict,remote_response_id:str|None):
+    def __init__(self,reason:str,*,usage:dict,remote_response_id:str|None,
+                 actual_model:str|None):
         super().__init__(reason)
         self.usage=usage
         self.remote_response_id=remote_response_id
+        self.actual_model=actual_model
 
 
 def _billable_usage(response:dict)->dict:
@@ -81,10 +83,12 @@ def openai_responses(chat: dict, *, key: str, model: str, effort: str, timeout: 
     actual=response.get("model","")
     if response.get("status")!="completed":
         raise BillableResponseRejected("Responses API returned a non-completed response",
-                                       usage=usage,remote_response_id=remote_id)
+                                       usage=usage,remote_response_id=remote_id,
+                                       actual_model=actual)
     if actual!=model and not str(actual).startswith(model+"-"):
         raise BillableResponseRejected("API returned another model, cannot score as requested GPT-6 variant",
-                                       usage=usage,remote_response_id=remote_id)
+                                       usage=usage,remote_response_id=remote_id,
+                                       actual_model=actual)
     parts=[]
     for item in response.get("output",[]):
         if item.get("type")=="message":
@@ -93,16 +97,19 @@ def openai_responses(chat: dict, *, key: str, model: str, effort: str, timeout: 
     result="".join(parts).strip()
     if not result:
         raise BillableResponseRejected("Responses API returned no final output_text",
-                                       usage=usage,remote_response_id=remote_id)
+                                       usage=usage,remote_response_id=remote_id,
+                                       actual_model=actual)
     # Explicit JSON parsing prevents accepting malformed inference as success.
     try:
         parsed=json.loads(result)
     except (TypeError,ValueError) as exc:
         raise BillableResponseRejected("Responses API final output was not JSON",
-                                       usage=usage,remote_response_id=remote_id) from exc
+                                       usage=usage,remote_response_id=remote_id,
+                                       actual_model=actual) from exc
     if not isinstance(parsed,dict):
         raise BillableResponseRejected("Expected JSON object from GPT-6",
-                                       usage=usage,remote_response_id=remote_id)
+                                       usage=usage,remote_response_id=remote_id,
+                                       actual_model=actual)
     return {"choices":[{"message":{"role":"assistant","content":result}}],
             "model":actual,
             "usage":usage,

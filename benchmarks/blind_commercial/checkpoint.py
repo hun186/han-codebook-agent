@@ -11,6 +11,7 @@ absent until all requested studies/conditions/rounds actually finish.
 from __future__ import annotations
 
 import hashlib
+import contextlib
 import json
 import os
 import tempfile
@@ -73,6 +74,49 @@ def atomic_json(path:Path,content:dict)->None:
     atomic_text(path,json.dumps(content,sort_keys=True,ensure_ascii=False,indent=2))
 
 
+
+@contextlib.contextmanager
+def exclusive_run_lock(root: Path):
+    """Cross-process, OS-owned nonblocking study lock (Windows + POSIX).
+
+    The lock file is never unlinked: unlinking a live inode could permit
+    another process to acquire a different lock on the same directory.
+    Kernel locks are released on close, including abnormal process exit.
+    """
+    root=Path(root).resolve()
+    durable_mkdir(root)
+    fd=os.open(str(root/".run.lock"),os.O_CREAT|os.O_RDWR,0o600)
+    locked=False
+    try:
+        try:
+            if os.name=="nt":
+                import msvcrt
+                if os.fstat(fd).st_size==0:
+                    os.write(fd,b"\\0")
+                    os.fsync(fd)
+                os.lseek(fd,0,os.SEEK_SET)
+                msvcrt.locking(fd,msvcrt.LK_NBLCK,1)
+            elif os.name=="posix":
+                import fcntl
+                fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            else:
+                raise RuntimeError("No supported kernel file lock on this OS")
+            locked=True
+        except (OSError,BlockingIOError) as exc:
+            raise RuntimeError("Study output directory is locked by another process; no checkpoint or model call was attempted") from exc
+        yield
+    finally:
+        if locked:
+            if os.name=="nt":
+                import msvcrt
+                os.lseek(fd,0,os.SEEK_SET)
+                msvcrt.locking(fd,msvcrt.LK_UNLCK,1)
+            else:
+                import fcntl
+                fcntl.flock(fd,fcntl.LOCK_UN)
+        os.close(fd)
+
+
 class ResumeStore:
     VERSION=1
     def __init__(self,root:Path,*,signature:dict,resume:bool):
@@ -92,7 +136,7 @@ class ResumeStore:
             if old.get("state") not in ("paused_quota","failed","running"):
                 raise ValueError("Unknown run checkpoint state")
         else:
-            if self.root.exists() and list(self.root.iterdir()):
+            if self.root.exists() and any(p.name!='.run.lock' for p in self.root.iterdir()):
                 raise FileExistsError("Output directory exists and is not empty; use --resume")
             durable_mkdir(self.root)
             self._write_status("running",reason="new experiment")

@@ -193,3 +193,23 @@ python benchmarks/blind_commercial/score.py `
 - 測試並不登入使用者 ChatGPT 帳號，也不證明已實際執行
   GPT-6 Astra／GPT-5.6 Sol；只有本機 OAuth 登入與足夠配額後
   可明確授權進行真正的研究。
+
+
+## 2026-10-29 第二輪正式複審修正：私有檔案的主機使用者身分與模型逾時
+
+- Linux／POSIX 的 rootful Docker 會預設以容器 root 執行；在禁用所有
+  capabilities 的情況下，無法正確讀取主機非 root 使用者建立的
+  0600 OAuth、0700 臨時目錄。現在 `docker run` 會以主機
+  `os.getuid():os.getgid()` 加上 `--user`，使容器能以對應身分
+  讀取私有認證及 schema，並將完成的回覆寫回主機可讀的檔案。
+  Windows Docker Desktop 採虛擬化檔案掛載權限，保留容器預設
+  身分；不放寬 gold、OAuth 或臨時目錄權限。
+- 模型請求逾時不等於執行緒已終止。Loopback HTTP server 現在
+  會在退出前等待 **所有** 在途的 Provider Handler 完成，且
+  研究目錄 OS 排他鎖直到這些處理器真正結束後才會釋放。
+  如果外部模型連線超過預期而尚未中止，退出可能繼續等待；
+  這是刻意的 fail-closed 行為，避免重複推論、檔案互蓋與費用漏算，
+  不可用短暫 timeout 強制忽略仍在處理中的商用請求。
+- Hosted CI 的 Linux 非 root Docker 模式（0600/0700 真實讀寫）與
+  真實 Loopback HTTP 逾時競態是驗收的一部分；這不等於已經
+  成功以使用者的 ChatGPT 訂閱執行商用模型推論。

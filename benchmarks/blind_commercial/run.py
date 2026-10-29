@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import functools
 import json
 import os
 import sys
@@ -21,7 +22,7 @@ from han_codebook.agent import run_agent
 from han_codebook.core import validate_case
 from gpt_gateway import LoopbackGateway,openai_responses
 from codex_subscription import codex_subscription_reply,check_codex_subscription
-from checkpoint import ResumeStore, atomic_json, atomic_text
+from checkpoint import ResumeStore, atomic_json, atomic_text, exclusive_run_lock
 
 SIZES=(10,25,50,100)
 
@@ -44,6 +45,19 @@ def estimated_standard_usd(usage:dict)->float:
             outs*50*(1.5 if ins>272000 else 1))/1_000_000
 
 
+
+def _exclusive_study(func):
+    @functools.wraps(func)
+    def run_locked(*args,**kwargs):
+        out_dir=args[1] if len(args)>1 else kwargs["out_dir"]
+        # Hold the kernel lock from before status/expense recovery through
+        # the final SHA and completed state, including paid model calls.
+        with exclusive_run_lock(Path(out_dir)):
+            return func(*args,**kwargs)
+    return run_locked
+
+
+@_exclusive_study
 def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:int,
                    max_calls:int,timeout:int,provider,conditions=("with_aux","without_aux"),
                    real_api:bool=False,solver_iterations:int=8,solver_restarts:int=4,

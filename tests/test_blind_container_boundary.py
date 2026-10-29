@@ -50,7 +50,7 @@ class DockerBoundaryTests(unittest.TestCase):
                 'test -r /etc/han-codebook-auth.json && '
                 'test -r /work/response_schema.json && '
                 'cat /etc/han-codebook-auth.json >/dev/null && '
-                'printf "%s" "{\"accepted\":true}" > /work/last_response.json && '
+                'printf %s '+shlex.quote(json.dumps({"accepted":True}))+'> /work/last_response.json && '
                 'if cat '+shlex.quote(str(gold))+' >/dev/null 2>&1; then '
                 'echo GOLD_WAS_READ; exit 67; fi; '
                 'printf BOUNDARY_BLOCKED'

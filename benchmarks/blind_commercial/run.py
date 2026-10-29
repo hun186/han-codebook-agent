@@ -11,6 +11,7 @@ import hashlib
 import functools
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -20,7 +21,7 @@ ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/"src"))
 from han_codebook.agent import run_agent
 from han_codebook.core import validate_case
-from gpt_gateway import LoopbackGateway,openai_responses
+from gpt_gateway import LoopbackGateway,openai_responses,BillableResponseRejected
 from codex_subscription import codex_subscription_reply,check_codex_subscription,ContainerCleanupUnconfirmed
 from checkpoint import ResumeStore, atomic_json, atomic_text, exclusive_run_lock
 
@@ -41,6 +42,20 @@ STANDARD_RATE_PER_MTOK = {
     "gpt-6-sol": (2.0, 0.20, 10.0),
     "gpt-6-luna": (0.10, 0.01, 0.50),
 }
+
+
+def billable_model(actual:str)->str:
+    """Price the actual returned API model, never the requested model.
+
+    Recognize explicitly published aliases and date-stamped snapshots only.
+    Unknown or missing IDs require an operator to reconcile the invoice.
+    """
+    if not isinstance(actual,str):
+        raise ValueError("Unknown actual API model; manual spend reconciliation required")
+    for candidate in STANDARD_RATE_PER_MTOK:
+        if actual==candidate or re.fullmatch(re.escape(candidate)+r"-[0-9]{4}-[0-9]{2}-[0-9]{2}",actual):
+            return candidate
+    raise ValueError("Unknown actual API model; manual spend reconciliation required")
 
 
 def estimated_standard_usd(usage:dict,model:str="gpt-6-astra")->float:
@@ -114,10 +129,18 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
     rejected=checkpoints.stored_rejected_billable()
     if rejected and provider_name!="OPENAI_RESPONSES":
         raise RuntimeError("Rejected paid API ledger conflicts with non-API provider")
-    prior_spend=(
-        sum(estimated_standard_usd(r["reply"].get("usage",{}),model=model) for r in historical)
-        +sum(estimated_standard_usd(r["usage"],model=model) for r in rejected)
-    ) if provider_name=="OPENAI_RESPONSES" else 0.0
+    try:
+        prior_spend=(
+            sum(estimated_standard_usd(r["reply"].get("usage",{}),
+                                       model=billable_model(r["reply"].get("model")))
+                for r in historical)
+            +sum(estimated_standard_usd(r["usage"],
+                                        model=billable_model(r["actual_model"]))
+                 for r in rejected)
+        ) if provider_name=="OPENAI_RESPONSES" else 0.0
+    except (ValueError,RuntimeError,KeyError,TypeError) as exc:
+        checkpoints.mark("failed",reason="unverified_api_spend: unknown actual model or invalid usage")
+        raise RuntimeError("Unsafe resume: unverified_api_spend; cannot confirm actual model pricing") from exc
     if prior_spend>max_estimated_usd:
         raise RuntimeError("Previously incurred API usage exceeds experiment cost cap")
     counter={"calls":0,"prompt_tokens":0,"cached_input_tokens":0,
@@ -147,6 +170,15 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
             checkpoints.mark("failed",current=request_scope["cell"],
                              reason="unverified_container_cleanup: operator verification required")
             raise
+        except BillableResponseRejected as exc:
+            # The rejection is already ledgered by ResumeStore. An unknown
+            # actual model must never be priced with requested-model rates.
+            try:
+                billable_model(exc.actual_model)
+            except ValueError:
+                checkpoints.mark("failed",current=request_scope["cell"],
+                                 reason="unverified_api_spend: rejected model rate unknown")
+            raise
         except RuntimeError as exc:
             if "manual spend reconciliation required" in str(exc):
                 checkpoints.mark("failed",current=request_scope["cell"],
@@ -174,7 +206,8 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
         if provider_name=="OPENAI_RESPONSES":
             # A replay of an already-paid request does not charge again.
             if is_new:
-                counter["estimated_usd"]+=estimated_standard_usd(usage,model=model)
+                counter["estimated_usd"]+=estimated_standard_usd(
+                    usage,model=billable_model(answer.get("model")))
             if counter["estimated_usd"]>max_estimated_usd:
                 raise RuntimeError("Whole-study estimated API spend exceeded cap; "
                                    "all valid responses have been checkpointed")
@@ -291,9 +324,11 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
         actual=str(response.get("model") or "TEST_DOUBLE")
         model_ids[actual]=model_ids.get(actual,0)+1
         if provider_name=="OPENAI_RESPONSES":
-            counter["estimated_usd"]+=estimated_standard_usd(u,model=model)
+            counter["estimated_usd"]+=estimated_standard_usd(
+                u,model=billable_model(response.get("model")))
     rejected=checkpoints.stored_rejected_billable()
-    rejected_usd=(sum(estimated_standard_usd(item["usage"],model=model)
+    rejected_usd=(sum(estimated_standard_usd(item["usage"],
+                                             model=billable_model(item["actual_model"]))
                       for item in rejected) if provider_name=="OPENAI_RESPONSES" else 0.0)
     counter["estimated_usd"]+=rejected_usd
     counter["rejected_billable_calls"]=len(rejected)

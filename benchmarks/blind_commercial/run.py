@@ -32,8 +32,23 @@ def json_sha(obj:object)->str:
                                     separators=(",",":")).encode("utf-8")).hexdigest()
 
 
-def estimated_standard_usd(usage:dict)->float:
-    """Official GPT-6 Standard rates; estimate, not an invoice or preflight cap."""
+# Published Standard token prices in USD per million, retrieved 2026-10-29.
+# https://developers.openai.com/api/docs/models/gpt-6-astra
+# https://developers.openai.com/api/docs/models/gpt-6-sol
+# https://developers.openai.com/api/docs/models/gpt-6-luna
+STANDARD_RATE_PER_MTOK = {
+    "gpt-6-astra": (10.0, 1.0, 50.0),
+    "gpt-6-sol": (2.0, 0.20, 10.0),
+    "gpt-6-luna": (0.10, 0.01, 0.50),
+}
+
+
+def estimated_standard_usd(usage:dict,model:str="gpt-6-astra")->float:
+    """Selected model's Standard token rates; estimate, not an invoice."""
+    try:
+        input_rate,cached_rate,output_rate=STANDARD_RATE_PER_MTOK[model]
+    except KeyError as exc:
+        raise ValueError(f"Unknown API token rates for model {model!r}; refuse unsafe estimate") from exc
     ins=usage.get("prompt_tokens",0)
     cached=usage.get("cached_input_tokens",0)
     outs=usage.get("completion_tokens",0)
@@ -41,8 +56,8 @@ def estimated_standard_usd(usage:dict)->float:
     if any(type(x) is not int or x<0 for x in (ins,cached,outs,reason)) or cached>ins or reason>outs:
         raise RuntimeError("Invalid historical API usage counters")
     mul=2 if ins>272000 else 1
-    return ((ins-cached)*10*mul+cached*1*mul+
-            outs*50*(1.5 if ins>272000 else 1))/1_000_000
+    return ((ins-cached)*input_rate*mul+cached*cached_rate*mul+
+            outs*output_rate*(1.5 if ins>272000 else 1))/1_000_000
 
 
 
@@ -82,6 +97,8 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
         raise ValueError("Unsupported inference provider")
     if real_api!=(provider_name!="TEST_DOUBLE"):
         raise ValueError("A test double cannot be scored as a real model provider")
+    if provider_name=="OPENAI_RESPONSES" and model not in STANDARD_RATE_PER_MTOK:
+        raise ValueError(f"No verified Standard API pricing for {model}; refuse billed run")
     signature={
         "protocol":"subscription-blind-resume-v1",
         "manifest_sha256":hashlib.sha256((public_dir/"manifest.json").read_bytes()).hexdigest(),
@@ -94,7 +111,7 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
     checkpoints=ResumeStore(out_dir,signature=signature,resume=resume)
     # Reconstruct whole-study charges BEFORE another paid external request.
     historical=checkpoints.stored_replies()
-    prior_spend=sum(estimated_standard_usd(r["reply"].get("usage",{}))
+    prior_spend=sum(estimated_standard_usd(r["reply"].get("usage",{}),model=model)
                     for r in historical) if provider_name=="OPENAI_RESPONSES" else 0.0
     if prior_spend>max_estimated_usd:
         raise RuntimeError("Previously incurred API usage exceeds experiment cost cap")
@@ -147,7 +164,7 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
         if provider_name=="OPENAI_RESPONSES":
             # A replay of an already-paid request does not charge again.
             if is_new:
-                counter["estimated_usd"]+=estimated_standard_usd(usage)
+                counter["estimated_usd"]+=estimated_standard_usd(usage,model=model)
             if counter["estimated_usd"]>max_estimated_usd:
                 raise RuntimeError("Whole-study estimated API spend exceeded cap; "
                                    "all valid responses have been checkpointed")
@@ -264,7 +281,7 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
         actual=str(response.get("model") or "TEST_DOUBLE")
         model_ids[actual]=model_ids.get(actual,0)+1
         if provider_name=="OPENAI_RESPONSES":
-            counter["estimated_usd"]+=estimated_standard_usd(u)
+            counter["estimated_usd"]+=estimated_standard_usd(u,model=model)
     counter["estimated_usd"]=round(counter["estimated_usd"],6)
     lock={"kind":"ACTUAL_MULTI_ROUND_BLIND_EVALUATION" if real_api else "TEST_DOUBLE_SMOKE_NOT_SCORED",
           "provider":provider_name, "model":model,

@@ -144,3 +144,34 @@ any GPT-6 success rate before a real API run.
 
 See [OpenAI reasoning models](https://developers.openai.com/api/docs/guides/reasoning)
 for model and Responses API guidance.
+
+## 2026-10-29 — verified Word scores and model-specific Standard estimates
+
+The Word reporting gate now **recomputes every evaluation result and round
+trajectory** from the hash-locked predictions, byte-verified SQLite audits and
+separately held reference gold before creating a `.docx`. The editable
+`evaluation.json` alone is not authoritative, even if its `locked_sha256`
+still matches the original predictions file. It also verifies the
+`predictions_LOCKED.sha256` sidecar. If any score, trajectory, total, source
+model or lock digest differs, Word generation fails closed without publishing a
+document. Neither the runner nor model prompts import scoring or open gold.
+
+The paid Responses API Standard estimator now selects published token prices
+by **the requested and checkpoint-locked model**, including historical requests
+recovered under `--resume`. Per million tokens (USD, uncached input / cached
+input / output; 2026-10-29 documentation):
+
+| Model | Input | Cached | Output |
+|---|---:|---:|---:|
+| `gpt-6-astra` | $10 | $1 | $50 |
+| `gpt-6-sol` | $2 | $0.20 | $10 |
+| `gpt-6-luna` | $0.10 | $0.01 | $0.50 |
+
+For more than 272K input tokens, the model's entire request uses 2x input/cache
+and 1.5x output rates. Unknown billed model IDs are rejected instead of being
+silently charged at Astra rates; subscription Codex usage is not treated as a
+paid API bill. The estimate is *not* an invoice, preflight spending guarantee,
+or real model performance evidence. Prices or service tiers may change.
+Sources: https://developers.openai.com/api/docs/models/gpt-6-astra ,
+https://developers.openai.com/api/docs/models/gpt-6-sol ,
+https://developers.openai.com/api/docs/models/gpt-6-luna .

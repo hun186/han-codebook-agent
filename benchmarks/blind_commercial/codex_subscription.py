@@ -6,13 +6,15 @@ authorize using their included Codex/Work allowance. This provider uses
 the documented non-interactive `codex exec` command for each original
 agent request. A test double cannot be labeled as real subscription usage.
 
-Security: no gold is ever in the model prompt or the CLI working directory;
-the process uses --sandbox read-only, no project rules, no user config,
-and refuses any tool invocation observed in the streamed event log.
+Security: the Codex model process MUST run inside a separate Docker Linux
+container with only a fresh scratch directory and one OAuth auth file mounted.
+Read-only agent sandbox and post-hoc event rejection are defense-in-depth,
+not an OS boundary. Without Docker isolation this provider fails closed.
 """
 from __future__ import annotations
 
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -69,11 +71,13 @@ def check_codex_subscription(codex_bin: str = "codex", *,
             "start a clean shell and use 'codex login' with ChatGPT."
         )
     subscription_home()
-    result = subprocess_run([
-        codex_bin,"-c",'forced_login_method="chatgpt"',
-        "-c",'cli_auth_credentials_store="file"',
-        "login","status"], text=True,encoding="utf-8",
-        capture_output=True, timeout=20, check=False)
+    home=subscription_home()
+    with tempfile.TemporaryDirectory(prefix="han-codex-auth-check-") as temp:
+        result=isolated_codex_run([
+            codex_bin,"-c",'forced_login_method="chatgpt"',
+            "-c",'cli_auth_credentials_store="file"',
+            "login","status"],home=home,scratch=Path(temp),
+            timeout=45,subprocess_run=subprocess_run)
     message=(result.stdout+"\n"+result.stderr).lower()
     if result.returncode != 0 or "chatgpt" not in message:
         raise RuntimeError(
@@ -81,6 +85,62 @@ def check_codex_subscription(codex_bin: str = "codex", *,
             "Run 'codex login' interactively, select ChatGPT login, and "
             "confirm 'codex login status'."
         )
+
+
+# Docker Desktop (Linux containers) or Docker Engine is required on both
+# Windows and Linux. This image must be built locally from the supplied
+# Dockerfile; a real codex exec MUST NOT run on the host.
+DEFAULT_CODEX_IMAGE="han-codebook-codex:local"
+
+
+def isolated_codex_run(command:list[str], *, home:Path, scratch:Path,
+                       prompt:str|None=None, timeout:int=600,
+                       subprocess_run=subprocess.run, image:str|None=None):
+    """Launch Codex in a mount-allowlisted container, never on host.
+
+    The only host binds are (1) the single OAuth file and (2) a disposable
+    scratch folder containing the output schema. No repository, source
+    corpus, gold folder or Docker socket is mounted. All application writes
+    happen inside scratch or ephemeral container tmpfs. This boundary
+    exists BEFORE any Codex model/tool process can start.
+    """
+    image=image or os.environ.get("HAN_CODEX_IMAGE",DEFAULT_CODEX_IMAGE)
+    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_./:@-]{0,190}",image):
+        raise RuntimeError("Invalid isolated Codex container image name")
+    scratch=Path(scratch).resolve(strict=True)
+    auth=(Path(home)/"auth.json").resolve(strict=True)
+    if (not scratch.is_dir() or not auth.is_file() or
+        scratch==auth.parent or scratch in auth.parents):
+        raise RuntimeError("Invalid independent scratch directory / OAuth auth file")
+    if any("," in str(p) or "\\n" in str(p) for p in (scratch,auth)):
+        raise RuntimeError("Unsafe Docker bind source path")
+    if any(os.environ.get(k) for k in SENSITIVE_ENV):
+        raise RuntimeError("Subscription mode requires no API credentials in environment")
+    if not command or not all(isinstance(x,str) and x for x in command):
+        raise ValueError("Container command must be a non-empty argv list")
+    # Never use host-network, --privileged, host PID/IPC, or broad host mounts.
+    argv=[
+        "docker","run","--rm","--pull=never","-i",
+        "--network","bridge","--read-only","--cap-drop=ALL",
+        "--security-opt","no-new-privileges","--pids-limit","128",
+        "--tmpfs","/tmp:rw,nosuid,nodev,size=128m,mode=1777",
+        "--mount",f"type=bind,source={auth},target=/etc/han-codebook-auth.json,readonly",
+        "--mount",f"type=bind,source={scratch},target=/work",
+        "--workdir","/work",
+        "--env","HOME=/tmp","--env","CODEX_HOME=/tmp/codex-home",
+        "--entrypoint","/bin/sh",image,"-c",
+        'umask 077; mkdir -p "$CODEX_HOME"; '
+        'cp /etc/han-codebook-auth.json "$CODEX_HOME/auth.json"; exec "$@"',
+        "han-codebook-isolated",*command,
+    ]
+    # Docker CLI needs its local daemon environment, not the model's env.
+    # Only explicitly enumerated HOME/CODEX_HOME are forwarded to container.
+    env=os.environ.copy()
+    for key in SENSITIVE_ENV: env.pop(key,None)
+    return subprocess_run(argv,input=prompt,text=True,encoding="utf-8",
+                          capture_output=True,cwd=str(scratch),env=env,
+                          timeout=timeout,check=False)
+
 
 def schema_for(kind: str) -> dict:
     if kind=="vocabulary":
@@ -148,8 +208,8 @@ def codex_subscription_reply(chat: dict, *, model: str = "gpt-6-astra",
           "--config",'cli_auth_credentials_store="file"',
           "--skip-git-repo-check","--sandbox","read-only",
           "--model",model,"--config",f'model_reasoning_effort="{effort}"',
-          "--output-schema",str(schema_path),
-          "--output-last-message",str(last_path),"-"
+          "--output-schema","/work/response_schema.json",
+          "--output-last-message","/work/last_response.json","-"
         ]
         home=subscription_home()
         env=os.environ.copy()
@@ -160,9 +220,8 @@ def codex_subscription_reply(chat: dict, *, model: str = "gpt-6-astra",
             env.pop(name,None)
         # No repo/workspace information is deliberately available to CLI.
         # CODEX_HOME remains the user's authenticated CLI credentials store.
-        result=subprocess_run(args,input=prompt,text=True,encoding="utf-8",
-                              capture_output=True,cwd=str(root),env=env,
-                              timeout=timeout,check=False)
+        result=isolated_codex_run(args,home=home,scratch=root,prompt=prompt,
+                                   timeout=timeout,subprocess_run=subprocess_run)
         if result.returncode!=0 and any(t in (result.stderr+" "+result.stdout).lower() for t in QUOTA_TEXT):
             raise QuotaExhausted("Codex ChatGPT subscription usage limit; checkpoints preserved")
         if result.returncode!=0:

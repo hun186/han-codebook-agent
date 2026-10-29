@@ -448,6 +448,8 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                                 llm_allowed_hosts=llm.get("allowed_hosts", []),
                                 llm_api_key_env=llm.get("api_key_env"), progress=progress,
                                 capture_llm_io=capture and rounds > 0,
+                                llm_reasoning_effort=llm.get("reasoning_effort"),
+                                llm_response_format=llm.get("response_format"),
                                 solver_iterations=3, solver_restarts=2,
                                 adaptive_vocabulary=candidate_mode != "static",
                                 vocabulary_reviewer=reviewer if candidate_mode == "human" else None,

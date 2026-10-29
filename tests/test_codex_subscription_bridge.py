@@ -19,6 +19,31 @@ from codex_subscription import (check_codex_subscription, QuotaExhausted,
                                 codex_subscription_reply,schema_for)
 
 
+
+def fake_docker(inner):
+    """Translate the tested Docker argv to its inner Codex argv for a fake CLI.
+
+    This only checks command construction; the separate hosted Docker test
+    actually probes the OS boundary. It never pretends to be a real model.
+    """
+    def run(argv,**kwargs):
+        assert argv[:2]==["docker","run"], argv
+        assert "--read-only" in argv and "--cap-drop=ALL" in argv
+        assert argv[argv.index("--network")+1]=="bridge"
+        assert "--privileged" not in argv and "--network=host" not in argv
+        mounts=[argv[i+1] for i,a in enumerate(argv[:-1]) if a=="--mount"]
+        assert len(mounts)==2, mounts
+        assert any("target=/etc/han-codebook-auth.json,readonly" in m for m in mounts)
+        assert any("target=/work" in m for m in mounts)
+        assert not any("target=/"==m for m in mounts)
+        boundary=argv.index("han-codebook-isolated")
+        cmd=argv[boundary+1:]
+        cwd=Path(kwargs["cwd"])
+        cmd=[str(cwd/x[len("/work/"):]) if x.startswith("/work/") else x for x in cmd]
+        return inner(cmd,**kwargs)
+    return run
+
+
 class CodexSubscriptionBridgeTests(unittest.TestCase):
     def setUp(self):
         td=tempfile.TemporaryDirectory()
@@ -38,14 +63,14 @@ class CodexSubscriptionBridgeTests(unittest.TestCase):
             self.assertEqual(argv,["codex", "-c",'forced_login_method="chatgpt"',
                 "-c",'cli_auth_credentials_store="file"',"login","status"])
             return SimpleNamespace(returncode=0,stdout="Logged in using ChatGPT",stderr="")
-        check_codex_subscription(subprocess_run=mock)
+        check_codex_subscription(subprocess_run=fake_docker(mock))
         def api_key(argv,**kwargs):
             return SimpleNamespace(returncode=0,stdout="Logged in using API key",stderr="")
         with self.assertRaisesRegex(RuntimeError,"ChatGPT subscription"):
-            check_codex_subscription(subprocess_run=api_key)
+            check_codex_subscription(subprocess_run=fake_docker(api_key))
         with patch.dict(os.environ,{"OPENAI_API_KEY":"fake_test_value"}):
             with self.assertRaisesRegex(RuntimeError,"refuses API keys"):
-                check_codex_subscription(subprocess_run=mock)
+                check_codex_subscription(subprocess_run=fake_docker(mock))
 
     def test_response_preserves_tokens_and_readonly_boundary(self):
         seen=[]
@@ -91,7 +116,7 @@ class CodexSubscriptionBridgeTests(unittest.TestCase):
         ]:
             chat={"messages":[{"role":"system","content":sys_instruction},
                               {"role":"user","content":json.dumps(payload,ensure_ascii=False)}]}
-            reply=codex_subscription_reply(chat,subprocess_run=run)
+            reply=codex_subscription_reply(chat,subprocess_run=fake_docker(run))
             self.assertEqual(reply["model"],"gpt-6-astra")
             self.assertEqual(reply["provider"],"CODEX_CLI_CHATGPT_PLAN")
             self.assertEqual(reply["usage"]["prompt_tokens"],410)
@@ -121,10 +146,10 @@ class CodexSubscriptionBridgeTests(unittest.TestCase):
         chat={"messages":[{"role":"system","content":"候選無法驗證"},
               {"role":"user","content":json.dumps({"task":"generate_vocabulary"})}]}
         with self.assertRaisesRegex(RuntimeError,"tool-free turn"):
-            codex_subscription_reply(chat,subprocess_run=mock)
+            codex_subscription_reply(chat,subprocess_run=fake_docker(mock))
         events[0]={"type":"turn.failed"}
         with self.assertRaisesRegex(RuntimeError,"tool-free turn"):
-            codex_subscription_reply(chat,subprocess_run=mock)
+            codex_subscription_reply(chat,subprocess_run=fake_docker(mock))
 
     def test_quota_pause_and_model_tool_rejection(self):
         chat={"messages":[{"role":"system","content":"Only JSON"},
@@ -132,7 +157,7 @@ class CodexSubscriptionBridgeTests(unittest.TestCase):
         def quota(argv,**kwargs):
             return SimpleNamespace(returncode=1,stdout="",stderr="Your usage limit has been reached")
         with self.assertRaises(QuotaExhausted):
-            codex_subscription_reply(chat,subprocess_run=quota)
+            codex_subscription_reply(chat,subprocess_run=fake_docker(quota))
         events=[
             {"type":"item.completed","item":{"type":"collab_tool_call","tool":"spawn_agent"}},
             {"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":20}}
@@ -142,13 +167,13 @@ class CodexSubscriptionBridgeTests(unittest.TestCase):
                 json.dumps({"vocabulary":[],"patterns":[]}),encoding="utf-8")
             return SimpleNamespace(returncode=0,stdout="\n".join(json.dumps(x) for x in events),stderr="")
         with self.assertRaisesRegex(RuntimeError,"tool-free turn"):
-            codex_subscription_reply(chat,subprocess_run=tool)
+            codex_subscription_reply(chat,subprocess_run=fake_docker(tool))
         events[0]={"type":"item.completed","item":{"type":"error","message":"Partial failure"}}
         with self.assertRaisesRegex(RuntimeError,"tool-free turn"):
-            codex_subscription_reply(chat,subprocess_run=tool)
+            codex_subscription_reply(chat,subprocess_run=fake_docker(tool))
         events[:]=[{"type":"turn.failed","error":{"message":"usage limit reached"}}]
         with self.assertRaises(QuotaExhausted):
-            codex_subscription_reply(chat,subprocess_run=tool)
+            codex_subscription_reply(chat,subprocess_run=fake_docker(tool))
 
     def test_gpt56_sol_uses_real_codex_model_option_and_keeps_provider_separate(self):
         """No network: assert the requested model flows through exact CLI args."""
@@ -168,7 +193,7 @@ class CodexSubscriptionBridgeTests(unittest.TestCase):
         chat={"messages":[{"role":"system","content":"提出中文候選詞，只輸出 JSON"},
                           {"role":"user","content":json.dumps({"task":"generate_vocabulary"})}]}
         out=codex_subscription_reply(chat,model="gpt-5.6-sol",
-                                     effort="high",subprocess_run=fake_exec)
+                                     effort="high",subprocess_run=fake_docker(fake_exec))
         self.assertEqual(out["model"],"gpt-5.6-sol")
         self.assertEqual(out["provider"],"CODEX_CLI_CHATGPT_PLAN")
         self.assertEqual(out["usage"]["prompt_tokens"],90)

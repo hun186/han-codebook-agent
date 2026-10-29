@@ -16,3 +16,17 @@ jobs:
       - run: python -m pip install -e .
       - run: python -m unittest discover -s tests -v
       - run: PYTHONPATH=src python -m han_codebook.benchmark --config benchmarks/config.yaml --variants metadata
+
+  docker-gold-boundary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: docker pull alpine:3.20
+      # This runs a REAL root process in Docker and attempts to read a
+      # gold sentinel present on the runner host but not in its mounts.
+      - run: python -m unittest discover -s tests -p 'test_blind_container_boundary.py' -v
+        env:
+          HAN_RUN_DOCKER_BOUNDARY_TEST: '1'

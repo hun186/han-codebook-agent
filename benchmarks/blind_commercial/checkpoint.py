@@ -126,6 +126,7 @@ def exclusive_run_lock(root: Path):
 
 
 DOCKER_INFLIGHT="codex_container_inflight.json"
+API_INFLIGHT="api_request_inflight.json"
 
 
 def reconcile_stale_codex_container(root:Path,*,subprocess_run=None)->None:
@@ -185,6 +186,12 @@ class ResumeStore:
                 raise ValueError("Resume settings, corpus hashes or model differ; no reuse permitted")
             if str(old.get("reason","")).startswith(("unverified_container_cleanup","unverified_api_spend")):
                 raise RuntimeError("Unsafe resume: previous paid inference/cleanup unverified; checkpoint quarantined")
+            # A marker written before sending paid traffic survives SIGKILL,
+            # a failed billable ledger fsync, or any ambiguous API response.
+            # Never issue a second paid request while its charge is unknown.
+            if (self.root/API_INFLIGHT).exists():
+                self._quarantine_unverified_spend()
+                raise RuntimeError("Unsafe resume: unverified_api_spend; a previous paid API request is in-flight or unaccounted")
             # This check precedes any new model request AND the resumed status.
             # In-flight markers are fsynced before Docker CREATE/START.
             try:
@@ -232,6 +239,19 @@ class ResumeStore:
         }
         atomic_json(self.status,info)
 
+    def _quarantine_unverified_spend(self)->None:
+        # The fsynced in-flight marker is primary evidence. Even if the
+        # status file cannot be written, the marker blocks future resumes.
+        try:
+            self._write_status("failed",reason="unverified_api_spend: operator reconciliation required")
+        except OSError:
+            pass
+
+    def _clear_api_inflight(self)->None:
+        marker=self.root/API_INFLIGHT
+        marker.unlink()
+        _sync_directory(marker.parent)
+
     def mark(self,state:str,*,reason:str="",current:str="")->None:
         if state not in ("running","paused_quota","failed","completed"):
             raise ValueError("Invalid checkpoint state")
@@ -255,15 +275,36 @@ class ResumeStore:
                 raise ValueError("Corrupt saved response")
             self.cache_hits+=1
             return result
+        paid=provider_name=="OPENAI_RESPONSES"
+        if paid:
+            marker=self.root/API_INFLIGHT
+            if marker.exists():
+                self._quarantine_unverified_spend()
+                raise RuntimeError("Unsafe paid API request: prior charge remains unverified")
+            # Durable PRE-CALL write: even an immediate process kill leaves
+            # the request quarantined until an operator reconciles billing.
+            atomic_json(marker,{"version":1,"request_key":key,
+                                "logical_id":logical_id,"requested_model":model})
         try:
             answer=provider(chat)
         except BillableResponseRejected as exc:
-            self.record_rejected_billable(
-                request_key=key,logical_id=logical_id,model=model,exc=exc)
+            try:
+                if not paid:
+                    raise RuntimeError("Rejected billable response on non-API provider")
+                self.record_rejected_billable(
+                    request_key=key,logical_id=logical_id,model=model,exc=exc)
+                self._clear_api_inflight()
+            except BaseException:
+                self._quarantine_unverified_spend()
+                raise
             raise
         if not isinstance(answer,dict) or "choices" not in answer:
             raise RuntimeError("Provider response invalid; will not checkpoint")
+        # For paid responses, only release the in-flight marker AFTER the
+        # successful response is durably saved.
         atomic_json(path,{"request_key":key,"response_digest":digest(answer),"reply":answer})
+        if paid:
+            self._clear_api_inflight()
         self.real_new_calls+=1
         return answer
 
@@ -277,8 +318,11 @@ class ResumeStore:
             vals[2]>vals[0] or vals[3]>vals[1]):
             self.mark("failed",reason="unverified_api_spend: rejected response lacked valid usage")
             raise RuntimeError("Unable to durably price rejected API response")
+        if (not isinstance(exc.actual_model,str) or not exc.actual_model.strip()):
+            self._quarantine_unverified_spend()
+            raise RuntimeError("Unverified rejected API model: manual spend reconciliation required")
         entry={"request_key":request_key,"logical_id":logical_id,
-               "model":model,"usage":usage,
+               "model":model,"actual_model":exc.actual_model,"usage":usage,
                "remote_response_id":exc.remote_response_id,
                "rejected":True}
         entry["digest"]=digest({k:v for k,v in entry.items() if k!="digest"})
@@ -298,7 +342,9 @@ class ResumeStore:
             if (not isinstance(item,dict) or item.get("rejected") is not True
                 or item.get("digest")!=digest({k:v for k,v in item.items() if k!="digest"})
                 or not isinstance(item.get("request_key"),str)
-                or not isinstance(item.get("usage"),dict)):
+                or not isinstance(item.get("usage"),dict)
+                or not isinstance(item.get("actual_model"),str)
+                or not item["actual_model"].strip()):
                 raise RuntimeError("Failed billable API usage ledger corrupt; refuse resume")
             records.append(item)
         return records

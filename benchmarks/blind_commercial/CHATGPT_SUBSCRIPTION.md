@@ -15,7 +15,8 @@ LLM 碼組假說、重新求解）仍使用它原有的本機 OpenAI-compatible
 ```text
 本機原 Agent
   → 127.0.0.1 临時受驗證端口
-  → codex exec --model gpt-6-astra --sandbox read-only --output-schema ...
+  → Docker Linux 隔離容器（只掛載 auth.json 與全新 /work）
+  → 容器內 codex exec --model gpt-6-astra --sandbox read-only --output-schema ...
   → ChatGPT 訂閱內 Codex 模型
   → 結構化 JSON 回應
   → 原 Agent 自動續行、SQLite 記錄
@@ -23,9 +24,14 @@ LLM 碼組假說、重新求解）仍使用它原有的本機 OpenAI-compatible
 
 每個模型請求是一個**獨立的真實 Codex 推論**（非模擬答覆）。
 命令採 `--ephemeral`、`--ignore-user-config`、`--ignore-rules`，
-於獨立臨時工作目錄以唯讀模式執行，並對事件記錄拒絕
-shell/file/MCP/web tool invocations。也無需授權程式開啟任何
-收錄正確答案的私有目錄；金鑰/答案永不送入提示。
+於隔離 Docker Linux 容器內的獨立臨時工作目錄以唯讀模式執行，
+並對事件記錄拒絕 shell/file/MCP/web tool invocations。
+**唯讀模式不是安全邊界**；Docker 作業系統掛載限制才阻擋
+CLI／工具讀取主機上未掛載的 private gold。只有 auth.json 單一檔案
+及沒有 gold 的全新臨時目錄可被容器讀取，且不掛載 Docker socket。
+若 Docker 不存在、映像未在本機建立或啟動失敗，推論必須停止，
+不得偷偷回退到主機直接啟動 Codex CLI。認證檔可被受信任的 CLI
+程序使用，務必保護 Docker 映像供應鏈及此檔本身。
 
 兩點對外說明不能省略：
 
@@ -65,8 +71,17 @@ Codex 可選模型，會消耗你 ChatGPT 訂閱的 Codex 使用量，
 
 ## 你的 Windows 電腦怎麼啟用
 
-1. 安裝最新版官方 Codex CLI（詳見官方文件）。
-2. **建立獨立且只供此研究使用的 CODEX_HOME，不能沿用平常的 ~/.codex**，
+1. 安裝 Docker Desktop（Windows：啟用 **Linux containers**；Linux：Docker Engine）。
+   建立並檢查只包含官方 Codex CLI 的研究用本機容器映像：
+```powershell
+docker build -f benchmarks/blind_commercial/Dockerfile.codex -t han-codebook-codex:local .
+docker image inspect han-codebook-codex:local
+```
+   映像需先在本機建置；程式使用 `--pull=never`，不在執行研究時
+   自動拉取未知映像。安全環境可固定建置時的 `CODEX_CLI_VERSION`
+   並核對官方 npm 套件版本。未部署 Docker 時會拒絕訂閱推論。
+2. 安裝官方 Codex CLI（用於本機 ChatGPT OAuth 互動登入）。
+3. **建立獨立且只供此研究使用的 CODEX_HOME，不能沿用平常的 ~/.codex**，
    以免繼承其他模型/API Key、AGENTS.md、skills 或工具設定：
 
 ```powershell
@@ -76,15 +91,16 @@ codex -c 'forced_login_method="chatgpt"' -c 'cli_auth_credentials_store="file"' 
 codex -c 'forced_login_method="chatgpt"' -c 'cli_auth_credentials_store="file"' login status
 ```
 
-3. 登入時選 **Sign in with ChatGPT**，不得使用 API Key。完成後應確認
+4. 登入時選 **Sign in with ChatGPT**，不得使用 API Key。完成後應確認
    專用 CODEX_HOME 下有 OAuth `auth.json`（**不要上傳、貼給任何人或提交 GitHub**）。
    程式對同一目錄的 `auth.json`、ChatGPT 登入方式以及 exec 強制參數都會
-   驗證；若沒有訂閱授權、憑證有異或含其他 AGENTS/skills，就拒絕執行。
+   驗證，並在隔離容器內檢查 `codex login status`；若沒有訂閱授權、
+   憑證有異或含其他 AGENTS/skills，就拒絕執行。
    這一步需使用者自己操作，本對話與 GitHub Connector 不會取得認證。
-4. 確保 `OPENAI_API_KEY`、`CODEX_API_KEY`、`CODEX_ACCESS_TOKEN`
+5. 確保 `OPENAI_API_KEY`、`CODEX_API_KEY`、`CODEX_ACCESS_TOKEN`
    都未設定（不能只在程式裡把 API Key 改為空字串）。
    同一 PowerShell 視窗須保持 `$env:CODEX_HOME` 設定。
-5. 隱藏答案要放在 GitHub Repository **以外**的路徑。
+6. 隱藏答案要放在 GitHub Repository **以外**的路徑。
    先產出一組新的未知碼本：
 
 ```powershell
@@ -163,3 +179,17 @@ python benchmarks/blind_commercial/score.py `
 - [Codex CLI 非互動執行](https://learn.chatgpt.com/docs/non-interactive-mode)
 - [Codex CLI 指令與模型、JSON Schema 參數](https://learn.chatgpt.com/docs/developer-commands)
 - [ChatGPT 訂閱與 API 計費分開](https://help.openai.com/en/articles/9039756-managing-billing-for-chatgpt-and-the-api-platform)
+
+## 安全與跨程序鎖的驗收邊界（2026-10-29）
+
+- 每次啟動（含 `--resume`）在任何 checkpoint 狀態讀取與模型請求之前，
+  先對輸出目錄內永久保留的 `.run.lock` 取得 Windows `msvcrt.locking`
+  或 POSIX `flock` 非阻塞排他鎖；第二程序直接拒絕，不呼叫模型。
+  正常與異常結束由作業系統釋放鎖；**不可手動刪除鎖檔**，否則
+  不同 inode 可各被持有，破壞排他性。
+- Hosted CI 額外的 `docker-gold-boundary` job 在 Ubuntu Docker
+  容器內實際讀取一個只存在主機的 private gold 哨兵檔，必須
+  被作業系統阻擋；不以假的 subprocess/Mock 代替邊界驗證。
+- 測試並不登入使用者 ChatGPT 帳號，也不證明已實際執行
+  GPT-6 Astra／GPT-5.6 Sol；只有本機 OAuth 登入與足夠配額後
+  可明確授權進行真正的研究。

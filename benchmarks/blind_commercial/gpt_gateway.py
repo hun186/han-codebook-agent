@@ -95,11 +95,17 @@ class LoopbackGateway:
                     gateway.errors.append(type(exc).__name__+": "+str(exc)[:150])
                     encoded=json.dumps({"error":"Provider failed; see benchmark stderr"}).encode()
                     status=502
-                self.send_response(status)
-                self.send_header("Content-Type","application/json; charset=utf-8")
-                self.send_header("Content-Length",str(len(encoded)))
-                self.end_headers()
-                self.wfile.write(encoded)
+                try:
+                    self.send_response(status)
+                    self.send_header("Content-Type","application/json; charset=utf-8")
+                    self.send_header("Content-Length",str(len(encoded)))
+                    self.end_headers()
+                    self.wfile.write(encoded)
+                except (BrokenPipeError, ConnectionResetError):
+                    # The agent may have timed out while its provider was still
+                    # running. The reply/cache has already been persisted; do
+                    # not emit a misleading extra server traceback on disconnect.
+                    pass
         self.server=ThreadingHTTPServer(("127.0.0.1",0),Handler)
         # Provider() can outlive a caller's socket timeout. All request threads
         # MUST exit before run_experiment releases its cross-process lock.

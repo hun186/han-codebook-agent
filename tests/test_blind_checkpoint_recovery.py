@@ -58,6 +58,17 @@ class ResumeSafetyTests(unittest.TestCase):
             provider_name="OPENAI_RESPONSES" if real else "TEST_DOUBLE",
             resume=resume)
 
+    def test_unverified_container_cleanup_quarantines_resume(self):
+        from checkpoint import ResumeStore
+        signature={"test_case":"unverified Docker shutdown"}
+        store=ResumeStore(self.output,signature=signature,resume=False)
+        store.mark("failed",reason="unverified_container_cleanup: operator action required")
+        with self.assertRaisesRegex(RuntimeError,"Unsafe resume"):
+            ResumeStore(self.output,signature=signature,resume=True)
+        state=json.loads((self.output/"run_status.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["state"],"failed")
+        self.assertFalse((self.output/"predictions_LOCKED.json").exists())
+
     def test_parent_directory_entries_synced_after_atomic_replace(self):
         base=self.output/"deep"/"nested"
         dest=base/"test.json"

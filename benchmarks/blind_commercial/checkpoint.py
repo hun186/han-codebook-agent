@@ -23,17 +23,54 @@ def digest(obj:object)->str:
         separators=(",",":")).encode("utf-8")).hexdigest()
 
 
-def atomic_json(path:Path,content:dict)->None:
-    path.parent.mkdir(parents=True,exist_ok=True)
+def _sync_directory(path:Path)->None:
+    """Persist rename/create directory entries on POSIX after file fsync.
+
+    Windows does not expose a portable directory-fsync through os.open; the
+    same-filesystem atomic replace remains in effect there. If POSIX fsync
+    fails, fail closed rather than falsely acknowledging a durable reply.
+    """
+    if os.name!="posix":
+        return
+    fd=os.open(str(path),os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def durable_mkdir(path:Path)->None:
+    """Sync each newly created directory's entry in its parent directory."""
+    path=Path(path)
+    missing=[]
+    cur=path
+    while not cur.exists():
+        missing.append(cur)
+        if cur.parent==cur:
+            raise OSError("Cannot find existing parent for checkpoint directory")
+        cur=cur.parent
+    path.mkdir(parents=True,exist_ok=True)
+    for created in reversed(missing):
+        _sync_directory(created.parent)
+
+
+def atomic_text(path:Path,content:str)->None:
+    """Durable same-directory atomic replacement, with parent-dir fsync."""
+    durable_mkdir(path.parent)
     fd,name=tempfile.mkstemp(dir=path.parent,prefix=".checkpoint-",suffix=".tmp")
     try:
-        with os.fdopen(fd,"w",encoding="utf-8") as file:
-            json.dump(content,file,sort_keys=True,ensure_ascii=False,indent=2)
+        with os.fdopen(fd,"w",encoding="utf-8",newline="\n") as file:
+            file.write(content)
             file.flush()
             os.fsync(file.fileno())
         os.replace(name,path)
+        _sync_directory(path.parent)
     finally:
         if os.path.exists(name):os.unlink(name)
+
+
+def atomic_json(path:Path,content:dict)->None:
+    atomic_text(path,json.dumps(content,sort_keys=True,ensure_ascii=False,indent=2))
 
 
 class ResumeStore:
@@ -57,10 +94,10 @@ class ResumeStore:
         else:
             if self.root.exists() and list(self.root.iterdir()):
                 raise FileExistsError("Output directory exists and is not empty; use --resume")
-            self.root.mkdir(parents=True,exist_ok=True)
+            durable_mkdir(self.root)
             self._write_status("running",reason="new experiment")
-        self.requests.mkdir(exist_ok=True)
-        self.completed.mkdir(exist_ok=True)
+        durable_mkdir(self.requests)
+        durable_mkdir(self.completed)
         if resume:
             self._write_status("running",reason="resumed by explicit user command")
         self.cache_hits=0
@@ -109,6 +146,19 @@ class ResumeStore:
         atomic_json(path,{"request_key":key,"response_digest":digest(answer),"reply":answer})
         self.real_new_calls+=1
         return answer
+
+    def stored_replies(self)->list[dict]:
+        """Verify each saved reply's filename/digests before using it for money."""
+        records=[]
+        for path in sorted(self.requests.glob("*.json")):
+            record=json.loads(path.read_text(encoding="utf-8"))
+            if (record.get("request_key")!=path.stem or
+                record.get("response_digest")!=digest(record.get("reply")) or
+                not isinstance(record.get("reply"),dict) or
+                "choices" not in record["reply"]):
+                raise RuntimeError("Saved model reply corrupted; refuse spend or scoring")
+            records.append(record)
+        return records
 
     def finished_run(self,ref:str,expected:dict|None=None)->dict|None:
         path=self.completed/(ref+".json")

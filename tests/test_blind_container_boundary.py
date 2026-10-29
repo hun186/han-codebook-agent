@@ -6,6 +6,7 @@ sentinel. No real CLI login or paid model requests.
 import json
 import os
 import shlex
+import subprocess
 import stat
 import sys
 import tempfile
@@ -21,6 +22,39 @@ from codex_subscription import isolated_codex_run
 class DockerBoundaryTests(unittest.TestCase):
     @unittest.skipUnless(os.environ.get("HAN_RUN_DOCKER_BOUNDARY_TEST")=="1",
                          "Docker gold boundary is exercised in separate Hosted CI job")
+    @unittest.skipUnless(os.environ.get("HAN_RUN_DOCKER_BOUNDARY_TEST")=="1",
+                         "Real Docker lifecycle test runs in Hosted CI")
+    def test_timeout_removes_actual_named_container(self):
+        with tempfile.TemporaryDirectory() as td:
+            base=Path(td)
+            home=base/"auth"
+            home.mkdir()
+            (home/"auth.json").write_text('{"test_only":true}',encoding="utf-8")
+            (home/"auth.json").chmod(0o600)
+            scratch=base/"scratch"
+            scratch.mkdir()
+            scratch.chmod(0o700)
+            names=[]
+            def traced(argv,**kwargs):
+                if argv[:2]==["docker","create"]:
+                    names.append(argv[argv.index("--name")+1])
+                return subprocess.run(argv,**kwargs)
+            with patch.dict(os.environ,{"OPENAI_API_KEY":"",
+                                     "CODEX_API_KEY":"",
+                                     "CODEX_ACCESS_TOKEN":""}):
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    isolated_codex_run(["/bin/sh","-c","sleep 30"],
+                                       home=home,scratch=scratch,
+                                       image="alpine:3.20",
+                                       timeout=1,subprocess_run=traced)
+            self.assertEqual(len(names),1)
+            # A killed Docker CLI must not leave a daemon-managed container
+            # consuming a paid model allowance after the study lock exits.
+            gone=subprocess.run(["docker","inspect","--type","container",names[0]],
+                                capture_output=True,text=True,timeout=15)
+            self.assertNotEqual(gone.returncode,0)
+            self.assertIn("No such object",gone.stderr)
+
     def test_private_gold_host_file_is_unreadable_from_container(self):
         with tempfile.TemporaryDirectory() as td:
             base=Path(td).resolve()

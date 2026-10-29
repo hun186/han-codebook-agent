@@ -67,7 +67,9 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
                     *, allow_private_network: bool = False,
                     allowed_hosts: tuple[str, ...] | list[str] = (),
                     api_key_env: str | None = None,
-                    on_exchange: Callable[[str, dict[str, Any]], None] | None = None) -> dict[str, Any]:
+                    on_exchange: Callable[[str, dict[str, Any]], None] | None = None,
+                    reasoning_effort: str | None = None,
+                    response_format: str | None = None) -> dict[str, Any]:
     """Private LAN is opt-in and allowlisted; never send to unrestricted external URLs."""
     validate_llm_endpoint(base_url, allow_private_network=allow_private_network,
                           allowed_hosts=allowed_hosts)
@@ -91,7 +93,9 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
         system_prompt = (
             "你是歷史中文詞組電碼分析的研究助手。所有未知對應都是假設，絕不宣稱已破譯。"
             "請只回傳 JSON：{\"hypotheses\":[{\"code\":\"123\",\"candidates\":[\"糧秣\",\"補給\"],\"reason\":\"...\"}]}。"
+            "每個 code 必須是 unresolved 物件中完全相同的一個鍵（例如 144），絕不能輸出 144-115、144 115 或多碼串接。"
             "每個 candidate 必須來自提供的合法詞彙列表；不得更動 verified_anchors；最多回傳 15 個碼組。"
+            "只能回傳 JSON 物件，先輸出最終答案，不要在 content 裡寫思考過程。"
         )
     body = {
         "model": model,
@@ -101,6 +105,15 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
             {"role": "user", "content": json.dumps(evidence, ensure_ascii=False)}
         ],
     }
+    # Opt-in compatibility controls; a non-Ollama proxy may not support these.
+    if reasoning_effort is not None:
+        if reasoning_effort not in ("none","minimal","low","medium","high","xhigh"):
+            raise CaseError("Unsupported llm.reasoning_effort")
+        body["reasoning_effort"] = reasoning_effort
+    if response_format is not None and response_format != "default":
+        if response_format != "json_object":
+            raise CaseError("Unsupported llm.response_format")
+        body["response_format"] = {"type":"json_object"}
     payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     if api_key_env:
@@ -153,6 +166,14 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
         if not isinstance(content, str):
             raise ValueError("not text")
         content = content.strip()
+        if not content:
+            # Reasoning is NOT a final answer and must not be parsed as a
+            # guessed result. Preserve the raw provider response in opt-in audit.
+            choice=data["choices"][0]
+            raise ValueError("empty final content (reasoning_only="
+                             +str(bool(data["choices"][0]["message"].get("reasoning")))
+                             +", finish_reason="+str(choice.get("finish_reason"))
+                             +", completion_tokens="+str(data.get("usage",{}).get("completion_tokens"))+")")
         if content.startswith("```"):
             content = content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
         obj = json.loads(content)
@@ -230,6 +251,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
               llm_api_key_env: str | None = None,
               progress: Callable[[str], None] | None = None,
               capture_llm_io: bool = False,
+              llm_reasoning_effort: str | None = None,
+              llm_response_format: str | None = None,
               solver_iterations: int = 8, solver_restarts: int = 4,
               adaptive_vocabulary: bool = False,
               vocabulary_reviewer: Callable[[int, list[dict]], list[str]] | None = None,
@@ -299,6 +322,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                     "allow_private_network": allow_private_network,
                     "allowed_hosts": llm_allowed_hosts,
                     "api_key_env": llm_api_key_env,
+                    "reasoning_effort": llm_reasoning_effort,
+                    "response_format": llm_response_format,
                 }
                 exchange = (lambda stage, payload: log_event(conn, num, "vocabulary_" + stage, payload)) if capture_llm_io else None
                 active_case, record = refresh_vocabulary(
@@ -364,7 +389,9 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 reply = query_local_llm(llm_url, model, packet, timeout=llm_timeout,
                                         allow_private_network=allow_private_network,
                                         allowed_hosts=llm_allowed_hosts,
-                                        api_key_env=llm_api_key_env, **extra)
+                                        api_key_env=llm_api_key_env,
+                                        reasoning_effort=llm_reasoning_effort,
+                                        response_format=llm_response_format, **extra)
             finally:
                 done.set()
                 if worker:

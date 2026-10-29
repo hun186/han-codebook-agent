@@ -99,7 +99,8 @@ DEFAULT_CODEX_IMAGE="han-codebook-codex:local"
 
 def isolated_codex_run(command:list[str], *, home:Path, scratch:Path,
                        prompt:str|None=None, timeout:int=600,
-                       subprocess_run=subprocess.run, image:str|None=None):
+                       subprocess_run=subprocess.run, image:str|None=None,
+                       lifecycle_root:Path|None=None):
     """Use a named, CREATED container; never leave live work after CLI timeout.
 
     Docker start --attach can be killed by Python while the daemon container
@@ -126,6 +127,17 @@ def isolated_codex_run(command:list[str], *, home:Path, scratch:Path,
     # Stable name exists BEFORE any model process is started. Create, then
     # start attached. No create-after-killed-CLI race is possible.
     name="han-blind-"+secrets.token_hex(16)
+    # The marker MUST be fsynced before docker create or start. OS study
+    # lock alone cannot prove Docker daemon termination after SIGKILL.
+    marker=None
+    if lifecycle_root is not None:
+        from checkpoint import DOCKER_INFLIGHT,atomic_json
+        lifecycle_root=Path(lifecycle_root).resolve(strict=True)
+        marker=lifecycle_root/DOCKER_INFLIGHT
+        if marker.exists():
+            raise ContainerCleanupUnconfirmed(
+                "Existing Docker in-flight marker; resume must reconcile it under study lock")
+        atomic_json(marker,{"version":1,"name":name})
     args=[
         "docker","create","--name",name,"--pull=never","-i",*host_user,
         "--network","bridge","--read-only","--cap-drop=ALL",
@@ -178,6 +190,10 @@ def isolated_codex_run(command:list[str], *, home:Path, scratch:Path,
                     raise ContainerCleanupUnconfirmed(
                         "Container cleanup unverified for "+name+
                         "; do not resume until Docker daemon confirms removal")
+                if marker is not None:
+                    from checkpoint import _sync_directory
+                    marker.unlink()
+                    _sync_directory(marker.parent)
             except ContainerCleanupUnconfirmed:
                 raise
             except BaseException as exc:
@@ -214,7 +230,8 @@ def schema_for(kind: str) -> dict:
 def codex_subscription_reply(chat: dict, *, model: str = "gpt-6-astra",
                              effort: str = "high", timeout: int = 600,
                              codex_bin: str = "codex",
-                             subprocess_run=subprocess.run) -> dict:
+                             subprocess_run=subprocess.run,
+                             checkpoint_root:Path|None=None) -> dict:
     """Exchange one original-agent packet for one real Codex CLI model turn."""
     if model not in ALLOWED_MODELS or effort not in ALLOWED_EFFORTS:
         raise ValueError("Only explicitly approved Astra or GPT-5.6 Sol subscription baselines are allowed")
@@ -266,7 +283,8 @@ def codex_subscription_reply(chat: dict, *, model: str = "gpt-6-astra",
         # No repo/workspace information is deliberately available to CLI.
         # CODEX_HOME remains the user's authenticated CLI credentials store.
         result=isolated_codex_run(args,home=home,scratch=root,prompt=prompt,
-                                   timeout=timeout,subprocess_run=subprocess_run)
+                                   timeout=timeout,subprocess_run=subprocess_run,
+                                   lifecycle_root=checkpoint_root)
         if result.returncode!=0 and any(t in (result.stderr+" "+result.stdout).lower() for t in QUOTA_TEXT):
             raise QuotaExhausted("Codex ChatGPT subscription usage limit; checkpoints preserved")
         if result.returncode!=0:

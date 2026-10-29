@@ -101,7 +101,10 @@ class LoopbackGateway:
                 self.end_headers()
                 self.wfile.write(encoded)
         self.server=ThreadingHTTPServer(("127.0.0.1",0),Handler)
-        self.server.daemon_threads=True
+        # Provider() can outlive a caller's socket timeout. All request threads
+        # MUST exit before run_experiment releases its cross-process lock.
+        self.server.daemon_threads=False
+        self.server.block_on_close=True
         self.thread=threading.Thread(target=self.server.serve_forever,daemon=True)
         self.errors:list[str]=[]
         self.calls:list[dict]=[]
@@ -111,13 +114,18 @@ class LoopbackGateway:
         self.thread.start()
         return self
     def __exit__(self,*_):
-        self.server.shutdown()
-        self.server.server_close()
-        self.thread.join(timeout=5)
-        if self.previous_token is None:
-            os.environ.pop("HAN_BLIND_LOOPBACK_TOKEN",None)
-        else:
-            os.environ["HAN_BLIND_LOOPBACK_TOKEN"]=self.previous_token
+        try:
+            self.server.shutdown()
+            # ThreadingMixIn.server_close blocks for all non-daemon request
+            # threads, including a paid provider still executing after timeout.
+            # Do not use a bounded join: the study lock must remain held.
+            self.server.server_close()
+            self.thread.join()
+        finally:
+            if self.previous_token is None:
+                os.environ.pop("HAN_BLIND_LOOPBACK_TOKEN",None)
+            else:
+                os.environ["HAN_BLIND_LOOPBACK_TOKEN"]=self.previous_token
     @property
     def url(self)->str:
         return f"http://127.0.0.1:{self.server.server_port}"

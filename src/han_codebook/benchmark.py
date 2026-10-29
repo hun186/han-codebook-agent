@@ -105,7 +105,9 @@ def run_suite(suite_path: str | Path, *, variants: tuple[bool,...]=(True,False),
                       llm_timeout=llm.get('timeout_seconds',90),
                       allow_private_network=llm.get('allow_private_network',False),
                       llm_allowed_hosts=llm.get('allowed_hosts',[]),
-                      llm_api_key_env=llm.get('api_key_env'))
+                      llm_api_key_env=llm.get('api_key_env'),
+                      llm_reasoning_effort=llm.get('reasoning_effort'),
+                      llm_response_format=llm.get('response_format'))
             else:
                 prediction=analyze(case,use_metadata=use_metadata,iterations=3,restarts=2)
             # Intentional security boundary: gold loaded only after inference.

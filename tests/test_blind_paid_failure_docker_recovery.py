@@ -62,6 +62,7 @@ class RejectedApiBillingTests(unittest.TestCase):
                                          effort="high",timeout=1)
                     self.assertEqual(cm.exception.usage,charged_usage()|{"total_tokens":10100})
                     self.assertEqual(cm.exception.remote_response_id,"resp_TEST_NOT_PAID")
+                    self.assertEqual(cm.exception.actual_model,"gpt-6-astra")
 
     def test_billed_error_survives_restart_and_blocks_new_api_call_over_cap(self):
         with tempfile.TemporaryDirectory() as td:
@@ -77,7 +78,8 @@ class RejectedApiBillingTests(unittest.TestCase):
                 calls.append(1)
                 raise BillableResponseRejected(
                     "fake API incomplete",usage=charged_usage(),
-                    remote_response_id="resp_FAKE_CHARGED")
+                    remote_response_id="resp_FAKE_CHARGED",
+                    actual_model="gpt-6-astra")
 
             def attempt(resume,provider):
                 return run_experiment(public,out,model="gpt-6-astra",effort="high",
@@ -112,6 +114,118 @@ class RejectedApiBillingTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,"ledger corrupt"):
                 attempt(True,forbidden)
             self.assertEqual(calls,[1])
+
+
+    def test_mismatched_luna_request_prices_actual_astra_without_retry(self):
+        from run import billable_model
+        with tempfile.TemporaryDirectory() as td:
+            base=Path(td)
+            public,private,out=base/"public",base/"PRIVATE_GOLD",base/"out"
+            generate(public,private,repeats=1,fixture_seed=10139)
+            manifest=public/"manifest.json"
+            m=json.loads(manifest.read_text(encoding="utf-8"))
+            for study in m["studies"]:study["fixture_only"]=False
+            manifest.write_text(json.dumps(m),encoding="utf-8")
+            calls=[]
+            def mismatched(_):
+                calls.append("first")
+                raise BillableResponseRejected(
+                    "actual model differs",usage=charged_usage(),
+                    remote_response_id="resp_actual_astra",
+                    actual_model="gpt-6-astra")
+            opts=dict(model="gpt-6-luna",effort="high",rounds=1,max_calls=16,
+                      timeout=2,real_api=True,provider_name="OPENAI_RESPONSES",
+                      solver_iterations=1,solver_restarts=1,max_estimated_usd=.10)
+            with self.assertRaisesRegex(RuntimeError,"Inference failed"):
+                run_experiment(public,out,provider=mismatched,resume=False,**opts)
+            records=list((out/"rejected_billable_requests").glob("*.json"))
+            self.assertEqual(len(records),1)
+            charged=json.loads(records[0].read_text(encoding="utf-8"))
+            self.assertEqual(charged["model"],"gpt-6-luna")
+            self.assertEqual(charged["actual_model"],"gpt-6-astra")
+            self.assertAlmostEqual(
+                estimated_standard_usd(charged["usage"],
+                                       model=billable_model(charged["actual_model"])),.501)
+            self.assertAlmostEqual(
+                estimated_standard_usd(charged["usage"],model="gpt-6-luna"),.00501)
+            def forbidden(_):
+                calls.append("wrong_retry")
+                raise AssertionError("another charge after budget exhaustion")
+            with self.assertRaisesRegex(RuntimeError,"Previously incurred API usage exceeds"):
+                run_experiment(public,out,provider=forbidden,resume=True,**opts)
+            self.assertEqual(calls,["first"])
+            self.assertFalse((out/"predictions_LOCKED.json").exists())
+
+    def test_unknown_actual_model_is_sticky_quarantine(self):
+        with tempfile.TemporaryDirectory() as td:
+            base=Path(td)
+            public,private,out=base/"public",base/"private",base/"output"
+            generate(public,private,repeats=1,fixture_seed=12377)
+            manifest=public/"manifest.json"
+            m=json.loads(manifest.read_text(encoding="utf-8"))
+            for study in m["studies"]:study["fixture_only"]=False
+            manifest.write_text(json.dumps(m),encoding="utf-8")
+            calls=[]
+            def rejected(_):
+                calls.append("first")
+                raise BillableResponseRejected(
+                    "unknown model",usage=charged_usage(),
+                    remote_response_id="resp_unexpected",
+                    actual_model="unknown-paid-model")
+            opts=dict(model="gpt-6-luna",effort="high",rounds=1,max_calls=16,
+                      timeout=2,real_api=True,provider_name="OPENAI_RESPONSES",
+                      solver_iterations=1,solver_restarts=1,max_estimated_usd=1.0)
+            with self.assertRaisesRegex(RuntimeError,"Inference failed"):
+                run_experiment(public,out,provider=rejected,resume=False,**opts)
+            state=json.loads((out/"run_status.json").read_text(encoding="utf-8"))
+            self.assertTrue(state["reason"].startswith("unverified_api_spend"))
+            self.assertEqual(len(list((out/"rejected_billable_requests").glob("*.json"))),1)
+            with self.assertRaisesRegex(RuntimeError,"Unsafe resume"):
+                run_experiment(public,out,provider=lambda x:calls.append("retry"),
+                               resume=True,**opts)
+            self.assertEqual(calls,["first"])
+
+    def test_failed_charge_ledger_write_blocks_resume_even_after_status_reset(self):
+        with tempfile.TemporaryDirectory() as td:
+            base=Path(td)
+            public,private,out=base/"public",base/"private",base/"output"
+            generate(public,private,repeats=1,fixture_seed=10188)
+            manifest=public/"manifest.json"
+            m=json.loads(manifest.read_text(encoding="utf-8"))
+            for study in m["studies"]:study["fixture_only"]=False
+            manifest.write_text(json.dumps(m),encoding="utf-8")
+            calls=[]
+            def billed_rejection(_):
+                calls.append("charged")
+                raise BillableResponseRejected(
+                    "incomplete, charged",usage=charged_usage(),
+                    remote_response_id="resp_no_durable_ledger",
+                    actual_model="gpt-6-astra")
+            import checkpoint
+            original_atomic=checkpoint.atomic_json
+            def fail_rejected(path,entry):
+                if "rejected_billable_requests" in str(path):
+                    raise OSError("test-only disk ledger write failure")
+                return original_atomic(path,entry)
+            opts=dict(model="gpt-6-astra",effort="high",rounds=1,max_calls=16,
+                      timeout=2,real_api=True,provider_name="OPENAI_RESPONSES",
+                      solver_iterations=1,solver_restarts=1,max_estimated_usd=.50)
+            with patch("checkpoint.atomic_json",side_effect=fail_rejected):
+                with self.assertRaisesRegex(RuntimeError,"Inference failed"):
+                    run_experiment(public,out,provider=billed_rejection,resume=False,**opts)
+            self.assertEqual(calls,["charged"])
+            self.assertEqual(len(list((out/"rejected_billable_requests").glob("*.json"))),0)
+            self.assertTrue((out/"api_request_inflight.json").is_file())
+            state=json.loads((out/"run_status.json").read_text(encoding="utf-8"))
+            self.assertTrue(state["reason"].startswith("unverified_api_spend"))
+            # A damaged/stale status cannot override the durable pre-call marker.
+            state.update(reason="ordinary failure",state="failed")
+            (out/"run_status.json").write_text(json.dumps(state),encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError,"Unsafe resume"):
+                run_experiment(public,out,provider=lambda x:calls.append("retry"),
+                               resume=True,**opts)
+            self.assertEqual(calls,["charged"])
+            self.assertFalse((out/"predictions_LOCKED.json").exists())
 
 
 class DurableDockerMarkerTests(unittest.TestCase):

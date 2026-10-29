@@ -64,6 +64,19 @@ class RejectedApiBillingTests(unittest.TestCase):
                     self.assertEqual(cm.exception.remote_response_id,"resp_TEST_NOT_PAID")
                     self.assertEqual(cm.exception.actual_model,"gpt-6-astra")
 
+        # Exercise the actual gateway mismatch branch, not just a synthetic
+        # BillableResponseRejected raised by a mocked provider.
+        mismatch=dict(base,status="completed",model="gpt-6-astra",
+                      output=[{"type":"message","content":[
+                          {"type":"output_text","text":"{}"}]}])
+        with patch("gpt_gateway.request.urlopen",return_value=Response(mismatch)):
+            with self.assertRaises(BillableResponseRejected) as cm:
+                openai_responses(chat,key="FAKE_TEST_TOKEN",model="gpt-6-luna",
+                                 effort="high",timeout=1)
+        self.assertEqual(cm.exception.actual_model,"gpt-6-astra")
+        self.assertEqual(cm.exception.usage["completion_tokens"],10000)
+
+
     def test_billed_error_survives_restart_and_blocks_new_api_call_over_cap(self):
         with tempfile.TemporaryDirectory() as td:
             root=Path(td)

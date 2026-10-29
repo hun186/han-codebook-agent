@@ -15,6 +15,7 @@ import contextlib
 import json
 import os
 import tempfile
+import threading
 from datetime import datetime,timezone
 from pathlib import Path
 
@@ -123,6 +124,9 @@ class ResumeStore:
     VERSION=1
     def __init__(self,root:Path,*,signature:dict,resume:bool):
         self.root=root.resolve()
+        # Gateway provider handlers and the runner can report failures from
+        # different threads. Serialize status read/update/atomic replace.
+        self._status_lock=threading.RLock()
         self.status=self.root/"run_status.json"
         self.requests=self.root/"successful_requests"
         self.completed=self.root/"completed_runs"
@@ -152,9 +156,18 @@ class ResumeStore:
         self.real_new_calls=0
 
     def _write_status(self,state:str,**details)->None:
+        with self._status_lock:
+            return self._write_status_locked(state,**details)
+
+    def _write_status_locked(self,state:str,**details)->None:
         prior={}
         if self.status.exists():
             prior=json.loads(self.status.read_text(encoding="utf-8"))
+        if str(prior.get("reason","")).startswith("unverified_container_cleanup"):
+            # Cannot be reset by a late generic error from another thread or
+            # the next stage. Quarantine survives any subsequent status update.
+            state="failed"
+            details["reason"]=prior["reason"]
         info={
            "version":self.VERSION,"state":state,"signature":self.signature,
            "created_utc":prior.get("created_utc") or datetime.now(timezone.utc).isoformat(),

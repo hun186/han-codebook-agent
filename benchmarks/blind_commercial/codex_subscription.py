@@ -70,7 +70,6 @@ def check_codex_subscription(codex_bin: str = "codex", *,
             "Subscription experiment refuses API keys/access tokens in environment; "
             "start a clean shell and use 'codex login' with ChatGPT."
         )
-    subscription_home()
     home=subscription_home()
     with tempfile.TemporaryDirectory(prefix="han-codex-auth-check-") as temp:
         result=isolated_codex_run([
@@ -112,7 +111,7 @@ def isolated_codex_run(command:list[str], *, home:Path, scratch:Path,
     if (not scratch.is_dir() or not auth.is_file() or
         scratch==auth.parent or scratch in auth.parents):
         raise RuntimeError("Invalid independent scratch directory / OAuth auth file")
-    if any("," in str(p) or "\\n" in str(p) for p in (scratch,auth)):
+    if any("," in str(p) or chr(10) in str(p) for p in (scratch,auth)):
         raise RuntimeError("Unsafe Docker bind source path")
     if any(os.environ.get(k) for k in SENSITIVE_ENV):
         raise RuntimeError("Subscription mode requires no API credentials in environment")

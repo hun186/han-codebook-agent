@@ -117,9 +117,14 @@ def isolated_codex_run(command:list[str], *, home:Path, scratch:Path,
         raise RuntimeError("Subscription mode requires no API credentials in environment")
     if not command or not all(isinstance(x,str) and x for x in command):
         raise ValueError("Container command must be a non-empty argv list")
+    # Map the Linux/POSIX Docker process to the invoking user so it can
+    # access host-owned 0700 scratch and 0600 OAuth files with all caps dropped.
+    # Docker Desktop/Windows uses virtualized bind ownership and leaves the
+    # image default UID unchanged.
+    host_user = ["--user", f"{os.getuid()}:{os.getgid()}"] if hasattr(os, "getuid") else []
     # Never use host-network, --privileged, host PID/IPC, or broad host mounts.
     argv=[
-        "docker","run","--rm","--pull=never","-i",
+        "docker","run","--rm","--pull=never","-i",*host_user,
         "--network","bridge","--read-only","--cap-drop=ALL",
         "--security-opt","no-new-privileges","--pids-limit","128",
         "--tmpfs","/tmp:rw,nosuid,nodev,size=128m,mode=1777",

@@ -44,8 +44,9 @@ def add_table(doc,headers,rows):
 def build(study:str,public_dir:Path,private_dir:Path,result_dir:Path,out:Path):
     lockfile=result_dir/"predictions_LOCKED.json"
     locked=json.loads(lockfile.read_text(encoding="utf-8"))
-    if locked.get("kind")!="ACTUAL_MULTI_ROUND_BLIND_EVALUATION" or locked.get("provider")!="OPENAI_RESPONSES":
-        raise ValueError("Not a genuine GPT-6 Responses API run; Word benchmark report is forbidden")
+    if (locked.get("kind")!="ACTUAL_MULTI_ROUND_BLIND_EVALUATION" or
+        locked.get("provider") not in ("OPENAI_RESPONSES","CODEX_CLI_CHATGPT_PLAN")):
+        raise ValueError("Not a real model benchmark; Word report is forbidden")
     sealed=hashlib.sha256(lockfile.read_bytes()).hexdigest()
     evaluation=json.loads((result_dir/"evaluation.json").read_text(encoding="utf-8"))
     if evaluation["locked_sha256"]!=sealed:
@@ -68,14 +69,23 @@ def build(study:str,public_dir:Path,private_dir:Path,result_dir:Path,out:Path):
     sec.left_margin=Cm(1.8);sec.right_margin=Cm(1.8)
     style=doc.styles["Normal"];style.font.name="Microsoft JhengHei";style.font.size=Pt(9)
     doc.add_heading("GPT-6 全自動跨報密碼研究｜真正盲測報告",0)
-    para(doc,f"獨立碼本：{study}　模型：{locked['model']}　思考級別：{locked['reasoning_effort']}　回合：{locked['n_rounds']}")
-    para(doc,"API 實際回報模型："+json.dumps(locked.get("reported_api_model_ids",{}),ensure_ascii=False))
+    para(doc,f"獨立碼本：{study}　要求模型：{locked['model']}　思考級別：{locked['reasoning_effort']}　回合：{locked['n_rounds']}")
+    provider=locked["provider"]
+    if provider=="CODEX_CLI_CHATGPT_PLAN":
+        para(doc,"模型來源：ChatGPT 訂閱授權的 Codex CLI（codex exec）；不是付費 Responses API。"
+            "模型身分依 codex exec --model 指定，未取得獨立服務端回報的確切型號。"
+            " Codex CLI 對提示與結構化輸出的包裝可能與直接 API 不同。")
+    else:
+        para(doc,"模型來源：OpenAI 付費 Responses API；API 實際回報模型："+json.dumps(
+            locked.get("reported_api_model_ids",{}),ensure_ascii=False))
     usage=locked.get("usage",{})
-    para(doc,f"完整實驗 API 呼叫 {locked['n_model_calls']} 次；輸入 {usage.get('prompt_tokens',0):,} tokens"
+    para(doc,f"完整實驗模型請求 {locked['n_model_calls']} 次；輸入 {usage.get('prompt_tokens',0):,} tokens"
         f"（快取 {usage.get('cached_input_tokens',0):,}）；輸出 {usage.get('completion_tokens',0):,}"
-        f"（包含推理 {usage.get('reasoning_tokens',0):,}）；Standard 估算費用"
-        f" US$ {usage.get('estimated_usd',0):.4f}（實際帳單依 API 計費）。")
-    para(doc,"本文件只在真正 Responses API 呼叫、逐輪推論、鎖定猜測並揭盲評分後產生。"
+        f"（包含推理 {usage.get('reasoning_tokens',0):,}）。")
+    para(doc,("Standard 估算 API 費用 US$ "+str(usage.get("estimated_usd",0))+
+              "（實際帳單另依 API 計費）") if provider=="OPENAI_RESPONSES" else
+         "本次使用訂閱內 Codex/Work 配額，沒有額外 API Token 計費；受訂閱用量限制。")
+    para(doc,"本文件只在真實模型推論、逐輪結果鎖定並揭盲評分後產生。"
          "合成電文並非真實歷史破譯成果；若沒有獨立錨點，無法保證碼組唯一可辨識。")
     para(doc,"鎖定 SHA256："+sealed,small=True)
     doc.add_heading("一、10／25／50／100 封 × 有無輔助資訊",1)

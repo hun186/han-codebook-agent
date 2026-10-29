@@ -15,6 +15,7 @@ sys.path.insert(0,str(ROOT/"benchmarks"/"blind_commercial"))
 sys.path.insert(0,str(ROOT/"src"))
 from generate import generate, digest
 from run import run_experiment
+from codex_subscription import QuotaExhausted
 from score import score,score_case,verify_locked_audits
 from han_codebook.adaptive_vocabulary import vocabulary_packet
 
@@ -124,6 +125,129 @@ class BlindExperimentTests(unittest.TestCase):
         finally:
             audit.write_bytes(original)
         verify_locked_audits(result,self.output)
+
+    def test_quota_at_mid_round_preserves_replies_and_resumes_without_rebilling(self):
+        """Real original Agent runs 8 experimental cells x 2 LLM calls.
+
+        Force quota after the first completed cell plus first vocabulary
+        call of cell two, then resume. No test-double score/Word is allowed.
+        """
+        seen=[]
+        def mock_answer(chat):
+            body=json.loads(chat["messages"][1]["content"])
+            seen.append(body)
+            if len(seen)==4:
+                raise QuotaExhausted("usage limit reached; wait for reset")
+            if body.get("task")=="generate_vocabulary":
+                data={"vocabulary":[{"term":"燃料","reason":"TEST ONLY"}],"patterns":[]}
+            else:
+                words=body.get("available_vocabulary",[])
+                data={"hypotheses":[
+                    {"code":code,"candidates":words[:1],"reason":"TEST ONLY"}
+                    for code in list(body.get("unresolved",{}))[:5]]}
+            return {"choices":[{"message":{"content":json.dumps(data,ensure_ascii=False)}}],
+                    "model":"TEST_DOUBLE","usage":{"prompt_tokens":10,"completion_tokens":10}}
+        with self.assertRaisesRegex(RuntimeError,"PAUSED_QUOTA"):
+            run_experiment(self.public,self.output,model="gpt-6-astra",
+                           effort="high",rounds=1,max_calls=16,timeout=30,
+                           provider=mock_answer,solver_iterations=1,
+                           solver_restarts=1,real_api=False)
+        status=json.loads((self.output/"run_status.json").read_text(encoding="utf-8"))
+        self.assertEqual(status["state"],"paused_quota")
+        self.assertFalse((self.output/"predictions_LOCKED.json").exists())
+        self.assertFalse((self.output/"evaluation.json").exists())
+        self.assertEqual(len(list((self.output/"completed_runs").glob("*.json"))),1)
+        self.assertEqual(len(list((self.output/"successful_requests").glob("*.json"))),3)
+        actual_new=[]
+        def after_reset(chat):
+            body=json.loads(chat["messages"][1]["content"])
+            actual_new.append(body)
+            if body.get("task")=="generate_vocabulary":
+                data={"vocabulary":[{"term":"燃料","reason":"TEST ONLY"}],"patterns":[]}
+            else:
+                words=body.get("available_vocabulary",[])
+                data={"hypotheses":[
+                    {"code":code,"candidates":words[:1],"reason":"TEST ONLY"}
+                    for code in list(body.get("unresolved",{}))[:5]]}
+            return {"choices":[{"message":{"content":json.dumps(data,ensure_ascii=False)}}],
+                    "model":"TEST_DOUBLE","usage":{"prompt_tokens":10,"completion_tokens":10}}
+        result=run_experiment(self.public,self.output,model="gpt-6-astra",
+                    effort="high",rounds=1,max_calls=16,timeout=30,
+                    provider=after_reset,solver_iterations=1,solver_restarts=1,
+                    real_api=False,resume=True)
+        self.assertEqual(result["kind"],"TEST_DOUBLE_SMOKE_NOT_SCORED")
+        self.assertEqual(result["n_model_calls"],16)
+        self.assertEqual(result["n_experiments"],8)
+        self.assertEqual(len(actual_new),13,"first three successful replies must not incur new requests")
+        self.assertEqual(result["resume_evidence"]["new_successful_calls_this_invocation"],13)
+        self.assertEqual(result["resume_evidence"]["cached_replies_replayed_this_invocation"],1)
+        self.assertEqual(len(list((self.output/"successful_requests").glob("*.json"))),16)
+        self.assertEqual(len(list((self.output/"completed_runs").glob("*.json"))),8)
+        self.assertEqual(json.loads((self.output/"run_status.json").read_text())["state"],"completed")
+        from score import verify_locked_audits
+        verify_locked_audits(result,self.output)
+        with self.assertRaisesRegex(ValueError,"real LLM"):
+            score(self.private,self.public,self.output)
+        with self.assertRaisesRegex(RuntimeError,"already locked"):
+            run_experiment(self.public,self.output,model="gpt-6-astra",
+                    effort="high",rounds=1,max_calls=16,timeout=30,
+                    provider=after_reset,solver_iterations=1,solver_restarts=1,
+                    real_api=False,resume=True)
+
+    def test_resume_rejects_mismatched_settings_and_corrupt_reply(self):
+        from checkpoint import ResumeStore,digest
+        target=self.output
+        sig={"model":"gpt-6-astra","effort":"high"}
+        session=ResumeStore(target,signature=sig,resume=False)
+        fake={"messages":[{"role":"system","content":"x"},
+                          {"role":"user","content":"{}"}]}
+        saved=session.invoke(fake,provider=lambda chat:
+            {"choices":[{"message":{"content":"{}"}}]},
+            model="gpt-6-astra",effort="high",provider_name="TEST_DOUBLE",
+            logical_id="test:round_1:vocabulary")
+        self.assertEqual(saved["choices"][0]["message"]["content"],"{}")
+        session.mark("paused_quota",reason="mock",current="one")
+        with self.assertRaisesRegex(ValueError,"settings"):
+            ResumeStore(target,signature={"model":"different"},resume=True)
+        restored=ResumeStore(target,signature=sig,resume=True)
+        self.assertEqual(restored.invoke(fake,provider=lambda chat:
+            (_ for _ in ()).throw(AssertionError("must use saved reply")),
+            model="gpt-6-astra",effort="high",provider_name="TEST_DOUBLE",
+            logical_id="test:round_1:vocabulary"),saved)
+        cache=next((target/"successful_requests").glob("*.json"))
+        entry=json.loads(cache.read_text(encoding="utf-8"))
+        entry["reply"]["choices"][0]["message"]["content"]="altered"
+        cache.write_text(json.dumps(entry),encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError,"fingerprint corrupted"):
+            restored.invoke(fake,provider=lambda chat:{},
+                model="gpt-6-astra",effort="high",provider_name="TEST_DOUBLE",
+            logical_id="test:round_1:vocabulary")
+
+    def test_same_prompt_in_different_rounds_is_two_model_calls(self):
+        """An unchanged prompt across real rounds must NEVER be replayed."""
+        from checkpoint import ResumeStore
+        r=ResumeStore(self.output,signature={"study":"round-independence"},resume=False)
+        prompt={"messages":[{"role":"system","content":"same"},
+                            {"role":"user","content":"{}"}]}
+        used=[]
+        def live(_):
+            used.append(len(used)+1)
+            return {"choices":[{"message":{"content":str(len(used))}}]}
+        r1=r.invoke(prompt,provider=live,model="gpt-5.6-sol",
+                    effort="high",provider_name="TEST_DOUBLE",
+                    logical_id="study_1:10:with_aux:round_1:hypotheses")
+        r2=r.invoke(prompt,provider=live,model="gpt-5.6-sol",
+                    effort="high",provider_name="TEST_DOUBLE",
+                    logical_id="study_1:10:with_aux:round_2:hypotheses")
+        self.assertEqual(len(used),2)
+        self.assertNotEqual(r1,r2)
+        self.assertEqual(len(list((self.output/"successful_requests").glob("*.json"))),2)
+        r.mark("paused_quota",reason="test")
+        again=ResumeStore(self.output,signature={"study":"round-independence"},resume=True)
+        self.assertEqual(again.invoke(prompt,provider=lambda _:
+            (_ for _ in ()).throw(AssertionError("Must use cache on resume")),
+            model="gpt-5.6-sol",effort="high",provider_name="TEST_DOUBLE",
+            logical_id="study_1:10:with_aux:round_2:hypotheses"),r2)
 
     def test_score_is_exact_and_repeatable_without_shortcuts(self):
         public=json.loads((self.public/"blind_01.json").read_text(encoding="utf-8"))

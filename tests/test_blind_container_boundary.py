@@ -53,7 +53,7 @@ class DockerBoundaryTests(unittest.TestCase):
             gone=subprocess.run(["docker","inspect","--type","container",names[0]],
                                 capture_output=True,text=True,timeout=15)
             self.assertNotEqual(gone.returncode,0)
-            self.assertIn("No such object",gone.stderr)
+            self.assertTrue("No such object" in gone.stderr or "No such container" in gone.stderr, gone.stderr)
 
     def test_private_gold_host_file_is_unreadable_from_container(self):
         with tempfile.TemporaryDirectory() as td:

@@ -193,6 +193,10 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
                              solver_restarts=solver_restarts)
                     except Exception as exc:
                         diagnosis=gateway.errors[-1] if gateway.errors else type(exc).__name__
+                        if diagnosis.startswith("ContainerCleanupUnconfirmed:"):
+                            checkpoints.mark("failed",current=ref,
+                                reason="unverified_container_cleanup: operator verification required")
+                            raise RuntimeError("[UNSAFE_TO_RESUME] Docker container exit unverified; checkpoint quarantined, no scoring or automatic retry") from exc
                         if diagnosis.startswith("QuotaExhausted:"):
                             checkpoints.mark("paused_quota",current=ref,
                                 reason="subscription usage allowance exhausted; resume explicitly after reset")

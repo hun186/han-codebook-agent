@@ -92,7 +92,7 @@ def exclusive_run_lock(root: Path):
             if os.name=="nt":
                 import msvcrt
                 if os.fstat(fd).st_size==0:
-                    os.write(fd,b"\\0")
+                    os.write(fd,bytes([0]))
                     os.fsync(fd)
                 os.lseek(fd,0,os.SEEK_SET)
                 msvcrt.locking(fd,msvcrt.LK_NBLCK,1)
@@ -106,15 +106,17 @@ def exclusive_run_lock(root: Path):
             raise RuntimeError("Study output directory is locked by another process; no checkpoint or model call was attempted") from exc
         yield
     finally:
-        if locked:
-            if os.name=="nt":
-                import msvcrt
-                os.lseek(fd,0,os.SEEK_SET)
-                msvcrt.locking(fd,msvcrt.LK_UNLCK,1)
-            else:
-                import fcntl
-                fcntl.flock(fd,fcntl.LOCK_UN)
-        os.close(fd)
+        try:
+            if locked:
+                if os.name=="nt":
+                    import msvcrt
+                    os.lseek(fd,0,os.SEEK_SET)
+                    msvcrt.locking(fd,msvcrt.LK_UNLCK,1)
+                else:
+                    import fcntl
+                    fcntl.flock(fd,fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 class ResumeStore:

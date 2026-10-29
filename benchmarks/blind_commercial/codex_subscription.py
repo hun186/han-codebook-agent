@@ -15,11 +15,16 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 import os
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+
+
+class ContainerCleanupUnconfirmed(RuntimeError):
+    """Docker container termination is unverified; forbid checkpoint resume."""
 
 
 class QuotaExhausted(RuntimeError):
@@ -95,13 +100,13 @@ DEFAULT_CODEX_IMAGE="han-codebook-codex:local"
 def isolated_codex_run(command:list[str], *, home:Path, scratch:Path,
                        prompt:str|None=None, timeout:int=600,
                        subprocess_run=subprocess.run, image:str|None=None):
-    """Launch Codex in a mount-allowlisted container, never on host.
+    """Use a named, CREATED container; never leave live work after CLI timeout.
 
-    The only host binds are (1) the single OAuth file and (2) a disposable
-    scratch folder containing the output schema. No repository, source
-    corpus, gold folder or Docker socket is mounted. All application writes
-    happen inside scratch or ephemeral container tmpfs. This boundary
-    exists BEFORE any Codex model/tool process can start.
+    Docker start --attach can be killed by Python while the daemon container
+    continues running. Docker CREATE first establishes its unique identity;
+    after start returns, times out or is interrupted, forcibly REMOVE by that
+    name and verify it no longer exists before returning to the caller.
+    The outer study lock must remain held across this entire lifecycle.
     """
     image=image or os.environ.get("HAN_CODEX_IMAGE",DEFAULT_CODEX_IMAGE)
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_./:@-]{0,190}",image):
@@ -117,14 +122,12 @@ def isolated_codex_run(command:list[str], *, home:Path, scratch:Path,
         raise RuntimeError("Subscription mode requires no API credentials in environment")
     if not command or not all(isinstance(x,str) and x for x in command):
         raise ValueError("Container command must be a non-empty argv list")
-    # Map the Linux/POSIX Docker process to the invoking user so it can
-    # access host-owned 0700 scratch and 0600 OAuth files with all caps dropped.
-    # Docker Desktop/Windows uses virtualized bind ownership and leaves the
-    # image default UID unchanged.
-    host_user = ["--user", f"{os.getuid()}:{os.getgid()}"] if hasattr(os, "getuid") else []
-    # Never use host-network, --privileged, host PID/IPC, or broad host mounts.
-    argv=[
-        "docker","run","--rm","--pull=never","-i",*host_user,
+    host_user=["--user",f"{os.getuid()}:{os.getgid()}"] if hasattr(os,"getuid") else []
+    # Stable name exists BEFORE any model process is started. Create, then
+    # start attached. No create-after-killed-CLI race is possible.
+    name="han-blind-"+secrets.token_hex(16)
+    args=[
+        "docker","create","--name",name,"--pull=never","-i",*host_user,
         "--network","bridge","--read-only","--cap-drop=ALL",
         "--security-opt","no-new-privileges","--pids-limit","128",
         "--tmpfs","/tmp:rw,nosuid,nodev,size=128m,mode=1777",
@@ -137,13 +140,51 @@ def isolated_codex_run(command:list[str], *, home:Path, scratch:Path,
         'cp /etc/han-codebook-auth.json "$CODEX_HOME/auth.json"; exec "$@"',
         "han-codebook-isolated",*command,
     ]
-    # Docker CLI needs its local daemon environment, not the model's env.
-    # Only explicitly enumerated HOME/CODEX_HOME are forwarded to container.
     env=os.environ.copy()
-    for key in SENSITIVE_ENV: env.pop(key,None)
-    return subprocess_run(argv,input=prompt,text=True,encoding="utf-8",
-                          capture_output=True,cwd=str(scratch),env=env,
-                          timeout=timeout,check=False)
+    for key in SENSITIVE_ENV:env.pop(key,None)
+    opts=dict(text=True,encoding="utf-8",capture_output=True,
+              cwd=str(scratch),env=env,check=False)
+    attempted=False
+    creation_uncertain=False
+    try:
+        attempted=True
+        try:
+            created=subprocess_run(args,timeout=60,**opts)
+        except BaseException:
+            creation_uncertain=True
+            raise
+        if created.returncode!=0:
+            raise RuntimeError("Could not create the isolated Codex container; "
+                               "verify Docker image and daemon availability")
+        # Only this CLI can be killed by subprocess.run timeout; the container
+        # is forcibly removed in finally, while the study lock is still held.
+        return subprocess_run(["docker","start","--attach","--interactive",name],
+                             input=prompt,timeout=timeout,**opts)
+    finally:
+        if attempted:
+            try:
+                removed=subprocess_run(["docker","rm","--force",name],
+                                      timeout=40,**opts)
+                check=subprocess_run(["docker","inspect","--type","container",name],
+                                     timeout=20,**opts)
+                # Missing container is expected after force-removal. A Docker
+                # daemon error is NOT evidence that the container exited.
+                missing=(check.returncode!=0 and
+                         ("no such object" in check.stderr.lower() or
+                          "no such container" in check.stderr.lower()))
+                if (creation_uncertain or not missing or
+                    (removed.returncode!=0 and
+                     not ("no such" in removed.stderr.lower()))):
+                    raise ContainerCleanupUnconfirmed(
+                        "Container cleanup unverified for "+name+
+                        "; do not resume until Docker daemon confirms removal")
+            except ContainerCleanupUnconfirmed:
+                raise
+            except BaseException as exc:
+                raise ContainerCleanupUnconfirmed(
+                    "Docker cleanup/exit verification failed for "+name+
+                    "; do not resume without operator verification") from exc
+
 
 
 def schema_for(kind: str) -> dict:

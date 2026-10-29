@@ -63,6 +63,10 @@ class ResumeSafetyTests(unittest.TestCase):
         signature={"test_case":"unverified Docker shutdown"}
         store=ResumeStore(self.output,signature=signature,resume=False)
         store.mark("failed",reason="unverified_container_cleanup: operator action required")
+        # Late generic failures and incidental progress updates cannot
+        # overwrite the safety quarantine, even with concurrent handlers.
+        store.mark("failed",reason="inference interruption (not a validated result)")
+        store.mark("running",reason="run active")
         with self.assertRaisesRegex(RuntimeError,"Unsafe resume"):
             ResumeStore(self.output,signature=signature,resume=True)
         state=json.loads((self.output/"run_status.json").read_text(encoding="utf-8"))

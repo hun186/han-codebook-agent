@@ -238,3 +238,13 @@ python benchmarks/blind_commercial/score.py `
 4. Hosted CI 使用真實 Docker Alpine 容器，故意讓容器的
    `sleep` 超過 CLI timeout，再驗證該唯一名稱的容器已由 daemon
    停止移除。這不是實際 GPT-6／GPT-5.6 訂閱推論。
+
+## 2026-10-29：已逾時 HTTP 的延遲清理失敗不可自動 Resume
+
+即使 Agent 的 HTTP 端先逾時、並先把 `run_status.json` 寫成普通
+`failed`，若背景模型 Provider 稍後才得知 Docker 無法證實容器已停止，
+Provider Handler 會在返回之前**直接持久化**不可續跑標記
+`unverified_container_cleanup`。此標記在 checkpoint 中具持續優先權；
+主執行緒的其他失敗或進度更新不可覆蓋。Gateway 仍要等全部 Provider
+結束才釋放研究 OS 鎖，下一次 `--resume` 會拒絕該狀態，防止
+未確認容器終止就再次呼叫同一邏輯模型請求。

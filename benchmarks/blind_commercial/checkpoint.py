@@ -133,6 +133,8 @@ class ResumeStore:
             old=json.loads(self.status.read_text(encoding="utf-8"))
             if old.get("signature")!=signature:
                 raise ValueError("Resume settings, corpus hashes or model differ; no reuse permitted")
+            if str(old.get("reason","")).startswith("unverified_container_cleanup"):
+                raise RuntimeError("Unsafe resume: previous Docker container termination unverified; checkpoint quarantined")
             if old.get("state")=="completed":
                 raise RuntimeError("Benchmark is already locked; do not resume a completed run")
             if old.get("state") not in ("paused_quota","failed","running"):

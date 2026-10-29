@@ -6,6 +6,7 @@ NOT charge or exercise anyone's ChatGPT plan and are not benchmark results.
 from __future__ import annotations
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -16,31 +17,52 @@ from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/"benchmarks"/"blind_commercial"))
 from codex_subscription import (check_codex_subscription, QuotaExhausted,
-                                codex_subscription_reply,schema_for)
+                                codex_subscription_reply,schema_for,isolated_codex_run,
+                                ContainerCleanupUnconfirmed)
 
 
 
-def fake_docker(inner):
-    """Translate the tested Docker argv to its inner Codex argv for a fake CLI.
-
-    This only checks command construction; the separate hosted Docker test
-    actually probes the OS boundary. It never pretends to be a real model.
-    """
+def fake_docker(inner, *, events=None, fail_cleanup=False):
+    """Simulate Docker create/start/remove/inspect, never a paid model call."""
+    created={}
     def run(argv,**kwargs):
-        assert argv[:2]==["docker","run"], argv
-        assert "--read-only" in argv and "--cap-drop=ALL" in argv
-        assert argv[argv.index("--network")+1]=="bridge"
-        assert "--privileged" not in argv and "--network=host" not in argv
-        mounts=[argv[i+1] for i,a in enumerate(argv[:-1]) if a=="--mount"]
-        assert len(mounts)==2, mounts
-        assert any("target=/etc/han-codebook-auth.json,readonly" in m for m in mounts)
-        assert any("target=/work" in m for m in mounts)
-        assert not any("target=/"==m for m in mounts)
-        boundary=argv.index("han-codebook-isolated")
-        cmd=argv[boundary+1:]
-        cwd=Path(kwargs["cwd"])
-        cmd=[str(cwd/x[len("/work/"):]) if x.startswith("/work/") else x for x in cmd]
-        return inner(cmd,**kwargs)
+        if events is not None:
+            events.append(argv[:])
+        assert argv[0]=="docker", argv
+        if argv[1]=="create":
+            assert "--name" in argv, argv
+            name=argv[argv.index("--name")+1]
+            assert name.startswith("han-blind-"), name
+            assert "--read-only" in argv and "--cap-drop=ALL" in argv
+            assert argv[argv.index("--network")+1]=="bridge"
+            assert "--privileged" not in argv and "--network=host" not in argv
+            assert "--pull=never" in argv
+            if hasattr(os,"getuid"):
+                assert argv[argv.index("--user")+1]==f"{os.getuid()}:{os.getgid()}"
+            mounts=[argv[i+1] for i,a in enumerate(argv[:-1]) if a=="--mount"]
+            assert len(mounts)==2, mounts
+            assert any("target=/etc/han-codebook-auth.json,readonly" in m for m in mounts)
+            assert any("target=/work" in m for m in mounts)
+            boundary=argv.index("han-codebook-isolated")
+            cmd=argv[boundary+1:]
+            cwd=Path(kwargs["cwd"])
+            created[name]=[str(cwd/x[len("/work/"):]) if x.startswith("/work/")
+                           else x for x in cmd]
+            return SimpleNamespace(returncode=0,stdout="a"*64+"\n",stderr="")
+        if argv[1]=="start":
+            assert argv[2:4]==["--attach","--interactive"],argv
+            assert argv[4] in created
+            return inner(created[argv[4]],**kwargs)
+        if argv[1]=="rm":
+            assert argv[2]=="--force",argv
+            return SimpleNamespace(returncode=1 if fail_cleanup else 0,
+                                   stdout="",stderr="daemon failure" if fail_cleanup else "")
+        if argv[1]=="inspect":
+            assert argv[2:4]==["--type","container"],argv
+            return SimpleNamespace(returncode=0 if fail_cleanup else 1,
+                                   stdout="still running" if fail_cleanup else "",
+                                   stderr="" if fail_cleanup else "Error: No such object")
+        raise AssertionError("Unexpected docker operation: "+str(argv))
     return run
 
 
@@ -57,6 +79,32 @@ class CodexSubscriptionBridgeTests(unittest.TestCase):
           "CODEX_HOME":str(self.auth_home)})
         self.clean.start()
         self.addCleanup(self.clean.stop)
+
+    def test_cli_timeout_forces_container_removal_before_return(self):
+        with tempfile.TemporaryDirectory() as td:
+            events=[]
+            def timeout_cli(argv,**kwargs):
+                raise subprocess.TimeoutExpired(cmd=argv,timeout=1)
+            with self.assertRaises(subprocess.TimeoutExpired):
+                isolated_codex_run(["codex","exec"],home=self.auth_home,
+                                   scratch=Path(td),timeout=1,
+                                   subprocess_run=fake_docker(timeout_cli,events=events))
+            self.assertEqual([e[1] for e in events],
+                             ["create","start","rm","inspect"])
+            name=events[0][events[0].index("--name")+1]
+            self.assertEqual(events[1][-1],name)
+            self.assertEqual(events[2][-1],name)
+            self.assertEqual(events[3][-1],name)
+
+    def test_unconfirmed_cleanup_fails_closed(self):
+        with tempfile.TemporaryDirectory() as td:
+            def timeout_cli(argv,**kwargs):
+                raise subprocess.TimeoutExpired(cmd=argv,timeout=1)
+            with self.assertRaisesRegex(ContainerCleanupUnconfirmed,
+                                        "cleanup unverified"):
+                isolated_codex_run(["codex","exec"],home=self.auth_home,
+                    scratch=Path(td),timeout=1,
+                    subprocess_run=fake_docker(timeout_cli,fail_cleanup=True))
 
     def test_requires_chatgpt_oauth_not_api_billing(self):
         def mock(argv,**kwargs):

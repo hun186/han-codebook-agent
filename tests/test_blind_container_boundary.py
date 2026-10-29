@@ -21,8 +21,6 @@ from codex_subscription import isolated_codex_run
 
 class DockerBoundaryTests(unittest.TestCase):
     @unittest.skipUnless(os.environ.get("HAN_RUN_DOCKER_BOUNDARY_TEST")=="1",
-                         "Docker gold boundary is exercised in separate Hosted CI job")
-    @unittest.skipUnless(os.environ.get("HAN_RUN_DOCKER_BOUNDARY_TEST")=="1",
                          "Real Docker lifecycle test runs in Hosted CI")
     def test_timeout_removes_actual_named_container(self):
         with tempfile.TemporaryDirectory() as td:
@@ -55,6 +53,8 @@ class DockerBoundaryTests(unittest.TestCase):
             self.assertNotEqual(gone.returncode,0)
             self.assertTrue("No such object" in gone.stderr or "No such container" in gone.stderr, gone.stderr)
 
+    @unittest.skipUnless(os.environ.get("HAN_RUN_DOCKER_BOUNDARY_TEST")=="1",
+                         "Docker gold boundary runs in separate Hosted CI job")
     def test_private_gold_host_file_is_unreadable_from_container(self):
         with tempfile.TemporaryDirectory() as td:
             base=Path(td).resolve()

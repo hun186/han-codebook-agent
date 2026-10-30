@@ -195,6 +195,85 @@ const { TextEncoder } = require('node:util');
   assert.equal(rejectedRun.status,400);
   assert.match((await rejectedRun.json()).error,/exclusions remove every candidate/);
 
+  // Codex PR #10 P2 follow-up: local core.analyze() treats active
+  // hypothesis_marks.preferred as part of the *shared* vocabulary. With an
+  // empty profile dictionary, a mark on code 000 must also let 001 run.
+  const marksOnly=JSON.parse(JSON.stringify(caseData));
+  marksOnly.messages=[{id:'empty-lexicon',codes:['000','001']}];
+  marksOnly.known_pairs=[];
+  marksOnly.candidate_ideas={};
+  for(const profile of Object.values(marksOnly.profiles)){
+    profile.lexicon={};
+    profile.sentences=[];
+  }
+  marksOnly.hypothesis_marks={
+    '000':{preferred:'研究員新詞',pinned:false,excluded:[]}
+  };
+  for(const rounds of [0,2]){
+    const id=(await post('/api/start',{
+      case:marksOnly,rounds,candidate_mode:'static'
+    })).job_id;
+    const result=(await get('/api/jobs/'+id)).result;
+    assert.equal(result.known_code_count,0,
+      'researcher preference must NOT become verified known plaintext');
+    assertAllowed(result,['研究員新詞']);
+    assert.equal(result.proposals['000'].term,'研究員新詞');
+    assert.equal(result.proposals['001'].term,'研究員新詞');
+    assert.ok(Object.values(result.proposals)
+      .every(p=>p.status==='hypothesis_unverified'));
+  }
+  const autoMarksId=(await post('/api/start',{
+    case:marksOnly,rounds:2,candidate_mode:'automatic'
+  })).job_id;
+  const autoMarks=await get('/api/jobs/'+autoMarksId);
+  assert.equal(autoMarks.status,'completed');
+  assert.deepEqual(Object.values(autoMarks.events[0].payload.mapping),
+    ['研究員新詞','研究員新詞'],
+    'automatic-mode baseline must use researcher preferred vocabulary');
+  assertAllowed(autoMarks.result,
+    ['研究員新詞',...autoMarks.result.dynamic_vocabulary_terms]);
+  const humanMarksId=(await post('/api/start',{
+    case:marksOnly,rounds:1,candidate_mode:'human'
+  })).job_id;
+  const humanMarksBefore=await get('/api/jobs/'+humanMarksId);
+  assert.equal(humanMarksBefore.status,'awaiting_review');
+  assert.deepEqual(Object.values(humanMarksBefore.events[0].payload.mapping),
+    ['研究員新詞','研究員新詞']);
+  await post('/api/jobs/'+humanMarksId+'/review',{
+    round:humanMarksBefore.pending_review.round,
+    review_token:humanMarksBefore.pending_review.review_token,
+    approved:[],added:[]
+  });
+  const humanMarksAfter=await get('/api/jobs/'+humanMarksId);
+  assert.equal(humanMarksAfter.status,'completed');
+  assertAllowed(humanMarksAfter.result,['研究員新詞']);
+  assert.equal(humanMarksAfter.result.proposals['001'].term,'研究員新詞');
+
+  // A second preference is shared as well, while exclusions remain per-code.
+  const twoMarks=JSON.parse(JSON.stringify(marksOnly));
+  twoMarks.hypothesis_marks['001']={
+    preferred:'另一個人工詞',pinned:false,excluded:['研究員新詞']
+  };
+  const twoMarksResult=(await get('/api/jobs/'+(await post('/api/start',{
+    case:twoMarks,rounds:0
+  })).job_id)).result;
+  assertAllowed(twoMarksResult,['研究員新詞','另一個人工詞']);
+  assert.equal(twoMarksResult.proposals['000'].term,'研究員新詞');
+  assert.equal(twoMarksResult.proposals['001'].term,'另一個人工詞');
+  assert.equal(twoMarksResult.proposals['001'].alternatives.some(
+    candidate=>candidate.term==='研究員新詞'),false,
+    'code exclusions must still override shared preferred words');
+
+  // Undoing the sole manual preferred mark must not silently resurrect
+  // snapshot terms from the deleted dictionary or invent a vocabulary.
+  const undone=JSON.parse(JSON.stringify(marksOnly));
+  undone.hypothesis_marks={};
+  const emptyResponse=await sandbox.fetch('/api/start',{
+    method:'POST',body:JSON.stringify({case:undone,rounds:0})
+  });
+  assert.equal(emptyResponse.status,400);
+  assert.match((await emptyResponse.json()).error,/remove every candidate/);
+
   const proposal=await post('/api/suggest-vocabulary',{case:caseData,confirmed:true});
   const vocabJob=await get('/api/jobs/'+proposal.job_id);
   assert.equal(vocabJob.type,'vocabulary');

@@ -377,6 +377,94 @@ const { TextEncoder } = require('node:util');
     assert.match((await response.json()).error,/remove every candidate/);
   }
 
+  // Codex PR #10 cold-start P2: an empty case may not have a statistical
+  // mapping yet. Dynamic Mock modes propose vocabulary before mapping, but
+  // static cannot conjure a word out of the public fixture snapshot.
+  const coldCase=JSON.parse(JSON.stringify(caseData));
+  coldCase.messages=[{id:'cold',codes:['000']}];
+  coldCase.known_pairs=[];
+  coldCase.candidate_ideas={};
+  coldCase.hypothesis_marks={};
+  for(const profile of Object.values(coldCase.profiles)){
+    profile.lexicon={};
+    profile.sentences=[];
+  }
+  const coldStatic=await sandbox.fetch('/api/start',{
+    method:'POST',body:JSON.stringify({case:coldCase,rounds:0,candidate_mode:'static'})
+  });
+  assert.equal(coldStatic.status,400,'static must still refuse empty vocabulary');
+  assert.match((await coldStatic.json()).error,/remove every candidate/);
+
+  const coldAutoId=(await post('/api/start',{
+    case:coldCase,rounds:1,candidate_mode:'automatic',capture_llm_io:true
+  })).job_id;
+  const coldAuto=await get('/api/jobs/'+coldAutoId);
+  assert.equal(coldAuto.status,'completed');
+  assert.equal(coldAuto.events[0].stage,'vocabulary_bootstrap_required');
+  assert.equal(coldAuto.events[0].payload.score,null);
+  assert.deepEqual(coldAuto.events[0].payload.mapping,{});
+  assert.ok(coldAuto.result.dynamic_vocabulary_terms.length>0);
+  assert.equal(coldAuto.result.known_code_count,0);
+  assert.equal(coldAuto.result.proposals['000'].status,'hypothesis_unverified');
+  assertAllowed(coldAuto.result,coldAuto.result.dynamic_vocabulary_terms);
+  const coldAutoRescore=coldAuto.events.find(e=>e.stage==='vocabulary_rescore');
+  assert.equal(coldAutoRescore.payload.changed_count,1);
+  assert.equal(coldAutoRescore.payload.changes['000'].before,null);
+  assert.equal(coldAutoRescore.payload.changes['000'].after,coldAuto.result.proposals['000'].term);
+  assert.equal(coldAuto.events.filter(e=>e.stage==='vocabulary_llm_request').length,1);
+  assert.equal(coldAuto.events.filter(e=>e.stage==='llm_request').length,1);
+
+  const coldHumanId=(await post('/api/start',{
+    case:coldCase,rounds:1,candidate_mode:'human'
+  })).job_id;
+  const coldPending=await get('/api/jobs/'+coldHumanId);
+  assert.equal(coldPending.status,'awaiting_review');
+  assert.equal(coldPending.result,null);
+  assert.equal(coldPending.events[0].stage,'vocabulary_bootstrap_required');
+  assert.deepEqual(coldPending.events[0].payload.mapping,{});
+  assert.ok(coldPending.pending_review.candidates.length>0);
+  const zeroReview=await sandbox.fetch('/api/jobs/'+coldHumanId+'/review',{
+    method:'POST',body:JSON.stringify({
+      round:coldPending.pending_review.round,
+      review_token:coldPending.pending_review.review_token,approved:[],added:[]
+    })
+  });
+  assert.equal(zeroReview.status,400,'cold start requires explicit vocabulary approval');
+  assert.match((await zeroReview.json()).error,/bootstrap the empty vocabulary/);
+  const stillPending=await get('/api/jobs/'+coldHumanId);
+  assert.equal(stillPending.status,'awaiting_review');
+  assert.equal(stillPending.pending_review.review_token,coldPending.pending_review.review_token);
+  assert.equal(stillPending.events.some(e=>e.stage==='rescore'),false);
+  const firstTerm=coldPending.pending_review.candidates[0].term;
+  await post('/api/jobs/'+coldHumanId+'/review',{
+    round:coldPending.pending_review.round,
+    review_token:coldPending.pending_review.review_token,
+    approved:[firstTerm],added:[]
+  });
+  const coldHumanDone=await get('/api/jobs/'+coldHumanId);
+  assert.equal(coldHumanDone.status,'completed');
+  assert.deepEqual(coldHumanDone.result.dynamic_vocabulary_terms,[firstTerm]);
+  assert.equal(coldHumanDone.result.proposals['000'].status,'hypothesis_unverified');
+  assert.equal(coldHumanDone.result.known_code_count,0);
+  assertAllowed(coldHumanDone.result,[firstTerm]);
+  assert.equal(coldHumanDone.events.find(e=>e.stage==='rescore').payload.changed_count,1);
+
+  // Reviewer-created words alone can bootstrap a blank case; they remain
+  // unverified and a rejected synthetic suggestion must not be adopted.
+  const coldAddedId=(await post('/api/start',{
+    case:coldCase,rounds:1,candidate_mode:'human'
+  })).job_id;
+  const coldAddedPending=await get('/api/jobs/'+coldAddedId);
+  await post('/api/jobs/'+coldAddedId+'/review',{
+    round:1,review_token:coldAddedPending.pending_review.review_token,
+    approved:[],added:['人工冷啟動新詞']
+  });
+  const coldAdded=await get('/api/jobs/'+coldAddedId);
+  assert.equal(coldAdded.status,'completed');
+  assert.deepEqual(coldAdded.result.dynamic_vocabulary_terms,['人工冷啟動新詞']);
+  assertAllowed(coldAdded.result,['人工冷啟動新詞']);
+  assert.equal(coldAdded.result.proposals['000'].status,'hypothesis_unverified');
+
   const proposal=await post('/api/suggest-vocabulary',{case:caseData,confirmed:true});
   const vocabJob=await get('/api/jobs/'+proposal.job_id);
   assert.equal(vocabJob.type,'vocabulary');

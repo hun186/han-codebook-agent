@@ -85,6 +85,16 @@
     for (const ideas of Object.values(caseData.candidate_ideas || {})) {
       for (const idea of ideas) if (idea.status !== 'rejected') words.add(idea.term);
     }
+    // Match core.anchors_and_review(): each *explicitly segmented* known
+    // plaintext pair contributes its words to the shared vocabulary. The
+    // matching cipher code alone remains verified; reuse by another code
+    // is still only an unverified hypothesis. safeCase validates these
+    // alignments before any analysis. Unsegmented plaintext is NOT an anchor.
+    for (const pair of caseData.known_pairs || []) {
+      if (Array.isArray(pair.segments)) {
+        for (const term of pair.segments) words.add(term);
+      }
+    }
     // Match local core.analyze(): a current researcher preferred hypothesis
     // contributes to the shared vocabulary for *all* unverified codes, not
     // just the code where the mark was entered. A removed/reverted mark has

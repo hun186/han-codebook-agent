@@ -465,6 +465,53 @@ const { TextEncoder } = require('node:util');
   assertAllowed(coldAdded.result,['人工冷啟動新詞']);
   assert.equal(coldAdded.result.proposals['000'].status,'hypothesis_unverified');
 
+  // Codex PR #10 P2: a failed human rerank must atomically preserve the
+  // pending token, candidate vocabulary and audit, even if the selected
+  // first-round word is excluded by the researcher.
+  const excludedBootstrap=JSON.parse(JSON.stringify(coldCase));
+  excludedBootstrap.hypothesis_marks={
+    '000':{preferred:null,pinned:false,excluded:['補給線']}
+  };
+  const retryId=(await post('/api/start',{
+    case:excludedBootstrap,rounds:1,candidate_mode:'human',capture_llm_io:true
+  })).job_id;
+  const retryBefore=await get('/api/jobs/'+retryId);
+  assert.equal(retryBefore.status,'awaiting_review');
+  assert.equal(retryBefore.pending_review.candidates[0].term,'補給線');
+  const rejectedApproval={
+    round:retryBefore.pending_review.round,
+    review_token:retryBefore.pending_review.review_token,
+    approved:['補給線'],added:[]
+  };
+  const rejectResponse=await sandbox.fetch('/api/jobs/'+retryId+'/review',{
+    method:'POST',body:JSON.stringify(rejectedApproval)
+  });
+  assert.equal(rejectResponse.status,400,
+    'a disallowed sole word should fail reranking');
+  assert.match((await rejectResponse.json()).error,/remove every candidate/);
+  const retryAfter=await get('/api/jobs/'+retryId);
+  assert.deepEqual(retryAfter,retryBefore,
+    'failed rerank must not mutate any publicly visible job/audit/token state');
+  const correction=await post('/api/jobs/'+retryId+'/review',{
+    ...rejectedApproval,approved:[],added:['人工合法新詞']
+  });
+  assert.equal(correction.researcher_added,1);
+  const retryDone=await get('/api/jobs/'+retryId);
+  assert.equal(retryDone.status,'completed');
+  assert.equal(retryDone.result.proposals['000'].term,'人工合法新詞');
+  assert.equal(retryDone.result.proposals['000'].status,'hypothesis_unverified');
+  assert.deepEqual(retryDone.result.dynamic_vocabulary_terms,['人工合法新詞']);
+  assertAllowed(retryDone.result,['人工合法新詞']);
+  const retryRecord=retryDone.events.find(e=>e.stage==='vocabulary_candidates_unverified');
+  assert.deepEqual(retryRecord.payload.approved,['人工合法新詞']);
+  assert.equal(retryDone.events.filter(e=>e.stage==='vocabulary_candidates_unverified').length,1);
+  assert.equal(retryDone.events.filter(e=>e.stage==='vocabulary_rescore').length,1);
+  assert.equal(retryDone.events.filter(e=>e.stage==='llm_response').length,1);
+  const reusedToken=await sandbox.fetch('/api/jobs/'+retryId+'/review',{
+    method:'POST',body:JSON.stringify(rejectedApproval)
+  });
+  assert.equal(reusedToken.status,409,'successful retry must consume the old token');
+
   const proposal=await post('/api/suggest-vocabulary',{case:caseData,confirmed:true});
   const vocabJob=await get('/api/jobs/'+proposal.job_id);
   assert.equal(vocabJob.type,'vocabulary');

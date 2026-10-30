@@ -271,13 +271,51 @@ const clone=x=>JSON.parse(JSON.stringify(x));
  };
  run('research=_A;invalidateOldJobs()');
  await run('start()');
- assert.equal(el('run').disabled,true);
+ assert.equal(el('run').disabled,true,'analysis start failed: '+JSON.stringify(notices.slice(-5)));
  run('research.messages[0].notes="new field note"');
  rejectAnalysisPoll(Error('analysis HTTP 503'));
  for(let n=0;n<6;n++)await Promise.resolve();
  assert.equal(el('run').disabled,false,
   'edited-case analysis GET rejection permanently disabled run button');
  assert.equal(run('lastJob'),null,'failed analysis did not retire job identity');
+
+ // Switching the entire case clears the old polling timer immediately.
+ // The human approval gate must still be explicitly cancelled.
+ let canceledPath=null;
+ api=(path,body)=>{
+  if(path==='/api/jobs/000000000000000a/cancel'){
+   canceledPath=path;return Promise.resolve({status:'cancelling'});
+  }
+  throw Error('unexpected human cancellation path '+path);
+ };
+ run("activeHumanReviewJobId='000000000000000a';invalidateOldJobs()");
+ assert.equal(canceledPath,'/api/jobs/000000000000000a/cancel');
+ assert.equal(run('activeHumanReviewJobId'),null);
+
+ // P2 regression: a transient GET failure must not strand a human
+ // approval job or retire its identity without canceling the worker.
+ el('candidateMode').value='human';el('rounds').value='1';
+ let statusReads=0;
+ api=path=>{
+  if(path==='/api/start')return Promise.resolve({job_id:'000000000000000b'});
+  if(path==='/api/jobs/000000000000000b'){
+   statusReads++;return Promise.reject(Error('temporary status network error'));
+  }
+  return Promise.reject(Error('unexpected human polling path '+path));
+ };
+ run('research=_A;invalidateOldJobs()');
+ await run('start()');
+ for(let i=0;i<9;i++)await Promise.resolve();
+ assert.equal(run('lastJob'),'000000000000000b',
+  'transient polling error retired the pending human approval');
+ assert.ok(timers.size>0,'temporary GET failure killed the only approval poller');
+ assert.ok(statusReads>=1);
+ // Finish teardown; the active server job is canceled on case replacement.
+ api=path=>path==='/api/jobs/000000000000000b/cancel'?
+   Promise.resolve({status:'cancelling'}):
+   Promise.reject(Error('unexpected teardown path '+path));
+ run('invalidateOldJobs()');
+ el('candidateMode').value='static';
 
  console.log('UI cross-case isolation, safe idea import and workflow guide PASS');
 })().catch(e=>{console.error(e);process.exitCode=1});

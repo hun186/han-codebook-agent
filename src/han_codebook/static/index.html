@@ -84,7 +84,8 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
 <p class="guide-callout"><strong>安全與有效性：</strong>本機介面綁定 127.0.0.1；LLM 網路請求需明確選擇與確認，僅發往設定且允許的私有端點。資料與密碼組請視為敏感研究材料。Vercel 公開 PoC 只做合成 Mock 展示，沒有此本機真實模型流程。</p>
 </div>
 </section>
-<section id="overview" class="page active"><div class="columns"><div class="panel"><h2>執行研究</h2><p class="muted">所有密碼組維持原始字串，已知對齊是確定錨點；收發者與第三方觀察只作推測先驗。</p><div class="row"><div><label>LLM 回合數</label><input id="rounds" type="number" min="0" max="20" step="1" value="0"><small class="muted">0＝離線；1～20 為內網 LLM 回合，不保證回合多就更準確</small></div><div><label>元數據分析</label><select id="metadata"><option value="true">啟用收發者／第三方情報</option><option value="false">停用，作消融比較</option></select></div></div><p><label><input type="checkbox" id="capture"> 在本機 SQLite 保存**完整** LLM Prompt 與回覆（可能包含敏感情報）</label></p><div class="row"><button id="run" class="primary">執行分析</button><button id="save">另存案例</button></div><p class="alert">預設 0 輪不連 LLM；選擇大於 0 輪並按「執行分析」才會將研究案例送往 config.yaml 指定的內網服務。</p><h3>工作進度</h3><pre id="progress">尚未啟動</pre></div><div class="panel"><h2>最新結果總覽</h2><div id="summary" class="muted">先載入案例並執行分析。</div><div id="reportLink"></div><div id="bars"></div></div></div><div class="panel"><h2>每封電文候選解讀</h2><div id="readings" class="wrap muted">尚無結果</div></div></section>
+<section id="overview" class="page active"><div class="columns"><div class="panel"><h2>執行研究</h2><p class="muted">所有密碼組維持原始字串，已知對齊是確定錨點；收發者與第三方觀察只作推測先驗。</p><div class="row"><div><label>LLM 回合數</label><input id="rounds" type="number" min="0" max="20" step="1" value="0"><small class="muted">0＝離線；1～20 為內網 LLM 回合，不保證回合多就更準確</small></div><div><label>元數據分析</label><select id="metadata"><option value="true">啟用收發者／第三方情報</option><option value="false">停用，作消融比較</option></select></div>
+<div><label>候選詞庫更新／人工覆核</label><select id="candidateMode"><option value="static">維持既有詞庫（相容模式）</option><option value="automatic">逐回合動態擴充，自動採納未驗證候選</option><option value="human">逐回合動態擴充，人工覆核後續行</option></select></div></div><p class="muted">動態模式每回合先由內網 LLM 依目前密文、跨報目擊與上一輪未驗證假說提出新詞，再更新詞庫、聯合求解與修正碼組候選。關閉人工覆核即可自動連續執行；候選絕不自動標記為已驗證明文。分析期間使用啟動時的案例快照；新增情報請重新啟動分析。</p><p><label><input type="checkbox" id="capture"> 在本機 SQLite 保存**完整** LLM Prompt 與回覆（可能包含敏感情報）</label></p><div class="row"><button id="run" class="primary">執行分析</button><button id="save">另存案例</button></div><p class="alert">預設 0 輪不連 LLM；選擇大於 0 輪並按「執行分析」才會將研究案例送往 config.yaml 指定的內網服務。</p><h3>工作進度</h3><pre id="progress">尚未啟動</pre><div id="pendingVocabularyReview" class="guide-callout" hidden></div></div><div class="panel"><h2>最新結果總覽</h2><div id="summary" class="muted">先載入案例並執行分析。</div><div id="reportLink"></div><div id="bars"></div></div></div><div class="panel"><h2>每封電文候選解讀</h2><div id="readings" class="wrap muted">尚無結果</div></div></section>
 <section id="modelSettings" class="page"><div class="panel"><h2>本機 LLM 端點設定</h2>
 <p class="guide-callout settings-help">參考 AI 模擬病人的 Provider/Model 設定概念，這裡只支援 Ollama／vLLM／內網 OpenAI-compatible Chat Completions。基於密電保密性，<strong>不開放公網端點</strong>。修改只會寫入本機 config.yaml；API Key 本體不會儲存於此介面。</p>
 <div class="gridfield"><div><label>Provider 類型（操作提示）</label><select id="llmPreset"><option value="ollama">Ollama Local / LAN</option><option value="compatible">內網 OpenAI-compatible</option></select></div>
@@ -117,7 +118,7 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
 </main><script>
 const el=id=>document.getElementById(id);let research=null,lastJob=null,poll=null,markSnapshots=[],markCursor=-1,markActions=[],priorResult=null,ideaSnapshots=[],ideaCursor=-1,lastLLMEntries=[];
 let caseGeneration=0,lastLLMOrigin=null,vocabOrigin=null,vocabTimer=null;
-let vocabRequestSerial=0,vocabActiveJobId=null,analysisRequestSerial=0;
+let vocabRequestSerial=0,vocabActiveJobId=null,analysisRequestSerial=0,activeHumanReviewJobId=null;
 function caseFingerprint(){
  if(!research)return null;
  const item={...research};delete item.hypothesis_revision_history;
@@ -129,6 +130,12 @@ function matchesOrigin(origin){
  return !!(matchesCaseReference(origin)&&origin.fingerprint===caseFingerprint());
 }
 function invalidateOldJobs(){
+ // Case replacement stops polling immediately, so cancel any pending human
+ // decision at the server BEFORE dropping the old job identity.
+ const staleHumanJob=activeHumanReviewJobId;
+ activeHumanReviewJobId=null;
+ if(staleHumanJob)api('/api/jobs/'+encodeURIComponent(staleHumanJob)+'/cancel',{})
+  .catch(e=>notice('取消舊人工審核工作未成功：'+e.message,true));
  caseGeneration++;vocabRequestSerial++;vocabActiveJobId=null;analysisRequestSerial++;
  if(poll!==null){clearInterval(poll);poll=null}
  if(vocabTimer!==null){clearInterval(vocabTimer);vocabTimer=null}
@@ -521,15 +528,83 @@ el('readings').querySelectorAll('[data-readcode]').forEach(b=>b.onclick=()=>{ope
 }
 function renderTrace(j){let failedNotice=j.status==='failed'?'<p class="alert">分析失敗；以下為失敗前已取得的部分稽核事件，並非已完成的破譯。</p>':'';let events=j.events||[];let rounds=events.filter(x=>x.stage==='statistical_baseline'||x.stage==='rescore');el('roundChart').innerHTML=failedNotice+lineChart(rounds.map(x=>({score:x.payload.score})))+rounds.map(x=>`<div class="message"><strong>${x.stage==='statistical_baseline'?'Baseline':'Round '+x.round}</strong>　內部目標分數：${esc(x.payload.score)}<br><small>相較上一輪變更：${x.payload.changed_count??'—'} 碼</small></div>`).join('')+'<small>目標分數不是機率，不適合跨不同資料集直接比較。</small>';
 el('changes').innerHTML=events.filter(x=>x.stage==='rescore').map(x=>`<details><summary>Round ${x.round}: ${Object.keys(x.payload.changes||{}).length} 個變更</summary><pre>${esc(JSON.stringify(x.payload.changes||{},null,2))}</pre></details>`).join('');
-let requests=events.filter(x=>x.stage==='llm_request'),responses=events.filter(x=>x.stage==='llm_response'),proposed=events.filter(x=>x.stage==='llm_proposals_unverified');el('exchanges').innerHTML=responses.map(x=>{let v=x.payload;return `<div class="message"><small>Round ${x.round} · HTTP ${esc(v.http_status??200)} · API ${esc((Number(v.elapsed_ms||0)/1000).toFixed(1))} 秒 · token：${esc(JSON.stringify(v.usage||'未提供'))}</small></div>`}).join('')+proposed.map(x=>`<details><summary>Round ${x.round}: 接受 ${x.payload.accepted?.length||0} 個建議；拒絕 ${x.payload.rejected_count||0} 個</summary><pre>${esc(JSON.stringify(x.payload.accepted,null,2))}</pre></details>`).join('')+requests.map((x,i)=>`<details><summary>Round ${x.round}：完整請求與回覆</summary><h3>送往 LLM 的訊息</h3><pre>${esc(JSON.stringify(x.payload.body,null,2))}</pre><h3>API 原始回覆</h3><pre>${esc(responses.find(r=>r.round===x.round)?.payload?.response||'尚無回覆')}</pre></details>`).join('');if(!requests.length)el('exchanges').innerHTML+='<p class="muted">尚無完整 Prompt 擷取資料（可能未啟用，或此次尚未呼叫模型）。</p>';
+let phases=[
+ {name:'動態候選詞庫',request:'vocabulary_llm_request',response:'vocabulary_llm_response'},
+ {name:'碼組候選',request:'llm_request',response:'llm_response'}
+];
+let proposed=events.filter(x=>x.stage==='llm_proposals_unverified');
+let vocabRounds=events.filter(x=>x.stage==='vocabulary_candidates_unverified');
+let requestRecords=phases.flatMap(phase=>{
+ const responses=events.filter(x=>x.stage===phase.response);
+ return events.filter(x=>x.stage===phase.request).map(x=>({
+  ...x,phase:phase.name,
+  response:responses.find(r=>r.round===x.round)?.payload||null
+ }));
+});
+el('exchanges').innerHTML=vocabRounds.map(x=>
+ `<div class="message"><strong>Round ${x.round} · 動態詞庫（未驗證）</strong>　新增採納 ${esc(x.payload.approved?.length||0)} 詞，拒絕 ${esc(x.payload.rejected_count||0)} 詞 · ${esc(x.payload.review_mode)}</div>`
+).join('')+proposed.map(x=>
+ `<details><summary>Round ${x.round}：碼組建議接受 ${x.payload.accepted?.length||0} 項；拒絕 ${x.payload.rejected_count||0} 項</summary><pre>${esc(JSON.stringify(x.payload.accepted,null,2))}</pre></details>`
+).join('')+requestRecords.map(x=>{
+ const v=x.response||{};
+ return `<details><summary>Round ${x.round} · ${esc(x.phase)}：完整請求與回覆</summary>
+ <p class="muted">HTTP ${esc(v.http_status??200)} · API ${esc((Number(v.elapsed_ms||0)/1000).toFixed(1))} 秒 · token：${esc(JSON.stringify(v.usage||'未提供'))}</p>
+ <h3>送往 LLM 的訊息</h3><pre>${esc(JSON.stringify(x.payload.body,null,2))}</pre>
+ <h3>API 原始回覆</h3><pre>${esc(v.response||'尚無對應回覆')}</pre></details>`;
+}).join('');
+if(!requestRecords.length)el('exchanges').innerHTML+='<p class="muted">尚無完整 Prompt 擷取資料（可能未啟用，或此次尚未呼叫模型）。</p>';
 }
 async function startBenchmark(){try{let id=(await api('/api/start-benchmark',{})).job_id;el('runBenchmark').disabled=true;notice('基準評測已啟動');let timer=setInterval(async()=>{try{let j=await api('/api/jobs/'+id);renderJob(j);if(['completed','failed'].includes(j.status)){clearInterval(timer);el('runBenchmark').disabled=false;notice(j.status==='completed'?'基準評測完成':'基準評測失敗：'+j.error,j.status==='failed')}}catch(e){clearInterval(timer);el('runBenchmark').disabled=false;notice(e.message,true)}},1300)}catch(e){notice(e.message,true)}}
+function renderPendingVocabularyReview(j,origin){
+ const pane=el('pendingVocabularyReview');
+ pane.dataset ||= {};
+ const pending=j.status==='awaiting_review'?j.pending_review:null;
+ if(!pending || !matchesOrigin(origin)){
+  pane.hidden=true;pane.replaceChildren();pane.dataset.reviewKey='';return;
+ }
+ const key=j.id+':'+pending.round+':'+pending.review_token;
+ if(pane.dataset.reviewKey!==key){
+  pane.dataset.reviewKey=key;pane.hidden=false;
+  pane.innerHTML='<h3>第 '+esc(pending.round)+' 輪候選詞人工覆核（全部均未驗證）</h3>'+
+   '<p class="muted">只勾選要加入未驗證候選詞庫的項目。清空勾選代表全部拒絕，繼續下一步。</p>'+
+   pending.candidates.map((x,i)=>'<label><input type="checkbox" data-review-term="'+i+'" checked> '+
+     esc(x.term)+' <small>'+esc(x.reason||'')+'</small></label>').join('')+
+   '<label for="reviewAddedWords"><strong>研究員新增候選詞</strong>（選填，每行一詞）</label>'+
+   '<textarea id="reviewAddedWords" rows="4" maxlength="1500" spellcheck="false" placeholder="例：補給線&#10;前線集結"></textarea>'+
+   '<p class="muted">可以全部不勾 LLM 建議，只加入自己提出的詞；本輪合計最多 32 個、單詞最多 24 字，所有新增詞仍是未驗證假說。</p>'+
+   '<button class="primary" id="approveVocabulary">提交選詞與新增詞，繼續推論</button>';
+  pane.querySelector('#approveVocabulary').onclick=async()=>{
+   if(!matchesOrigin(origin)){notice('案例已變更，舊的人工覆核不再有效',true);return}
+   const approved=Array.from(pane.querySelectorAll('input[data-review-term]:checked'))
+     .map(x=>pending.candidates[Number(x.dataset.reviewTerm)].term);
+   const rawAdded=pane.querySelector('#reviewAddedWords').value;
+   const added=rawAdded.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+   if(approved.length+added.length>32){notice('本輪候選詞（勾選＋手動新增）合計不可超過 32 個',true);return}
+   if(added.some(w=>w.length>24||/[\x00-\x1f]/.test(w)) ||
+      new Set(added).size!==added.length ||
+      added.some(w=>approved.includes(w)||pending.candidates.some(x=>x.term===w))){
+    notice('新增詞須是 1～24 字、不重複、不可與 LLM 候選詞相同',true);return;
+   }
+   const button=pane.querySelector('#approveVocabulary');button.disabled=true;
+   try{
+    await api('/api/jobs/'+encodeURIComponent(j.id)+'/review',{
+     approved,added,round:pending.round,review_token:pending.review_token
+    });
+    button.textContent='已提交，模型繼續運算中…';
+   }catch(e){button.disabled=false;notice('人工覆核未送出：'+e.message,true)}
+  };
+ }
+ const submit=pane.querySelector('#approveVocabulary');
+ if(submit&&j.review_submitted){submit.disabled=true;submit.textContent='已提交，模型繼續運算中…'}
+}
 async function start(){
  if(!research)return;
  const origin=captureOrigin();
  const rounds=Number(el('rounds').value);
  if(!Number.isInteger(rounds)||rounds<0||rounds>20){notice('LLM 回合數必須是 0～20 整數；0 代表離線分析',true);return}
- if(rounds>0&&!confirm(`將電文與情報傳送到 config.yaml 指定的內網 LLM，共 ${rounds} 回合。確定要執行？`))return;
+ const candidateMode=el('candidateMode').value;
+ if(candidateMode!=='static'&&rounds===0){notice('逐回合動態候選至少需要 1 個 LLM 回合',true);return}
+ if(rounds>0&&!confirm(`將電文與情報傳送到 config.yaml 指定的內網 LLM，共 ${rounds} 回合；候選模式：${candidateMode==='human'?'每輪人工確認':candidateMode==='automatic'?'自動擴充詞庫':'既有詞庫'}。確定執行？`))return;
  const serial=++analysisRequestSerial;
  const current=()=>serial===analysisRequestSerial&&matchesOrigin(origin);
  lastJob=null;
@@ -538,17 +613,39 @@ async function start(){
   const inferenceCase=JSON.parse(JSON.stringify(research));
   delete inferenceCase.hypothesis_revision_history;
   const queued=await api('/api/start',{case:inferenceCase,rounds,
-    use_metadata:el('metadata').value==='true',capture_llm_io:el('capture').checked});
-  if(!current())return;
-  const jobId=queued.job_id;lastJob=jobId;
+    use_metadata:el('metadata').value==='true',capture_llm_io:el('capture').checked,
+    candidate_mode:candidateMode});
+  const jobId=queued.job_id;
+  if(!current()){
+   if(candidateMode==='human'){
+    try{await api('/api/jobs/'+encodeURIComponent(jobId)+'/cancel',{})}catch(_e){}
+   }
+   return;
+  }
+  lastJob=jobId;
+  if(candidateMode==='human')activeHumanReviewJobId=jobId;
   const active=()=>current()&&lastJob===jobId;
+  let reviewCancellationSent=false;
+  async function cancelStaleHumanReview(){
+   if(candidateMode!=='human'||reviewCancellationSent)return;
+   reviewCancellationSent=true;
+   if(activeHumanReviewJobId===jobId)activeHumanReviewJobId=null;
+   try{
+    await api('/api/jobs/'+encodeURIComponent(jobId)+'/cancel',{});
+    notice('研究案例已變更：正在取消舊人工審核工作，未審候選不會被採納',true);
+   }catch(e){notice('取消舊人工審核工作未成功：'+e.message,true)}
+  }
   for(let k of ['summary','reportLink','bars','readings','roundChart','changes','exchanges'])el(k).innerHTML='';
+  const reviewPane=el('pendingVocabularyReview');
+  reviewPane.hidden=true;reviewPane.dataset ||= {};reviewPane.dataset.reviewKey='';
+  reviewPane.replaceChildren();
   el('run').disabled=true;notice('已啟動研究 '+jobId);
   let localPoll=null;
   function stopPoll(){if(localPoll!==null)clearInterval(localPoll);if(poll===localPoll)poll=null}
   async function update(){
    if(!active()){
     stopPoll();
+    await cancelStaleHumanReview();
     if(serial===analysisRequestSerial&&matchesCaseReference(origin)){
      analysisRequestSerial++;el('run').disabled=false;
      notice('研究資料已變更，舊分析不會再套用；需要重新執行')
@@ -559,6 +656,7 @@ async function start(){
     const result=await api('/api/jobs/'+jobId);
     if(!active()){
      stopPoll();
+     await cancelStaleHumanReview();
      if(serial===analysisRequestSerial&&matchesCaseReference(origin)){
       analysisRequestSerial++;el('run').disabled=false;
       notice('研究資料已變更，舊分析回覆已隔離；請重新執行')
@@ -566,13 +664,22 @@ async function start(){
      return;
     }
     renderJob(result,origin);
+    renderPendingVocabularyReview(result,origin);
     if(['completed','failed'].includes(result.status)){
+     if(activeHumanReviewJobId===jobId)activeHumanReviewJobId=null;
      stopPoll();analysisRequestSerial++; // retire all concurrent GETs for this job
      el('run').disabled=false;
      notice(result.status==='completed'?'執行完成：結果已存入 artifacts/web_runs/'+jobId:'執行失敗：'+result.error,result.status==='failed');
     }
    }catch(e){
+    if(candidateMode==='human'&&active()){
+     // Retain the same job and scheduled GETs after a temporary network error.
+     // Abandoning polling would strand an awaiting_review job until timeout.
+     notice('人工覆核工作查詢暫時失敗，正在保留同一工作並重試：'+e.message,true);
+     return;
+    }
     stopPoll();
+    if(!current())await cancelStaleHumanReview();
     // Restore only the control still owned by this request. Same-case edits
     // invalidate content fingerprints but must not strand a disabled button.
     if(serial===analysisRequestSerial&&matchesCaseReference(origin)&&lastJob===jobId){

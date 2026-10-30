@@ -323,6 +323,122 @@ class RejectedApiBillingTests(unittest.TestCase):
                                  "Resume must not auto-migrate a damaged checkpoint")
                 self.assertEqual((output/"run_status.json").read_bytes(),status_before)
 
+    def test_one_missing_rejected_charge_json_blocks_resume_even_if_folder_exists(self):
+        # Codex PR #12 P2: a $0.501 rejection under a $0.50 cap, followed
+        # by an incomplete restore of *one JSON* (not its containing folder).
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            public,private,out=root/"public",root/"PRIVATE_GOLD",root/"output"
+            generate(public,private,repeats=1,fixture_seed=97719)
+            manifest=public/"manifest.json"
+            data=json.loads(manifest.read_text(encoding="utf-8"))
+            for item in data["studies"]:item["fixture_only"]=False
+            manifest.write_text(json.dumps(data),encoding="utf-8")
+            calls=[]
+            def paid_rejection(_):
+                calls.append("charged")
+                raise BillableResponseRejected(
+                    "TEST-ONLY: incomplete but billable",
+                    usage=charged_usage(),actual_model="gpt-6-astra",
+                    remote_response_id="resp_FAKE_SINGLE_MISSING_JSON")
+            kwargs=dict(model="gpt-6-astra",effort="high",rounds=1,
+                        max_calls=16,timeout=2,real_api=True,
+                        provider_name="OPENAI_RESPONSES",
+                        solver_iterations=1,solver_restarts=1,
+                        max_estimated_usd=.50)
+            with self.assertRaisesRegex(RuntimeError,"Inference failed"):
+                run_experiment(public,out,provider=paid_rejection,resume=False,**kwargs)
+            ledger=out/"rejected_billable_requests"
+            entries=list(ledger.glob("*.json"))
+            self.assertEqual(len(entries),1)
+            self.assertEqual(json.loads(entries[0].read_text())["usage"],charged_usage())
+            inventory=json.loads((out/"request_ledger_manifest.json").read_text())
+            self.assertEqual(len(inventory["rejected"]),1)
+            self.assertEqual(set(inventory["rejected"]),{entries[0].name})
+            status_before=(out/"run_status.json").read_bytes()
+            moved=out/"BILLABLE_RECORD_BACKUP_FOR_TEST.json"
+            entries[0].rename(moved)
+            self.assertTrue(ledger.is_dir())
+            self.assertEqual(list(ledger.glob("*.json")),[])
+
+            def forbidden(_):
+                calls.append("UNSAFE PAID RETRY")
+                raise AssertionError("Unaccounted billed request must not be retried")
+            with self.assertRaisesRegex(RuntimeError,"Unsafe checkpoint request ledger manifest"):
+                run_experiment(public,out,provider=forbidden,resume=True,**kwargs)
+            self.assertEqual(calls,["charged"])
+            self.assertEqual((out/"run_status.json").read_bytes(),status_before)
+            self.assertEqual(json.loads((out/"request_ledger_manifest.json").read_text()),
+                             inventory)
+            self.assertTrue(moved.is_file())
+            self.assertFalse((out/"predictions_LOCKED.json").exists())
+
+    def test_request_manifest_guards_single_success_and_missing_inventory_on_resume(self):
+        # Independent integrity witness also prevents successful replies from
+        # silently vanishing, and forbids silently migrating legacy records.
+        for missing in ("success_json","manifest","tampered_manifest"):
+            with self.subTest(missing=missing),tempfile.TemporaryDirectory() as td:
+                out=Path(td)/"study"
+                signature={"case":"inventory-witness","missing":missing}
+                checkpoint=ResumeStore(out,signature=signature,resume=False)
+                answer={"choices":[{"message":{"content":"{}"}}],
+                        "model":"gpt-6-astra",
+                        "usage":{"prompt_tokens":1,"cached_input_tokens":0,
+                                 "completion_tokens":1,"reasoning_tokens":0}}
+                requests=[]
+                def provider(_):
+                    requests.append("paid")
+                    return answer
+                checkpoint.invoke({"messages":[]},provider=provider,
+                                  model="gpt-6-astra",effort="high",
+                                  provider_name="OPENAI_RESPONSES",
+                                  logical_id="cell_0:round_1:vocabulary",
+                                  max_provider_attempts=2)
+                self.assertEqual(requests,["paid"])
+                original_status=(out/"run_status.json").read_bytes()
+                inventory=out/"request_ledger_manifest.json"
+                if missing=="success_json":
+                    (next((out/"successful_requests").glob("*.json"))).unlink()
+                elif missing=="manifest":
+                    inventory.unlink()
+                else:
+                    doc=json.loads(inventory.read_text())
+                    doc["successful"]={}
+                    inventory.write_text(json.dumps(doc),encoding="utf-8")
+                with self.assertRaisesRegex(
+                    RuntimeError,"Unsafe checkpoint request ledger manifest"
+                ):
+                    ResumeStore(out,signature=signature,resume=True)
+                self.assertEqual((out/"run_status.json").read_bytes(),original_status)
+                self.assertEqual(requests,["paid"])
+
+    def test_manifest_commit_failure_retains_paid_marker_and_blocks_resume(self):
+        # The manifest is committed AFTER ledger JSON and BEFORE pre-call
+        # marker removal. A simulated fsync failure must leave the marker.
+        with tempfile.TemporaryDirectory() as td:
+            out=Path(td)/"study"
+            signature={"case":"manifest-fsync-failure"}
+            store=ResumeStore(out,signature=signature,resume=False)
+            response={"choices":[{"message":{"content":"{}"}}],
+                      "model":"gpt-6-astra"}
+            real_atomic=atomic_json
+            def fail_manifest(path,payload):
+                if Path(path).name=="request_ledger_manifest.json":
+                    raise OSError("TEST ONLY: manifest fsync failed")
+                return real_atomic(path,payload)
+            with patch("checkpoint.atomic_json",side_effect=fail_manifest):
+                with self.assertRaisesRegex(OSError,"manifest fsync failed"):
+                    store.invoke({"messages":[]},provider=lambda _:response,
+                                 model="gpt-6-astra",effort="high",
+                                 provider_name="OPENAI_RESPONSES",
+                                 logical_id="round_1:vocabulary",
+                                 max_provider_attempts=2)
+            self.assertTrue((out/"api_request_inflight.json").is_file())
+            self.assertEqual(len(list((out/"successful_requests").glob("*.json"))),1)
+            with self.assertRaisesRegex(RuntimeError,
+                                        "Unsafe checkpoint request ledger manifest"):
+                ResumeStore(out,signature=signature,resume=True)
+
     def test_unreadable_rejected_directory_permissions_propagate_on_linux(self):
         if os.name!="posix" or (hasattr(os,"geteuid") and os.geteuid()==0):
             self.skipTest("Linux non-root permission regression")

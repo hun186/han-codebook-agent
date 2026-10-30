@@ -534,7 +534,7 @@ const { TextEncoder } = require('node:util');
     assert.match(md,/未驗證大膽假說/);
     assert.match(md,/可信原詞/);
     assert.match(md,/研究替代詞/);
-    assert.match(md,/文獻對讀 ／ <待查> 不是證明/);
+    assert.match(md,/文獻對讀 ／ &lt;待查&gt; 不是證明/);
     assert.doesNotMatch(md,/文獻對讀 \| <待查>/,
       'research note must not break the Markdown table');
     const doc=Buffer.from(sandbox.HanMockDemo.makeDocxForTest(result));

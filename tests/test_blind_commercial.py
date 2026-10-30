@@ -218,7 +218,7 @@ class BlindExperimentTests(unittest.TestCase):
         entry=json.loads(cache.read_text(encoding="utf-8"))
         entry["reply"]["choices"][0]["message"]["content"]="altered"
         cache.write_text(json.dumps(entry),encoding="utf-8")
-        with self.assertRaisesRegex(RuntimeError,"fingerprint corrupted"):
+        with self.assertRaisesRegex(RuntimeError,"Unsafe checkpoint request ledger manifest"):
             restored.invoke(fake,provider=lambda chat:{},
                 model="gpt-6-astra",effort="high",provider_name="TEST_DOUBLE",
             logical_id="test:round_1:vocabulary")

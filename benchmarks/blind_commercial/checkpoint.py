@@ -127,6 +127,7 @@ def exclusive_run_lock(root: Path):
 
 DOCKER_INFLIGHT="codex_container_inflight.json"
 API_INFLIGHT="api_request_inflight.json"
+REQUEST_MANIFEST="request_ledger_manifest.json"
 
 
 def reconcile_stale_codex_container(root:Path,*,subprocess_run=None)->None:
@@ -181,6 +182,10 @@ class ResumeStore:
         self.requests=self.root/"successful_requests"
         self.completed=self.root/"completed_runs"
         self.failed_requests=self.root/"rejected_billable_requests"
+        # Independent, fsynced ledger inventory. Digest and full file hashes
+        # allow recovery to detect one missing billed JSON even when its
+        # directory is still present. It is not a remote trust anchor.
+        self.request_manifest=self.root/REQUEST_MANIFEST
         self.signature=signature
         if resume:
             if not self.status.is_file():
@@ -203,6 +208,11 @@ class ResumeStore:
                     "Unsafe resume: missing or unreadable checkpoint ledger; "
                     "cannot verify prior charges or completed work"
                 ) from exc
+            # In particular, a partial restore may retain the directories
+            # while silently omitting one paid rejection JSON. A separate
+            # durable inventory must match each expected on-disk file.
+            # Missing legacy inventory is NOT auto-upgraded into an empty one.
+            self._verify_request_manifest()
             # A marker written before sending paid traffic survives SIGKILL,
             # a failed billable ledger fsync, or any ambiguous API response.
             # Never issue a second paid request while its charge is unknown.
@@ -231,6 +241,7 @@ class ResumeStore:
             durable_mkdir(self.requests)
             durable_mkdir(self.completed)
             durable_mkdir(self.failed_requests)
+            self._initialize_request_manifest()
         if resume:
             self._write_status("running",reason="resumed by explicit user command")
         self.cache_hits=0
@@ -294,6 +305,9 @@ class ResumeStore:
             raise ValueError("Each model call requires a stable logical identity")
         key=digest({"version":self.VERSION,"chat":chat,"model":model,
                     "effort":effort,"provider":provider_name,"logical_id":logical_id})
+        # Detect a deleted billable JSON even if the charge folder is intact.
+        # Also guard free cache replay, not only a new external call.
+        self._verify_request_manifest()
         path=self.requests/(key+".json")
         if path.exists():
             item=json.loads(path.read_text(encoding="utf-8"))
@@ -342,7 +356,9 @@ class ResumeStore:
             raise RuntimeError("Provider response invalid; will not checkpoint")
         # For paid responses, only release the in-flight marker AFTER the
         # successful response is durably saved.
-        atomic_json(path,{"request_key":key,"response_digest":digest(answer),"reply":answer})
+        self._write_request_ledger(path,
+            {"request_key":key,"response_digest":digest(answer),"reply":answer},
+            kind="successful")
         if paid:
             self._clear_api_inflight()
         self.real_new_calls+=1
@@ -370,7 +386,65 @@ class ResumeStore:
         # identical prompt, so never overwrite a previous failed attempt.
         filename=secrets.token_hex(16)+".json"
         path=self.failed_requests/filename
+        self._write_request_ledger(path,entry,kind="rejected")
+
+    def _initialize_request_manifest(self)->None:
+        payload={"version":1,"successful":{},"rejected":{}}
+        payload["digest"]=digest(payload)
+        atomic_json(self.request_manifest,payload)
+
+    def _verify_request_manifest(self)->dict:
+        """Detect missing/changed billing records, including partial restores.
+
+        This manifest is created before the first call; on resume we refuse
+        older/unverified snapshots rather than assume an empty billable ledger.
+        A coordinated rollback of BOTH manifest and data needs an external
+        trusted billing reconciliation, not just filesystem integrity checks.
+        """
+        try:
+            payload=json.loads(self.request_manifest.read_text(encoding="utf-8"))
+            if (not isinstance(payload,dict) or
+                set(payload)!={"version","successful","rejected","digest"} or
+                payload["version"]!=1 or
+                any(not isinstance(payload[k],dict) for k in ("successful","rejected")) or
+                payload["digest"]!=digest({k:v for k,v in payload.items() if k!="digest"})):
+                raise ValueError("Invalid inventory digest or structure")
+            for kind,folder in (("successful",self.requests),("rejected",self.failed_requests)):
+                expected=payload[kind]
+                if any(not isinstance(k,str) or not k.endswith(".json") or
+                       "/" in k or "\\" in k or
+                       not isinstance(v,str) or
+                       re.fullmatch(r"[0-9a-f]{64}",v) is None
+                       for k,v in expected.items()):
+                    raise ValueError("Malformed expected billable filenames or hashes")
+                actual=self._ledger_paths(folder)
+                if {p.name for p in actual}!=set(expected):
+                    raise ValueError("Incomplete request ledger: missing or unexpected JSON")
+                for path in actual:
+                    if hashlib.sha256(path.read_bytes()).hexdigest()!=expected[path.name]:
+                        raise ValueError("Request ledger JSON does not match durable inventory")
+            return payload
+        except (OSError,ValueError,TypeError,KeyError,RuntimeError) as exc:
+            raise RuntimeError(
+                "Unsafe checkpoint request ledger manifest: missing, damaged or mismatched record; "
+                "refusing paid resume"
+            ) from exc
+
+    def _write_request_ledger(self,path:Path,entry:dict,*,kind:str)->None:
+        """Commit record, then manifest, and only then release API marker.
+
+        A crash between record fsync and manifest fsync leaves either the
+        paid pre-call marker or an unexpected record: both fail closed.
+        """
+        if kind not in ("successful","rejected"):
+            raise ValueError("Unknown request ledger kind")
+        inventory=self._verify_request_manifest()
+        if path.exists() or path.name in inventory[kind]:
+            raise FileExistsError("Refusing to overwrite request billing evidence")
         atomic_json(path,entry)
+        inventory[kind][path.name]=hashlib.sha256(path.read_bytes()).hexdigest()
+        inventory["digest"]=digest({k:v for k,v in inventory.items() if k!="digest"})
+        atomic_json(self.request_manifest,inventory)
 
     @staticmethod
     def _ledger_paths(directory:Path)->list[Path]:

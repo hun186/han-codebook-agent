@@ -148,8 +148,9 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
     model_ids={}
     request_scope={"cell":None,"index":0}
     def counted_provider(packet):
-        if counter["calls"]+len(checkpoints.stored_rejected_billable())>=max_calls:
-            raise RuntimeError("API call budget exhausted (successful + billed rejected attempts)")
+        # Cache replay is free. ResumeStore enforces the whole-study budget
+        # atomically at the next REAL provider call, using all persisted
+        # successes (including skipped completed cells) and billed failures.
         if request_scope["cell"] is None:
             raise RuntimeError("LLM request outside registered evaluation cell")
         i=request_scope["index"]
@@ -162,7 +163,8 @@ def run_experiment(public_dir: Path,out_dir: Path,*,model:str,effort:str,rounds:
         prior_new=checkpoints.real_new_calls
         try:
             answer=checkpoints.invoke(packet,provider=provider,model=model,effort=effort,
-                                      provider_name=provider_name,logical_id=logical_id)
+                                      provider_name=provider_name,logical_id=logical_id,
+                                      max_provider_attempts=max_calls)
         except ContainerCleanupUnconfirmed:
             # A client timeout can finish before the handler sees Docker
             # cleanup failure. Handler itself must durably poison checkpoint

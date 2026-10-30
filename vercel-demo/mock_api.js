@@ -87,7 +87,7 @@
           Array.isArray(item) ||
           Object.keys(item).some(k=>!['term','note','confirmed'].includes(k)))
         throw Error('Bold hypothesis must refer to an existing verified code: '+code);
-      const term=item.term, note=item.note ?? '';
+      const term=item.term, note=Object.hasOwn(item,'note')?item.note:'';
       if (typeof term!=='string' || !term.trim() ||
           [...term.trim()].length>32 || term!==term.trim() ||
           typeof note!=='string' || [...note].length>500 ||

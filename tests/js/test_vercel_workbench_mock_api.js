@@ -109,6 +109,92 @@ const { TextEncoder } = require('node:util');
   const preferResult=(await get('/api/jobs/'+preferId)).result;
   assert.equal(preferResult.proposals[firstCode].term,'研究員新詞');
   assert.equal(preferResult.proposals[firstCode].status,'hypothesis_unverified');
+  // Codex PR #10 P2: fixture alternatives must NOT resurrect words removed
+  // by the researcher. The Mock snapshot is a ranking prior, not a word list.
+  const narrowed=JSON.parse(JSON.stringify(caseData));
+  for(const profile of Object.values(narrowed.profiles)){
+    profile.lexicon={'僅供測試':1};
+    profile.sentences=[];
+  }
+  narrowed.candidate_ideas={};
+  narrowed.hypothesis_marks={};
+  const surviving=new Set(['僅供測試']);
+  const assertAllowed=(result,allowed)=>{
+    const available=new Set(allowed);
+    for(const [code,p] of Object.entries(result.proposals)){
+      if(p.status==='verified_alignment')continue;
+      assert.ok(available.has(p.term),'removed fixture term resurrected for '+code+': '+p.term);
+      assert.ok(p.alternatives.every(x=>available.has(x.term)),
+        'removed fixture alternative leaked for '+code);
+    }
+    for(const msg of result.decoded_messages)
+      assert.ok(msg.suggested_segments.every(x=>available.has(x)),
+        'report/decoding contains removed vocabulary');
+  };
+  // Static 0 and static >0 share the underlying mapping path.
+  for(const rounds of [0,2]){
+    const id=(await post('/api/start',{
+      case:narrowed,rounds,candidate_mode:'static'
+    })).job_id;
+    const result=(await get('/api/jobs/'+id)).result;
+    assertAllowed(result,surviving);
+    assert.ok(Object.values(result.proposals).every(p=>p.term==='僅供測試'));
+  }
+  const autoNarrowId=(await post('/api/start',{
+    case:narrowed,rounds:2,candidate_mode:'automatic'
+  })).job_id;
+  const autoNarrow=await get('/api/jobs/'+autoNarrowId);
+  assert.equal(autoNarrow.status,'completed');
+  assertAllowed(autoNarrow.result,
+    ['僅供測試',...autoNarrow.result.dynamic_vocabulary_terms]);
+  // Human review does not grant all offered Mock words by default.
+  const humanNarrowId=(await post('/api/start',{
+    case:narrowed,rounds:1,candidate_mode:'human'
+  })).job_id;
+  const humanNarrowPending=await get('/api/jobs/'+humanNarrowId);
+  assert.equal(humanNarrowPending.status,'awaiting_review');
+  await post('/api/jobs/'+humanNarrowId+'/review',{
+    round:humanNarrowPending.pending_review.round,
+    review_token:humanNarrowPending.pending_review.review_token,
+    approved:[],added:[]
+  });
+  const humanNarrow=(await get('/api/jobs/'+humanNarrowId)).result;
+  assertAllowed(humanNarrow,surviving);
+  assert.deepEqual(humanNarrow.dynamic_vocabulary_terms,[]);
+  // Explicit approved words and researcher-entered hypotheses remain valid
+  // even when they are absent from the underlying editable lexicon.
+  const shortlist=JSON.parse(JSON.stringify(narrowed));
+  shortlist.candidate_ideas={
+    [firstCode]:[{term:'研究員明確保留',source:'researcher',status:'shortlisted'}]
+  };
+  const shortlistResult=(await get('/api/jobs/'+(await post('/api/start',{
+    case:shortlist,rounds:0
+  })).job_id)).result;
+  assert.equal(shortlistResult.proposals[firstCode].term,'研究員明確保留');
+  assertAllowed(shortlistResult,['僅供測試','研究員明確保留']);
+  const approvedHuman=(await post('/api/start',{
+    case:narrowed,rounds:1,candidate_mode:'human'
+  })).job_id;
+  const approval=(await get('/api/jobs/'+approvedHuman)).pending_review;
+  const approvedWord=approval.candidates[0].term;
+  await post('/api/jobs/'+approvedHuman+'/review',{
+    round:approval.round,review_token:approval.review_token,
+    approved:[approvedWord],added:['研究員人工補充']
+  });
+  const allowedHuman=(await get('/api/jobs/'+approvedHuman)).result;
+  assertAllowed(allowedHuman,['僅供測試',approvedWord,'研究員人工補充']);
+  // Excluding the entire remaining vocabulary must fail closed, never pull
+  // an excluded word back from a snapshot to manufacture a result.
+  const excluded=JSON.parse(JSON.stringify(narrowed));
+  excluded.hypothesis_marks={[firstCode]:{
+    preferred:null,pinned:false,excluded:['僅供測試']
+  }};
+  const rejectedRun=await sandbox.fetch('/api/start',{
+    method:'POST',body:JSON.stringify({case:excluded,rounds:0})
+  });
+  assert.equal(rejectedRun.status,400);
+  assert.match((await rejectedRun.json()).error,/exclusions remove every candidate/);
+
   const proposal=await post('/api/suggest-vocabulary',{case:caseData,confirmed:true});
   const vocabJob=await get('/api/jobs/'+proposal.job_id);
   assert.equal(vocabJob.type,'vocabulary');

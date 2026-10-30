@@ -319,25 +319,30 @@
     const existingTerms=new Set(lexicalCandidates(state.caseData));
     if(chosen.some(w=>existingTerms.has(w)))
       validationError('Candidate vocabulary already contains a selected word');
+    // Stage the new candidate pool and all evidence before committing any
+    // human-review state. mockMapping can reject excluded-only vocabulary;
+    // that must NOT consume a review token or leave partial words/audit.
+    const stagedCase=clone(state.caseData);
+    const stagedDynamicWords=state.dynamicWords.concat(chosen);
     if(chosen.length){
-      const profile=state.caseData.profiles.llm_dynamic_candidates ||= {
+      const profile=stagedCase.profiles.llm_dynamic_candidates ||= {
         keywords:[],lexicon:{},sentences:[]
       };
       for(const word of chosen)profile.lexicon[word]=1.0;
     }
-    state.dynamicWords.push(...chosen);
+    const rescored=mockMapping(stagedCase,state.round,state.metadata,stagedDynamicWords);
+    const roundEvents=[];
     const record={round:state.round,model:'PUBLIC MOCK — no model calls',
       status:'unverified_candidate_vocabulary',review_mode:state.mode==='human'?'human':'automatic',
       proposed:suggestions,approved:chosen,
       researcher_added:added.map(term=>({term,status:'unverified',
         source:'researcher',source_round:state.round})),
       rejected_count:suggestions.length-approved.length,
-      total_dynamic_terms:state.dynamicWords.length,metadata_used:state.metadata};
-    item.events.push({round:state.round,stage:'vocabulary_candidates_unverified',payload:record});
-    const rescored=mockMapping(state.caseData,state.round,state.metadata,state.dynamicWords);
+      total_dynamic_terms:stagedDynamicWords.length,metadata_used:state.metadata};
+    roundEvents.push({round:state.round,stage:'vocabulary_candidates_unverified',payload:record});
     const delta=mappingDelta(prior,rescored);
-    item.events.push({round:state.round,stage:'vocabulary_rescore',payload:{
-      round:state.round,score:rescored.objective_score,candidate_count:lexicalCandidates(state.caseData).length,
+    roundEvents.push({round:state.round,stage:'vocabulary_rescore',payload:{
+      round:state.round,score:rescored.objective_score,candidate_count:lexicalCandidates(stagedCase).length,
       ...delta}});
     const accepted=Object.entries(rescored.proposals)
       .filter(([,p])=>p.status==='hypothesis_unverified')
@@ -345,19 +350,26 @@
         code,candidates:p.alternatives.map(x=>x.term).slice(0,2),
         reason:'PUBLIC MOCK · simulated code-hypothesis ranking, not a verified decoding'
       }));
-    if(state.capture)traceMockExchange(item,state.round,'code',{
+    if(state.capture)traceMockExchange({events:roundEvents},state.round,'code',{
       task:'hypothesis_reranking',round:state.round,
-      available_vocabulary:lexicalCandidates(state.caseData).slice(0,128),
+      available_vocabulary:lexicalCandidates(stagedCase).slice(0,128),
       verified_anchors:rescored.verified_anchors,
       note:'PUBLIC MOCK input packet summary, no model call'
     },{hypotheses:accepted,label:'PUBLIC MOCK · no LLM call'});
-    item.events.push({round:state.round,stage:'llm_proposals_unverified',
+    roundEvents.push({round:state.round,stage:'llm_proposals_unverified',
       payload:{accepted,rejected_count:0,returned_count:accepted.length}});
     const fullDelta=mappingDelta(prior,rescored);
-    item.events.push({round:state.round,stage:'rescore',
+    roundEvents.push({round:state.round,stage:'rescore',
       payload:{score:rescored.objective_score,...fullDelta}});
-    item.logs.push('[Mock] 第'+state.round+'輪：'+suggestions.length+' 個模擬 LLM 詞，'
-      +approved.length+' 採納，'+added.length+' 人工新增；重算 '+fullDelta.changed_count+' 個碼組，全部未驗證');
+    const log='[Mock] 第'+state.round+'輪：'+suggestions.length+' 個模擬 LLM 詞，'
+      +approved.length+' 採納，'+added.length+' 人工新增；重算 '+fullDelta.changed_count+' 個碼組，全部未驗證';
+    // All potentially rejecting computations have succeeded. Commit the
+    // staged case, round audit and one-use review token as one transition.
+    state.caseData=stagedCase;
+    state.dynamicWords=stagedDynamicWords;
+    item.events.push(...roundEvents);
+    item.logs.push(log);
+    if(state.mode==='human')item.review_submitted=true;
     state.current=rescored;
     state.round++;
     if(state.round>state.rounds){
@@ -436,7 +448,6 @@
     // rejected: the researcher may approve/add a word instead of losing the job.
     if(!state.current && !approved.length && !added.length)
       validationError('PUBLIC MOCK: approve or add a word to bootstrap the empty vocabulary');
-    item.review_submitted=true;
     applyAdaptiveRound(state,approved,added,item.pending_review.candidates);
     return {status:'submitted',round,accepted:approved.length,
       researcher_added:added.length};

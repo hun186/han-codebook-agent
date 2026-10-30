@@ -188,7 +188,11 @@
       if (mark.preferred && !mark.pinned && candidates.includes(mark.preferred)) {
         candidates = [mark.preferred, ...candidates.filter(w => w !== mark.preferred)];
       }
-      const selected = fromData[code] ? candidates[0] : candidates[stableIndex(code, candidates.length)];
+      // A current preferred mark must take precedence even for a code
+      // absent from the public fixture snapshot; the hash fallback is
+      // only for otherwise unmarked, unsnapshotted codes.
+      const selected = mark.preferred ? candidates[0] :
+        fromData[code] ? candidates[0] : candidates[stableIndex(code, candidates.length)];
       const alternatives = unique([selected, ...candidates]).slice(0,5).map((term, i) => ({
         term, relative_score: -i * 0.25,
       }));

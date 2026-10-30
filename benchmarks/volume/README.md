@@ -79,3 +79,23 @@ PYTHONPATH=src python -m han_codebook.volume_llm --rebuild-view-from artifacts/v
 ```
 
 本次另外修正兩個 Review P2：單一回覆中同碼組／候選詞重複不再放大加權；明確 `--capture-llm-io` 啟用時，LLM 批次失敗會保存部分 Prompt 與回覆到 `artifacts/volume_llm_study.failed.json`，保留非零結束碼且不生成該失敗批次的成功評分。此 `.failed.json` 可能包含敏感輸入，請勿放進公開 repo。
+
+## Qwen3.8 內網失敗紀錄與新版診斷設定（2026-10-29）
+
+真實內網測試（非 CI 模擬）顯示：10 封時模型產生的 15 個候選碼組全遭拒絕，因為模型把數個獨立數字碼組串接成單一 `code`；25 封時採納 15 個但 Top-1 沒改善；50 封第 26–50 封的請求回傳 `finish_reason=stop` 與大量 `reasoning`，可是 `message.content` 為空字串，因此全套評估**中斷，沒有 50/100 封最終成績**。自動詞庫的原始 `patterns` 多為字串而非詞組陣列，僅少量符合規則。以上資料來自使用者的本機 failed trace，原始內容不得上傳 GitHub；改良成效還未經內網模型重跑證實。
+
+針對 Ollama 的 `/v1/chat/completions`，現在可在 `config.yaml` 的 `llm` 新增：
+```yaml
+  reasoning_effort: "none"
+  response_format: "json_object"
+```
+這兩項都是明確 opt-in；不支援的 OpenAI-compatible Proxy/模型可能回 HTTP 400。兩者不是通用 OpenAI API 的保證；移除其中一項可診斷相容性。若 Ollama 的模型未支援停用思考，可先測用 `/api/show` 取得能力資訊，或保持預設思考設定。重新執行**新檔名**的 10 封低負載實驗：
+```bat
+set "PYTHONPATH=%CD%\src"
+.venv\Scripts\python.exe -u -m han_codebook.volume_llm ^
+  --enable-llm --llm-config config.yaml ^
+  --seeds 101 --sizes 10 --rounds 1 --batch-size 10 ^
+  --auto-vocabulary --capture-llm-io ^
+  --out artifacts\diagnostic_v2_10.json
+```
+成功才會產生 `.json`、`.md`、`.html`。Markdown 新增各批次合法碼組建議數、拒絕分類（`invalid_code`、`duplicate_code`、`no_in_vocabulary_candidates` 等）和超量模型輸出統計；完整 Prompt/Response 仍只有明確 `--capture-llm-io` 時保存。不要將小樣本正確率當成真實歷史破譯能力；測試 `--auto-vocabulary` 不能偷用合成金標詞庫，也不因同一句看似通順就標成 verified。過去的 `.failed.json` 應留在本機，**不要直接改名冒充成功報表**。

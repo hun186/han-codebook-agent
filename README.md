@@ -10,6 +10,20 @@
 本機統計搜尋不需要 LLM；可選擇呼叫本機或經授權的私有區網 Ollama／OpenAI-compatible `/v1/chat/completions`，進行多輪候選補充、重新排名、留下 SQLite 審計紀錄。自動流程：資料驗證 → 明密文對齊 → 收發單位分析 → 統計／N-gram 候選 →（可選）LLM 建議 → 約束重算 → 證據與歧義報告。
 
 
+## 2026-10-28 — Vercel 同介面公開 Mock 工作台（PR #10）
+
+**本機與 Vercel 的 UI 源碼已統一**：以 `src/han_codebook/static/index.html` 為唯一標準，執行 `python scripts/sync_vercel_workbench.py --write` 自動產生 `vercel-demo/index.html` + `vercel-demo/workbench.js`；PR/CI 用 `--check` 防止後續視覺與操作流程分歧。Vercel 保留可辨識的 PUBLIC MOCK 警示，不會接真實資料、模型、資料庫或區網端點。
+
+可在 Vercel 展示 **10／25／50／100 封虛構電文**、第三方情報、跨電文候選假說、0～20 回合、詞庫與個別碼組人工標註、完整 Mock Word/Markdown 輸出。自適應候選詞三種操作模式與本機相同：
+
+- **固定詞庫**：維持舊版離線或多輪模擬；
+- **自動動態擴充**：每輪用純瀏覽器的合成候選模擬詞庫更新、評分、碼組推理並直接進下一輪；
+- **人工逐輪覆核**：每輪停在同樣的待審視窗，勾選或拒絕 LLM 候選、研究員可在輸入框逐行新增詞；支援全拒絕模型而僅用人工新詞，並依 `round`／`review_token` 防止過期核准；提交後才繼續下一輪。
+
+所有未驗證候選仍為 **unverified**；不會升格為已驗證歷史明文。若選擇擷取完整 Prompt/回覆，Mock 只產生標示為虛構的階段性稽核事件，**沒有網路請求**。可重新整理清除臨時編輯；不應輸入真實敏感密電。詳細說明見 [vercel-demo/README.md](vercel-demo/README.md)。
+
+注意：此變更在獨立 **PR #10** 中，堆疊於 PR #9 的自適應本機版；仍須通過正式 Codex Review 並依核准順序合併、更新正式 Vercel 才算公開版本可分享。先前關於 Vercel 仍是不同 GUI 的備註描述的是過去尚未整合的版本。
+
 ## v0.3：本機瀏覽器研究工作台
 
 已新增可直接使用的 **Web UI**（本機 `127.0.0.1:8765`，不對外開放、不依賴 CDN）：

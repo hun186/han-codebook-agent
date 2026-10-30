@@ -1,0 +1,516 @@
+"""Crash-consistent checkpoints for the original 2-call-per-round Agent.
+
+Every successful model response is written atomically BEFORE it is returned
+to the local gateway. On resumption, the original Agent is reexecuted from
+the start of an incomplete experiment using IDENTICAL cached responses and
+a clean SQLite audit. Completed experiments are reused without reinference.
+
+Cache writes and checkpoints are NOT scored evidence; the final lock remains
+absent until all requested studies/conditions/rounds actually finish.
+"""
+from __future__ import annotations
+
+import hashlib
+import contextlib
+import json
+import os
+import tempfile
+import threading
+import re
+import secrets
+import subprocess
+from gpt_gateway import BillableResponseRejected
+from datetime import datetime,timezone
+from pathlib import Path
+
+
+def digest(obj:object)->str:
+    return hashlib.sha256(json.dumps(obj,sort_keys=True,ensure_ascii=False,
+        separators=(",",":")).encode("utf-8")).hexdigest()
+
+
+def _sync_directory(path:Path)->None:
+    """Persist rename/create directory entries on POSIX after file fsync.
+
+    Windows does not expose a portable directory-fsync through os.open; the
+    same-filesystem atomic replace remains in effect there. If POSIX fsync
+    fails, fail closed rather than falsely acknowledging a durable reply.
+    """
+    if os.name!="posix":
+        return
+    fd=os.open(str(path),os.O_RDONLY|getattr(os,"O_DIRECTORY",0))
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def durable_mkdir(path:Path)->None:
+    """Sync each newly created directory's entry in its parent directory."""
+    path=Path(path)
+    missing=[]
+    cur=path
+    while not cur.exists():
+        missing.append(cur)
+        if cur.parent==cur:
+            raise OSError("Cannot find existing parent for checkpoint directory")
+        cur=cur.parent
+    path.mkdir(parents=True,exist_ok=True)
+    for created in reversed(missing):
+        _sync_directory(created.parent)
+
+
+def atomic_text(path:Path,content:str)->None:
+    """Durable same-directory atomic replacement, with parent-dir fsync."""
+    durable_mkdir(path.parent)
+    fd,name=tempfile.mkstemp(dir=path.parent,prefix=".checkpoint-",suffix=".tmp")
+    try:
+        with os.fdopen(fd,"w",encoding="utf-8",newline="\n") as file:
+            file.write(content)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(name,path)
+        _sync_directory(path.parent)
+    finally:
+        if os.path.exists(name):os.unlink(name)
+
+
+def atomic_json(path:Path,content:dict)->None:
+    atomic_text(path,json.dumps(content,sort_keys=True,ensure_ascii=False,indent=2))
+
+
+
+@contextlib.contextmanager
+def exclusive_run_lock(root: Path):
+    """Cross-process, OS-owned nonblocking study lock (Windows + POSIX).
+
+    The lock file is never unlinked: unlinking a live inode could permit
+    another process to acquire a different lock on the same directory.
+    Kernel locks are released on close, including abnormal process exit.
+    """
+    root=Path(root).resolve()
+    durable_mkdir(root)
+    fd=os.open(str(root/".run.lock"),os.O_CREAT|os.O_RDWR,0o600)
+    locked=False
+    try:
+        try:
+            if os.name=="nt":
+                import msvcrt
+                if os.fstat(fd).st_size==0:
+                    os.write(fd,bytes([0]))
+                    os.fsync(fd)
+                os.lseek(fd,0,os.SEEK_SET)
+                msvcrt.locking(fd,msvcrt.LK_NBLCK,1)
+            elif os.name=="posix":
+                import fcntl
+                fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            else:
+                raise RuntimeError("No supported kernel file lock on this OS")
+            locked=True
+        except (OSError,BlockingIOError) as exc:
+            raise RuntimeError("Study output directory is locked by another process; no checkpoint or model call was attempted") from exc
+        yield
+    finally:
+        try:
+            if locked:
+                if os.name=="nt":
+                    import msvcrt
+                    os.lseek(fd,0,os.SEEK_SET)
+                    msvcrt.locking(fd,msvcrt.LK_UNLCK,1)
+                else:
+                    import fcntl
+                    fcntl.flock(fd,fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
+
+DOCKER_INFLIGHT="codex_container_inflight.json"
+API_INFLIGHT="api_request_inflight.json"
+REQUEST_MANIFEST="request_ledger_manifest.json"
+
+
+def reconcile_stale_codex_container(root:Path,*,subprocess_run=None)->None:
+    """After SIGKILL, force-remove a durable container name under the study lock.
+
+    Unknown daemon state, corrupted evidence or unverified inspect result
+    quarantines the checkpoint. Never infer cleanup from docker start --attach.
+    """
+    if subprocess_run is None:
+        subprocess_run=subprocess.run
+    marker=Path(root)/DOCKER_INFLIGHT
+    if not marker.exists():return
+    try:
+        data=json.loads(marker.read_text(encoding="utf-8"))
+        name=data.get("name")
+        if (not isinstance(name,str) or
+            re.fullmatch(r"han-blind-[0-9a-f]{32}",name) is None or
+            data.get("version")!=1):
+            raise ValueError("Malformed durable Docker in-flight marker")
+        removed=subprocess_run(["docker","rm","--force",name],
+                               capture_output=True,text=True,timeout=40,check=False)
+        inspected=subprocess_run(["docker","inspect","--type","container",name],
+                                 capture_output=True,text=True,timeout=20,check=False)
+        missing=(inspected.returncode!=0 and
+                 any(q in inspected.stderr.lower()
+                     for q in ("no such object","no such container")))
+        accepted_remove=(removed.returncode==0 or
+                         (removed.returncode!=0 and
+                          "no such" in removed.stderr.lower()))
+        if not missing or not accepted_remove:
+            raise RuntimeError("Docker termination not verifiable")
+        marker.unlink()
+        _sync_directory(marker.parent)
+    except BaseException as exc:
+        raise RuntimeError(
+            "Unsafe resume: unverified_container_cleanup; Docker in-flight marker retained for operator action"
+        ) from exc
+
+
+class ResumeStore:
+    VERSION=1
+    def __init__(self,root:Path,*,signature:dict,resume:bool):
+        self.root=root.resolve()
+        # Gateway provider handlers and the runner can report failures from
+        # different threads. Serialize status read/update/atomic replace.
+        self._status_lock=threading.RLock()
+        # Separate from status lock: serialize cache lookup, whole-study
+        # attempt accounting, paid model invocation and journal persistence.
+        # Do not block the independent late-failure quarantine status writer.
+        self._attempt_lock=threading.RLock()
+        self.status=self.root/"run_status.json"
+        self.requests=self.root/"successful_requests"
+        self.completed=self.root/"completed_runs"
+        self.failed_requests=self.root/"rejected_billable_requests"
+        # Independent, fsynced ledger inventory. Digest and full file hashes
+        # allow recovery to detect one missing billed JSON even when its
+        # directory is still present. It is not a remote trust anchor.
+        self.request_manifest=self.root/REQUEST_MANIFEST
+        self.signature=signature
+        if resume:
+            if not self.status.is_file():
+                raise RuntimeError("Cannot resume: missing run_status.json")
+            old=json.loads(self.status.read_text(encoding="utf-8"))
+            if old.get("signature")!=signature:
+                raise ValueError("Resume settings, corpus hashes or model differ; no reuse permitted")
+            if str(old.get("reason","")).startswith(("unverified_container_cleanup","unverified_api_spend")):
+                raise RuntimeError("Unsafe resume: previous paid inference/cleanup unverified; checkpoint quarantined")
+            # Ledger directories are part of the checkpoint's required
+            # durable evidence, including when empty. A damaged/partial
+            # restore must never be upgraded to an empty ledger here.
+            # Legacy checkpoints missing these directories require explicit
+            # offline reconciliation/migration; do not silently initialize.
+            try:
+                for directory in (self.requests,self.completed,self.failed_requests):
+                    self._ledger_paths(directory)
+            except RuntimeError as exc:
+                raise RuntimeError(
+                    "Unsafe resume: missing or unreadable checkpoint ledger; "
+                    "cannot verify prior charges or completed work"
+                ) from exc
+            # In particular, a partial restore may retain the directories
+            # while silently omitting one paid rejection JSON. A separate
+            # durable inventory must match each expected on-disk file.
+            # Missing legacy inventory is NOT auto-upgraded into an empty one.
+            self._verify_request_manifest()
+            # A marker written before sending paid traffic survives SIGKILL,
+            # a failed billable ledger fsync, or any ambiguous API response.
+            # Never issue a second paid request while its charge is unknown.
+            if (self.root/API_INFLIGHT).exists():
+                self._quarantine_unverified_spend()
+                raise RuntimeError("Unsafe resume: unverified_api_spend; a previous paid API request is in-flight or unaccounted")
+            # This check precedes any new model request AND the resumed status.
+            # In-flight markers are fsynced before Docker CREATE/START.
+            try:
+                reconcile_stale_codex_container(self.root)
+            except RuntimeError:
+                self._write_status("failed",reason="unverified_container_cleanup: stale Docker state cannot be verified")
+                raise
+            if old.get("state")=="completed":
+                raise RuntimeError("Benchmark is already locked; do not resume a completed run")
+            if old.get("state") not in ("paused_quota","failed","running"):
+                raise ValueError("Unknown run checkpoint state")
+        else:
+            if self.root.exists() and any(p.name!='.run.lock' for p in self.root.iterdir()):
+                raise FileExistsError("Output directory exists and is not empty; use --resume")
+            durable_mkdir(self.root)
+            self._write_status("running",reason="new experiment")
+        if not resume:
+            # Only brand-new, explicitly empty studies may initialize
+            # accounting directories. Resume must preserve their existence.
+            durable_mkdir(self.requests)
+            durable_mkdir(self.completed)
+            durable_mkdir(self.failed_requests)
+            self._initialize_request_manifest()
+        if resume:
+            self._write_status("running",reason="resumed by explicit user command")
+        self.cache_hits=0
+        self.real_new_calls=0
+
+    def _write_status(self,state:str,**details)->None:
+        with self._status_lock:
+            return self._write_status_locked(state,**details)
+
+    def _write_status_locked(self,state:str,**details)->None:
+        prior={}
+        if self.status.exists():
+            prior=json.loads(self.status.read_text(encoding="utf-8"))
+        if str(prior.get("reason","")).startswith(("unverified_container_cleanup","unverified_api_spend")):
+            # Cannot be reset by a late generic error from another thread or
+            # the next stage. Quarantine survives any subsequent status update.
+            state="failed"
+            details["reason"]=prior["reason"]
+        info={
+           "version":self.VERSION,"state":state,"signature":self.signature,
+           "created_utc":prior.get("created_utc") or datetime.now(timezone.utc).isoformat(),
+           "updated_utc":datetime.now(timezone.utc).isoformat(),
+           "completed_run_count":len(list(self.completed.glob("*.json"))) if self.completed.exists() else 0,
+           "cached_successful_calls":len(list(self.requests.glob("*.json"))) if self.requests.exists() else 0,
+           **details,
+        }
+        atomic_json(self.status,info)
+
+    def _quarantine_unverified_spend(self)->None:
+        # The fsynced in-flight marker is primary evidence. Even if the
+        # status file cannot be written, the marker blocks future resumes.
+        try:
+            self._write_status("failed",reason="unverified_api_spend: operator reconciliation required")
+        except OSError:
+            pass
+
+    def _clear_api_inflight(self)->None:
+        marker=self.root/API_INFLIGHT
+        marker.unlink()
+        _sync_directory(marker.parent)
+
+    def mark(self,state:str,*,reason:str="",current:str="")->None:
+        if state not in ("running","paused_quota","failed","completed"):
+            raise ValueError("Invalid checkpoint state")
+        self._write_status(state,reason=reason,current=current)
+
+    def invoke(self,chat:dict,*,provider,model:str,effort:str,provider_name:str,
+               logical_id:str,max_provider_attempts:int|None=None)->dict:
+        """Replay saved responses for free; charge budget only on cache misses."""
+        with self._attempt_lock:
+            return self._invoke_serialized(
+                chat,provider=provider,model=model,effort=effort,
+                provider_name=provider_name,logical_id=logical_id,
+                max_provider_attempts=max_provider_attempts)
+
+    def _invoke_serialized(self,chat:dict,*,provider,model:str,effort:str,
+                           provider_name:str,logical_id:str,
+                           max_provider_attempts:int|None)->dict:
+        """Keep whole-study budget and request journaling in one critical section."""
+        if not isinstance(logical_id,str) or not logical_id or len(logical_id)>256:
+            raise ValueError("Each model call requires a stable logical identity")
+        key=digest({"version":self.VERSION,"chat":chat,"model":model,
+                    "effort":effort,"provider":provider_name,"logical_id":logical_id})
+        # Detect a deleted billable JSON even if the charge folder is intact.
+        # Also guard free cache replay, not only a new external call.
+        self._verify_request_manifest()
+        path=self.requests/(key+".json")
+        if path.exists():
+            item=json.loads(path.read_text(encoding="utf-8"))
+            if (item.get("request_key")!=key or
+                item.get("response_digest")!=digest(item.get("reply"))):
+                raise RuntimeError("Saved model response fingerprint corrupted; refusing replay")
+            result=item["reply"]
+            if not isinstance(result,dict) or "choices" not in result:
+                raise ValueError("Corrupt saved response")
+            self.cache_hits+=1
+            return result
+        if max_provider_attempts is not None:
+            # Count ALL previous successful responses, including cells skipped
+            # by finished_run() on resume, plus every rejected billed attempt.
+            # A cache hit above needs no new provider allowance.
+            if type(max_provider_attempts) is not int or max_provider_attempts<1:
+                raise ValueError("Invalid whole-study provider call budget")
+            prior_attempts=(len(self.stored_replies())
+                           +len(self.stored_rejected_billable()))
+            if prior_attempts>=max_provider_attempts:
+                raise RuntimeError("API call budget exhausted (all persisted successful and rejected attempts)")
+        paid=provider_name=="OPENAI_RESPONSES"
+        if paid:
+            marker=self.root/API_INFLIGHT
+            if marker.exists():
+                self._quarantine_unverified_spend()
+                raise RuntimeError("Unsafe paid API request: prior charge remains unverified")
+            # Durable PRE-CALL write: even an immediate process kill leaves
+            # the request quarantined until an operator reconciles billing.
+            atomic_json(marker,{"version":1,"request_key":key,
+                                "logical_id":logical_id,"requested_model":model})
+        try:
+            answer=provider(chat)
+        except BillableResponseRejected as exc:
+            try:
+                if not paid:
+                    raise RuntimeError("Rejected billable response on non-API provider")
+                self.record_rejected_billable(
+                    request_key=key,logical_id=logical_id,model=model,exc=exc)
+                self._clear_api_inflight()
+            except BaseException:
+                self._quarantine_unverified_spend()
+                raise
+            raise
+        if not isinstance(answer,dict) or "choices" not in answer:
+            raise RuntimeError("Provider response invalid; will not checkpoint")
+        # For paid responses, only release the in-flight marker AFTER the
+        # successful response is durably saved.
+        self._write_request_ledger(path,
+            {"request_key":key,"response_digest":digest(answer),"reply":answer},
+            kind="successful")
+        if paid:
+            self._clear_api_inflight()
+        self.real_new_calls+=1
+        return answer
+
+    def record_rejected_billable(self,*,request_key:str,logical_id:str,
+                                 model:str,exc:BillableResponseRejected)->None:
+        """Write billable failed usage durably; NEVER create a successful reply."""
+        usage=exc.usage
+        vals=[usage.get(q) for q in ("prompt_tokens","completion_tokens",
+                                    "cached_input_tokens","reasoning_tokens")]
+        if (any(type(x)is not int or x<0 for x in vals) or
+            vals[2]>vals[0] or vals[3]>vals[1]):
+            self.mark("failed",reason="unverified_api_spend: rejected response lacked valid usage")
+            raise RuntimeError("Unable to durably price rejected API response")
+        if (not isinstance(exc.actual_model,str) or not exc.actual_model.strip()):
+            self._quarantine_unverified_spend()
+            raise RuntimeError("Unverified rejected API model: manual spend reconciliation required")
+        entry={"request_key":request_key,"logical_id":logical_id,
+               "model":model,"actual_model":exc.actual_model,"usage":usage,
+               "remote_response_id":exc.remote_response_id,
+               "rejected":True}
+        entry["digest"]=digest({k:v for k,v in entry.items() if k!="digest"})
+        # Each paid retry must be independently accounted, even for an
+        # identical prompt, so never overwrite a previous failed attempt.
+        filename=secrets.token_hex(16)+".json"
+        path=self.failed_requests/filename
+        self._write_request_ledger(path,entry,kind="rejected")
+
+    def _initialize_request_manifest(self)->None:
+        payload={"version":1,"successful":{},"rejected":{}}
+        payload["digest"]=digest(payload)
+        atomic_json(self.request_manifest,payload)
+
+    def _verify_request_manifest(self)->dict:
+        """Detect missing/changed billing records, including partial restores.
+
+        This manifest is created before the first call; on resume we refuse
+        older/unverified snapshots rather than assume an empty billable ledger.
+        A coordinated rollback of BOTH manifest and data needs an external
+        trusted billing reconciliation, not just filesystem integrity checks.
+        """
+        try:
+            payload=json.loads(self.request_manifest.read_text(encoding="utf-8"))
+            if (not isinstance(payload,dict) or
+                set(payload)!={"version","successful","rejected","digest"} or
+                payload["version"]!=1 or
+                any(not isinstance(payload[k],dict) for k in ("successful","rejected")) or
+                payload["digest"]!=digest({k:v for k,v in payload.items() if k!="digest"})):
+                raise ValueError("Invalid inventory digest or structure")
+            for kind,folder in (("successful",self.requests),("rejected",self.failed_requests)):
+                expected=payload[kind]
+                if any(not isinstance(k,str) or not k.endswith(".json") or
+                       "/" in k or "\\" in k or
+                       not isinstance(v,str) or
+                       re.fullmatch(r"[0-9a-f]{64}",v) is None
+                       for k,v in expected.items()):
+                    raise ValueError("Malformed expected billable filenames or hashes")
+                actual=self._ledger_paths(folder)
+                if {p.name for p in actual}!=set(expected):
+                    raise ValueError("Incomplete request ledger: missing or unexpected JSON")
+                for path in actual:
+                    if hashlib.sha256(path.read_bytes()).hexdigest()!=expected[path.name]:
+                        raise ValueError("Request ledger JSON does not match durable inventory")
+            return payload
+        except (OSError,ValueError,TypeError,KeyError,RuntimeError) as exc:
+            raise RuntimeError(
+                "Unsafe checkpoint request ledger manifest: missing, damaged or mismatched record; "
+                "refusing paid resume"
+            ) from exc
+
+    def _write_request_ledger(self,path:Path,entry:dict,*,kind:str)->None:
+        """Commit record, then manifest, and only then release API marker.
+
+        A crash between record fsync and manifest fsync leaves either the
+        paid pre-call marker or an unexpected record: both fail closed.
+        """
+        if kind not in ("successful","rejected"):
+            raise ValueError("Unknown request ledger kind")
+        inventory=self._verify_request_manifest()
+        if path.exists() or path.name in inventory[kind]:
+            raise FileExistsError("Refusing to overwrite request billing evidence")
+        atomic_json(path,entry)
+        inventory[kind][path.name]=hashlib.sha256(path.read_bytes()).hexdigest()
+        inventory["digest"]=digest({k:v for k,v in inventory.items() if k!="digest"})
+        atomic_json(self.request_manifest,inventory)
+
+    @staticmethod
+    def _ledger_paths(directory:Path)->list[Path]:
+        """Fail closed on unreadable ledger directories.
+
+        pathlib.Path.glob() can hide PermissionError on Linux, silently
+        erasing incurred charges; os.scandir() propagates EACCES/ENOENT.
+        """
+        try:
+            with os.scandir(directory) as entries:
+                return sorted(Path(item.path) for item in entries
+                              if item.name.endswith(".json"))
+        except OSError as exc:
+            raise RuntimeError("Cannot enumerate model billing ledger; refuse resume or paid calls") from exc
+
+    def stored_rejected_billable(self)->list[dict]:
+        """Verify all separately charged failures before a resume/spend cap."""
+        records=[]
+        for path in self._ledger_paths(self.failed_requests):
+            item=json.loads(path.read_text(encoding="utf-8"))
+            if (not isinstance(item,dict) or item.get("rejected") is not True
+                or item.get("digest")!=digest({k:v for k,v in item.items() if k!="digest"})
+                or not isinstance(item.get("request_key"),str)
+                or not isinstance(item.get("usage"),dict)
+                or not isinstance(item.get("actual_model"),str)
+                or not item["actual_model"].strip()):
+                raise RuntimeError("Failed billable API usage ledger corrupt; refuse resume")
+            records.append(item)
+        return records
+
+    def stored_replies(self)->list[dict]:
+        """Verify each saved reply's filename/digests before using it for money."""
+        records=[]
+        for path in self._ledger_paths(self.requests):
+            record=json.loads(path.read_text(encoding="utf-8"))
+            if (record.get("request_key")!=path.stem or
+                record.get("response_digest")!=digest(record.get("reply")) or
+                not isinstance(record.get("reply"),dict) or
+                "choices" not in record["reply"]):
+                raise RuntimeError("Saved model reply corrupted; refuse spend or scoring")
+            records.append(record)
+        return records
+
+    def finished_run(self,ref:str,expected:dict|None=None)->dict|None:
+        path=self.completed/(ref+".json")
+        if not path.exists():return None
+        info=json.loads(path.read_text(encoding="utf-8"))
+        if info.get("checksum")!=digest(info.get("result")):
+            raise ValueError(f"Completed checkpoint {ref} corrupted")
+        run=info["result"]
+        if run.get("checkpoint_id")!=ref:
+            raise ValueError("Mismatched completed checkpoint reference")
+        if expected and any(run.get(k)!=v for k,v in expected.items()):
+            raise ValueError("Completed run settings/corpus differ; cannot reuse")
+        audit=self.root/run["audit_sqlite"]
+        if (audit.parent.resolve()!=self.root or
+            not audit.is_file() or
+            hashlib.sha256(audit.read_bytes()).hexdigest()!=run["audit_sha256"]):
+            raise ValueError(f"Completed run audit modified: {ref}")
+        return run
+
+    def record_run(self,ref:str,run:dict)->None:
+        if not ref.replace("_","").isalnum() or ref.startswith("."):
+            raise ValueError("Invalid run ID")
+        path=self.completed/(ref+".json")
+        if path.exists():raise FileExistsError("Refusing to overwrite completed run")
+        entry={"result":run,"checksum":digest(run)}
+        atomic_json(path,entry)
+        self._write_status("running",reason="completed a full experiment",current=ref)

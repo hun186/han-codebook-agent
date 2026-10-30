@@ -1,30 +1,45 @@
-# Han Codebook Agent — Vercel Mock PoC
+# Han Codebook Agent — Vercel 同介面 Mock Demo
 
-Static, self-contained **synthetic public demonstration**. Vercel project's Root Directory must be `vercel-demo` and framework should be `Other` (null). It does **not** connect to OpenAI, Ollama, Qwen, private IPs, or any external API. There are no credentials, servers or persistent DB.
+這是 **公開合成資料、純靜態、無外部模型連線的展示版**。本版與本機 Python 研究工作台使用**同一套 GUI HTML、側邊導覽、表單和前端互動程式**；兩者差別在於資料來源與運算後端。
 
-Features: same-codebook synthetic 10/25/50/100 messages, Python-solver-precomputed statistical baseline, explicit **deterministic mock** candidate hints and corresponding Python-rescored snapshots, per-code candidate reading, source metadata, manual undo/redo hypothesis previews, export/import JSON, after-click synthetic gold answer reveal.
+| 項目 | 本機 GUI | Vercel Demo |
+|---|---|---|
+| 視覺與操作 | `src/han_codebook/static/index.html` | 同份頁面產生的 `index.html` + `workbench.js` |
+| 案例和編輯 | 研究員檔案／本機資料夾 | 10、25、50、100 封公開合成範例；使用者新增/修改只存在目前瀏覽器記憶體 |
+| LLM 設定 | 允許明確核准的 localhost／LAN 模型 | **僅顯示 Mock；不允許輸入端點後呼叫網路** |
+| 回合／分析 | 真實 Python 統計和可選 LLM | `mock_api.js` 依公開候選快照、人工標註產生可重現的 Mock 結果 |
+| 自動動態詞庫 | 每輪利用跨報情報與當前假說調整 LLM 候選 | 同一模式選單；依合成詞彙於每輪調整未驗證候選，完全不發模型請求 |
+| 逐輪人工覆核 | 真實工作暫停等候研究員核准 | 同一待審視窗、選詞、拒絕與逐輪 token；每輪送出後繼續產生模擬結果 |
+| 研究員自行新增候選詞 | 每行一詞，與 LLM 提案合併或全部不用 LLM | 完全相同輸入框、驗證與稽核來源；本輪最多 32 個，候選永不直接成為 verified_alignment |
+| 詞庫／目擊時序 | 本機推理流程與審計 | 無外部連線、僅用公開合成資料的假說模擬 |
+| 人工標註 | 可逆標註、另存檔 | 同一 UI；可逆標註及再求解，頁面重載即清空未保存變更 |
+| 研究報告 | Python Word/Markdown | 瀏覽器產生有效 OOXML DOCX／Markdown，內容明確標示 PUBLIC MOCK |
+| 評測 | 由後端使用獨立合成答案計分 | 使用事先公佈的合成基準快照，不是即時模型準確率 |
 
-Limits: the LLM never runs on Vercel, batch progression is a UI simulation, no re-solve of the statistical model happens when a researcher adds a manual hypothesis; the manual row just previews a local mapping substitution. This PoC uses a publicly inspectable synthetic gold JSON, which is not suitable for blind benchmarking. Real secure/offline analysis remains the local `run_web_windows.bat` workbench.
+**分享展示建議**：從 10 封案例開始，先使用「自動動態更新」看兩輪詞庫演進，再改成「動態更新＋人工覆核」勾選模型詞彙及自行輸入研究員新詞，逐輪提交後下載 Word 報告。網頁重新整理會清掉所有臨時改動。\n\n重要：即使畫面與操作一致，Vercel 網頁的「分析完成」、「LLM 回合」均是**模擬流程**，不是實際 Ollama、Qwen、OpenAI、歷史密文解碼、資料庫儲存或雲端任務執行。不要在公開網站輸入敏感密文；本版雖不把輸入傳給模型，仍應只作虛構展示。
 
-## Rebuild fixtures and test
+## 維護與同步
 
-From repository root:
+**本機 GUI 是單一介面來源。** 不能再手動重做一套 Vercel UI。當 `src/han_codebook/static/index.html` 有變動，從 repo 根目錄執行：
 
 ```bash
-PYTHONPATH=src python scripts/build_vercel_demo.py
-python -m unittest discover -s tests -q
+python scripts/sync_vercel_workbench.py --write
+python scripts/sync_vercel_workbench.py --check
+python -m unittest discover -s tests -v
 ```
 
-To preview locally: `python -m http.server 8767 -d vercel-demo` and visit `http://127.0.0.1:8767`.
+此工具將本機 HTML 與內嵌程式碼同步成 `vercel-demo/index.html`、`vercel-demo/workbench.js`，在標頭注入公開 Mock 警示並先載入 `mock_api.js`；未觸碰本機原始頁面。Hosted CI 裡 `test_vercel_demo.py` 會執行同步一致性檢查，若有人只更新本機 GUI 而沒有更新 Vercel 副本，CI 應失敗。
 
-Never deploy with `config.yaml`, private user inputs, SQLite audits or real LLM keys in this static app. `data/gold.json` is **synthetic**, and fetched only when a visitor clicks reveal.
+為了維持既有合成快照的可重現性，`data/demo.json` 和 `data/gold.json` 繼續分開。新的 `mock_api.js` 只讀 `data/demo.json` 的公開候選，**不讀 gold.json、不接觸任何真實 LLM**。既有 `app.js` 和 `mock_solver.js` 是前一版獨立 UI 的保留測試資產，不再由首頁載入；不要把前一版 Mock 的正確率視為新版即時求解的績效。
 
-## 研究員假說回饋 Mock（新增）
+## Vercel 部署
 
-本展示版會在執行 Mock 後，將「偏好／排除／試鎖」及 Undo／Redo 即時回饋到**瀏覽器內的確定性候選重評分**，而不只是替換「研究員預覽」欄位。`mock_solver.js` 只依據可觀察密文相鄰碼組與既有統計／Mock 候選推導詞序相容度，對受到標註影響的碼組重新評分並列出前後變化，沒有隨機替換答案、沒有任何實際 LLM API 呼叫。試鎖是可撤銷的硬假說；偏好是加權、未必一定改變；排除會移除該候選。
+保留 Vercel Project Root Directory 為 **`vercel-demo`**，Framework 使用 Other；這是一個靜態網站，不可直接將 Root Directory 改為 `src/han_codebook/static`，否則缺少 Mock API。HTTP CSP 僅允許本來源腳本與本來源資料讀取，且攔截所有本機 GUI 的 `/api/*` 呼叫。
 
-- 原始統計／原始 Mock 正確率和趨勢圖保留為**無標註基線**，不隨研究員操作竄改。
-- 「模擬 AI 建議後」顯示研究員標註後的重評分；下方顯示碼組前後差異、間接受影響的碼組、可檢查的計算說明。若沒有足夠鄰近線索，其他碼組的 Top-1 可能不變。
-- 合成正確明文仍只在按「揭曉」後載入，重新評分器完全不讀 `gold.json`。揭曉後可另外查看**目前** Mock 的正確率，與原始評測基線區隔。
-- 清空標註或 Undo 回空白版本，恢復**原始 Mock**，不需要執行任何網路呼叫。更換 10／25／50／100 封則重置此獨立實驗的標註與重評分結果。
-- 此處的詞序相容度來自既有**未驗證候選**，只為透明展示因果與研究流程，**不是**可靠語言模型或真實密碼破解效能。
+預覽時可從 repo 根目錄執行：
+
+```bash
+python -m http.server 8767 -d vercel-demo
+```
+
+瀏覽 `http://127.0.0.1:8767`。本機測試需安裝 Node.js 才會執行額外的 Browser Mock API 回歸；GitHub Hosted CI 另外執行完整 Python unittest。部署到正式網址前須檢查 PR、CI、Codex Review，並獲得明確合併／上線同意。請勿把 `config.yaml`、內網 IP、憑證、資料庫或私有研究案件放進展示資料。

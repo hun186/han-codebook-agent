@@ -80,7 +80,8 @@ def llm_rescore(case: dict, baseline: dict, *, metadata: bool, llm_settings: dic
             if not unresolved:
                 continue
             packet = {
-                'policy': 'Propose only unverified hypotheses within available_vocabulary; no decoding oracle or verified plaintext exists.',
+                'policy': 'Use code equal to EXACTLY ONE key from allowed_codes/unresolved. Never concatenate codes (e.g. 144-115), never invent a code; each candidate must be a literal member of available_vocabulary; all are unverified hypotheses.',
+                'allowed_codes': sorted(unresolved),
                 'verified_anchors': {},
                 'available_vocabulary': sorted(vocabulary),
                 'profiles': ({k: {'keywords': p.get('keywords', []), 'lexicon': p.get('lexicon', {})}
@@ -114,7 +115,9 @@ def llm_rescore(case: dict, baseline: dict, *, metadata: bool, llm_settings: dic
                 reply = query(url, model, packet, timeout=llm_settings.get('timeout_seconds', 90),
                               allow_private_network=llm_settings.get('allow_private_network', False),
                               allowed_hosts=llm_settings.get('allowed_hosts', []),
-                              api_key_env=llm_settings.get('api_key_env'), on_exchange=on_exchange)
+                              api_key_env=llm_settings.get('api_key_env'), on_exchange=on_exchange,
+                              reasoning_effort=llm_settings.get('reasoning_effort'),
+                              response_format=llm_settings.get('response_format'))
                 calls += 1
                 attempt_finished = True
                 entries = reply.get('hypotheses')
@@ -122,30 +125,44 @@ def llm_rescore(case: dict, baseline: dict, *, metadata: bool, llm_settings: dic
                     raise CaseError('LLM reply has no hypotheses array')
                 accepted = []
                 rejected = 0
+                reject_reasons: Counter[str] = Counter()
+                reject_examples = []
                 seen_codes: set[str] = set()
                 for item in entries[:15]:
-                    if not isinstance(item, dict) or item.get('code') not in unresolved or not isinstance(item.get('candidates'), list):
+                    reason = None
+                    code = item.get('code') if isinstance(item,dict) else None
+                    if not isinstance(item,dict):
+                        reason = 'not_object'
+                    elif not isinstance(code,str) or code not in unresolved:
+                        reason = 'invalid_code'
+                    elif code in seen_codes:
+                        reason = 'duplicate_code'
+                    elif not isinstance(item.get('candidates'),list):
+                        reason = 'invalid_candidate_shape'
+                    else:
+                        words=[]
+                        for word in item['candidates']:
+                            if isinstance(word,str) and word in vocabulary and word not in words:
+                                words.append(word)
+                            if len(words)==5: break
+                        if not words:
+                            reason='no_in_vocabulary_candidates'
+                    if reason:
                         rejected += 1
-                        continue
-                    code = item['code']
-                    if code in seen_codes:
-                        rejected += 1  # Same API response does not constitute new evidence.
-                        continue
-                    words: list[str] = []
-                    for word in item['candidates']:
-                        if isinstance(word, str) and word in vocabulary and word not in words:
-                            words.append(word)
-                        if len(words) == 5:
-                            break
-                    if not words:
-                        rejected += 1
+                        reject_reasons[reason]+=1
+                        if len(reject_examples)<5:
+                            reject_examples.append({'reason':reason,'code':str(code)[:80]})
                         continue
                     seen_codes.add(code)
                     for rank, word in enumerate(words):
                         hints.setdefault(code, {})[word] = min(0.6, hints.get(code, {}).get(word, 0.0) + 0.25/(rank+1))
                     accepted.append({'code': code, 'candidates': words, 'reason': str(item.get('reason',''))[:250]})
                 record.update({'status':'completed', 'seconds': round(time.monotonic()-started, 3),
-                               'accepted': accepted, 'rejected': rejected})
+                               'accepted': accepted, 'rejected': rejected,
+                               'rejection_reasons':dict(reject_reasons),
+                               'rejection_examples':reject_examples,
+                               'raw_hypotheses_count':len(entries),
+                               'truncated_unreviewed_count':max(0,len(entries)-15)})
                 trace.append(record)
             except Exception as exc:
                 record.update({'status':'failed', 'seconds':round(time.monotonic()-started,3),
@@ -319,6 +336,19 @@ def as_markdown(result: dict) -> str:
               if result.get('auto_vocabulary') else '- 固定詞庫包含正確候選詞，因此仍不是沒有先驗詞庫的純密文破解。'),
               '- 這不是完整自主的研究 Agent；LLM 只提出詞庫內候選，統計求解器再重新排序。',
               '- 真實內網實測成績以本次執行所生成的 JSON 為準；不要把模擬 API 測試當成模型能力。','']
+    lines += ['', '## 合法碼組建議與模型輸出品質', '',
+              '| Seed | 封數 | 批次 | 採納 | 拒絕 | 拒絕原因 | 未檢查的超量輸出 |',
+              '|---:|---:|---|---:|---:|---|---:|']
+    for row in result.get('trace',[]):
+        for entry in row.get('trace',[]):
+            if 'round' not in entry:
+                continue
+            reasons = ', '.join(f'{k}:{v}' for k,v in sorted(entry.get('rejection_reasons',{}).items()))
+            lines.append(f'| {row["seed"]} | {row["messages"]} | {entry.get("start")}-{entry.get("end")} | '
+                         f'{len(entry.get("accepted",[]))} | {entry.get("rejected",0)} | '
+                         f'{reasons or "—"} | {entry.get("truncated_unreviewed_count",0)} |')
+    lines += ['', '合法候選不代表真實解碼。被拒絕原因可用來診斷 Prompt、詞庫及輸出契約；'
+              '超過 15 個碼組的模型回覆不會被視為有效建議。', '']
     return '\n'.join(lines)
 
 

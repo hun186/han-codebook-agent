@@ -17,7 +17,7 @@ from .llm_evidence import safe_llm_message
 
 MAX_NEW_TERMS_PER_ROUND = 32
 MAX_DYNAMIC_TERMS = 128
-MAX_CONTEXT_MESSAGES = 50
+MAX_CONTEXT_MESSAGES = 100
 
 
 def vocabulary_packet(case: dict, *, round_number: int, metadata: bool,
@@ -89,6 +89,8 @@ def refresh_vocabulary(case: dict, *, round_number: int, metadata: bool,
         allow_private_network=llm_settings.get("allow_private_network", False),
         allowed_hosts=llm_settings.get("allowed_hosts", []),
         api_key_env=llm_settings.get("api_key_env"),
+        reasoning_effort=llm_settings.get("reasoning_effort"),
+        response_format=llm_settings.get("response_format"),
         on_exchange=on_exchange,
     )
     entries = response.get("vocabulary")

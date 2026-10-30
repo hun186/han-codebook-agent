@@ -574,6 +574,7 @@ const { TextEncoder } = require('node:util');
     {'001':{term:'研究替代詞',note:'錯誤碼組',confirmed:true}},
     {'000':{term:'可信原詞',note:'與錨點相同',confirmed:true}},
     {'000':{term:'研究替代詞',note:'未確認',confirmed:false}},
+    {'000':{term:'研究替代詞',note:null,confirmed:true}},
     {'000':{term:'研究替代詞',note:'備註',confirmed:true,verified:true}},
     {'000':{term:' '+ '研究替代詞',note:'前端空白',confirmed:true}},
     {'000':{term:'研究替代詞',note:'x'.repeat(501),confirmed:true}},

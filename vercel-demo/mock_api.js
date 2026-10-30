@@ -74,7 +74,32 @@
         anchors.set(codes[i], segments[i]);
       }
     }
-    return clone(input);
+    // Mirror local normalize_bold_hypotheses(): researcher-confirmed
+    // counterfactual readings are tied to verified codes, but never
+    // overwrite a trusted anchor or become vocabulary/solver evidence.
+    const rawBold=input.bold_hypotheses ?? {};
+    if (!rawBold || typeof rawBold!=='object' || Array.isArray(rawBold) ||
+        Object.keys(rawBold).length>100)
+      throw Error('bold_hypotheses must be an object of up to 100 verified-code alternatives');
+    const bold={};
+    for (const [code, item] of Object.entries(rawBold)) {
+      if (!anchors.has(code) || !item || typeof item!=='object' ||
+          Array.isArray(item) ||
+          Object.keys(item).some(k=>!['term','note','confirmed'].includes(k)))
+        throw Error('Bold hypothesis must refer to an existing verified code: '+code);
+      const term=item.term, note=item.note ?? '';
+      if (typeof term!=='string' || !term.trim() ||
+          [...term.trim()].length>32 || term!==term.trim() ||
+          typeof note!=='string' || [...note].length>500 ||
+          item.confirmed!==true)
+        throw Error('Bold hypothesis '+code+' requires a phrase and explicit researcher confirmation');
+      if (term===anchors.get(code))
+        throw Error('Bold hypothesis '+code+' must differ from known plaintext');
+      bold[code]={term,note,confirmed:true};
+    }
+    const sanitized=clone(input);
+    sanitized.bold_hypotheses=bold;
+    return sanitized;
   }
   function lexicalCandidates(caseData) {
     const words = new Set();
@@ -222,6 +247,9 @@
         total_codes:m.codes.length};
     });
     return {case_id:caseData.case_id, proposals, decoded_messages, verified_anchors:verified,
+      // Counterfactual researcher notes are independent from verified proposals.
+      // safeCase validated them against the unchanged trusted anchors.
+      bold_hypotheses:clone(caseData.bold_hypotheses || {}),
       agent_rounds_completed:rounds, known_code_count:Object.keys(verified).length,
       unknown_code_count:codes.length-Object.keys(verified).length,
       objective_score:-codes.length,
@@ -627,12 +655,21 @@
       ['數字碼組','模擬候選','狀態'],
       ...Object.entries(result.proposals).map(([c,p])=>[c,p.term,p.status])
     ].map(row).join('')+'</w:tbl>';
+    const boldEntries=Object.entries(result.bold_hypotheses||{}).sort(([a],[b])=>a.localeCompare(b));
+    const counterfactual=boldEntries.length
+      ? para('研究員大膽指定（獨立反對假說，非已驗證明文）')
+        +para('PUBLIC MOCK：下列替代詞和研究理由僅供比較，不會取代已驗證原詞，也不是 AI 確認的破譯。')
+        +'<w:tbl>'+[
+          ['碼組','已驗證原詞','未驗證大膽假說','研究理由'],
+          ...boldEntries.map(([code,item])=>[code,result.verified_anchors[code],item.term,item.note])
+        ].map(row).join('')+'</w:tbl>'
+      : '';
     const doc='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
       +'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>'
       +para('Han Codebook Agent · PUBLIC MOCK 研究報告')
       +para('此報告來自公開合成資料與瀏覽器模擬，沒有執行真正的 LLM／Python 推論，也不代表解開歷史密電。')
       +para('案例：'+result.case_id+'　電文：'+result.decoded_messages.length+'　MOCK 回合：'+result.agent_rounds_completed)
-      +table+'<w:sectPr/></w:body></w:document>';
+      +table+counterfactual+'<w:sectPr/></w:body></w:document>';
     const types='<?xml version="1.0" encoding="UTF-8"?>'
       +'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
       +'<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
@@ -646,11 +683,19 @@
     return zip([['[Content_Types].xml',types],['_rels/.rels',rels],['word/document.xml',doc]]);
   }
   function reportMarkdown(result) {
+    const clean=value=>String(value??'').replace(/[\r\n]+/g,' ')
+      .replace(/\\|/g,'／').replace(/`/g,'ˋ');
+    const bold=Object.entries(result.bold_hypotheses||{}).sort(([a],[b])=>a.localeCompare(b));
     return '# PUBLIC MOCK · 中文數字碼本研究報告\n\n'
       +'**公開合成資料；瀏覽器內的模擬結果，不是歷史密文的破譯。**\n\n'
-      +'案例：'+result.case_id+'\n\n'
+      +'案例：'+clean(result.case_id)+'\n\n'
       +'| 數字碼組 | 模擬候選 | 狀態 |\n|---|---|---|\n'
-      +Object.entries(result.proposals).map(([c,p])=>'| '+c+' | '+p.term+' | '+p.status+' |').join('\n')+'\n';
+      +Object.entries(result.proposals).map(([c,p])=>'| '+clean(c)+' | '+clean(p.term)+' | '+clean(p.status)+' |').join('\n')+'\n'
+      +(bold.length?'\n## 研究員大膽指定（獨立反對假說，非已驗證明文）\n\n'
+        +'此處替代詞與研究理由只供比較，**不會取代原始可信明文，也不是模型確認的破譯**。\n\n'
+        +'| 碼組 | 已驗證原詞 | 未驗證大膽假說 | 研究理由 |\n|---|---|---|---|\n'
+        +bold.map(([code,item])=>'| '+clean(code)+' | '+clean(result.verified_anchors[code])
+          +' | '+clean(item.term)+' | '+clean(item.note)+' |').join('\n')+'\n':'');
   }
   function downloadMock(link,ext,jobId){
     const item=jobs.get(jobId);
@@ -690,6 +735,7 @@
     getJob:id=>jobs.get(id)?clone(jobs.get(id)):null,
     getSavedCase:id=>cases.get(id)?clone(cases.get(id)):null,
     makeDocxForTest:reportDocx,
+    makeMarkdownForTest:reportMarkdown,
     runForTest:handle,
   });
 })();

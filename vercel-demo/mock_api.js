@@ -161,7 +161,12 @@
         ...ideas.filter(x => x.status === 'shortlisted').map(x => x.term),
         ...(mark.preferred ? [mark.preferred] : []),
         ...showcase,
-        ...(fromData[code]?.alternatives || []),
+        // A snapshot is only a ranking hint, never a fresh source of words.
+        // After an edited/deleted lexicon, removed synthetic snapshot words
+        // must not re-enter static, automatic, or human-review results.
+        // Explicit non-rejected researcher ideas, preferred marks and this
+        // round's approved vocabulary are added separately above/below.
+        ...(fromData[code]?.alternatives || []).filter(w => vocab.includes(w)),
         ...ideas.map(x => x.term),
         ...vocab,
       ]);

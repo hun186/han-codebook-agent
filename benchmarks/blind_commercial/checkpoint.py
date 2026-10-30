@@ -190,6 +190,19 @@ class ResumeStore:
                 raise ValueError("Resume settings, corpus hashes or model differ; no reuse permitted")
             if str(old.get("reason","")).startswith(("unverified_container_cleanup","unverified_api_spend")):
                 raise RuntimeError("Unsafe resume: previous paid inference/cleanup unverified; checkpoint quarantined")
+            # Ledger directories are part of the checkpoint's required
+            # durable evidence, including when empty. A damaged/partial
+            # restore must never be upgraded to an empty ledger here.
+            # Legacy checkpoints missing these directories require explicit
+            # offline reconciliation/migration; do not silently initialize.
+            try:
+                for directory in (self.requests,self.completed,self.failed_requests):
+                    self._ledger_paths(directory)
+            except RuntimeError as exc:
+                raise RuntimeError(
+                    "Unsafe resume: missing or unreadable checkpoint ledger; "
+                    "cannot verify prior charges or completed work"
+                ) from exc
             # A marker written before sending paid traffic survives SIGKILL,
             # a failed billable ledger fsync, or any ambiguous API response.
             # Never issue a second paid request while its charge is unknown.
@@ -212,9 +225,12 @@ class ResumeStore:
                 raise FileExistsError("Output directory exists and is not empty; use --resume")
             durable_mkdir(self.root)
             self._write_status("running",reason="new experiment")
-        durable_mkdir(self.requests)
-        durable_mkdir(self.completed)
-        durable_mkdir(self.failed_requests)
+        if not resume:
+            # Only brand-new, explicitly empty studies may initialize
+            # accounting directories. Resume must preserve their existence.
+            durable_mkdir(self.requests)
+            durable_mkdir(self.completed)
+            durable_mkdir(self.failed_requests)
         if resume:
             self._write_status("running",reason="resumed by explicit user command")
         self.cache_hits=0

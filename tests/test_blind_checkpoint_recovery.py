@@ -129,9 +129,10 @@ class ResumeSafetyTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"already locked"):
             self.run_mock(never,resume=True)
 
-    def test_resumed_api_spend_cap_includes_previous_successful_calls(self):
-        # This is a FAKE OpenAI-shaped result with 0.0006 USD / model reply;
-        # never emit completed GPT-6 evidence from a billing unit test.
+    def test_api_quota_without_usage_quarantines_unknown_charge_before_resume(self):
+        # A fake API quota error after 3 paid successes has NO upstream
+        # usage for the 4th request. Do not assume that it was free:
+        # a durable pre-request marker blocks another potential charge.
         manifest=self.public/"manifest.json"
         data=json.loads(manifest.read_text(encoding="utf-8"))
         for item in data["studies"]:
@@ -149,15 +150,19 @@ class ResumeSafetyTests(unittest.TestCase):
         self.assertEqual(len(seen),4)
         self.assertEqual(len(list((self.output/"successful_requests").glob("*.json"))),3)
         self.assertFalse((self.output/"predictions_LOCKED.json").exists())
+        self.assertTrue((self.output/"api_request_inflight.json").exists())
         after=[]
         def second(packet):
             after.append(1)
             return fake_reply(packet,real=True)
-        with self.assertRaisesRegex(RuntimeError,"exceeded cap|Inference failed"):
+        with self.assertRaisesRegex(RuntimeError,"Unsafe resume: unverified_api_spend"):
             self.run_mock(second,real=True,cap=cap,resume=True)
-        self.assertEqual(len(after),1,
-            "spend from 3 persisted replies must be restored before calling the 4th")
-        self.assertEqual(len(list((self.output/"successful_requests").glob("*.json"))),4)
+        self.assertEqual(after,[],
+            "Unknown billable response must block further API calls")
+        self.assertEqual(len(list((self.output/"successful_requests").glob("*.json"))),3)
+        state=json.loads((self.output/"run_status.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["state"],"failed")
+        self.assertTrue(state["reason"].startswith("unverified_api_spend"))
         self.assertFalse((self.output/"predictions_LOCKED.json").exists())
         self.assertFalse((self.output/"evaluation.json").exists())
 

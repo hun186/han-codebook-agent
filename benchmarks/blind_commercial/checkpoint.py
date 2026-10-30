@@ -16,6 +16,10 @@ import json
 import os
 import tempfile
 import threading
+import re
+import secrets
+import subprocess
+from gpt_gateway import BillableResponseRejected
 from datetime import datetime,timezone
 from pathlib import Path
 
@@ -120,6 +124,48 @@ def exclusive_run_lock(root: Path):
             os.close(fd)
 
 
+
+DOCKER_INFLIGHT="codex_container_inflight.json"
+API_INFLIGHT="api_request_inflight.json"
+
+
+def reconcile_stale_codex_container(root:Path,*,subprocess_run=None)->None:
+    """After SIGKILL, force-remove a durable container name under the study lock.
+
+    Unknown daemon state, corrupted evidence or unverified inspect result
+    quarantines the checkpoint. Never infer cleanup from docker start --attach.
+    """
+    if subprocess_run is None:
+        subprocess_run=subprocess.run
+    marker=Path(root)/DOCKER_INFLIGHT
+    if not marker.exists():return
+    try:
+        data=json.loads(marker.read_text(encoding="utf-8"))
+        name=data.get("name")
+        if (not isinstance(name,str) or
+            re.fullmatch(r"han-blind-[0-9a-f]{32}",name) is None or
+            data.get("version")!=1):
+            raise ValueError("Malformed durable Docker in-flight marker")
+        removed=subprocess_run(["docker","rm","--force",name],
+                               capture_output=True,text=True,timeout=40,check=False)
+        inspected=subprocess_run(["docker","inspect","--type","container",name],
+                                 capture_output=True,text=True,timeout=20,check=False)
+        missing=(inspected.returncode!=0 and
+                 any(q in inspected.stderr.lower()
+                     for q in ("no such object","no such container")))
+        accepted_remove=(removed.returncode==0 or
+                         (removed.returncode!=0 and
+                          "no such" in removed.stderr.lower()))
+        if not missing or not accepted_remove:
+            raise RuntimeError("Docker termination not verifiable")
+        marker.unlink()
+        _sync_directory(marker.parent)
+    except BaseException as exc:
+        raise RuntimeError(
+            "Unsafe resume: unverified_container_cleanup; Docker in-flight marker retained for operator action"
+        ) from exc
+
+
 class ResumeStore:
     VERSION=1
     def __init__(self,root:Path,*,signature:dict,resume:bool):
@@ -127,9 +173,14 @@ class ResumeStore:
         # Gateway provider handlers and the runner can report failures from
         # different threads. Serialize status read/update/atomic replace.
         self._status_lock=threading.RLock()
+        # Separate from status lock: serialize cache lookup, whole-study
+        # attempt accounting, paid model invocation and journal persistence.
+        # Do not block the independent late-failure quarantine status writer.
+        self._attempt_lock=threading.RLock()
         self.status=self.root/"run_status.json"
         self.requests=self.root/"successful_requests"
         self.completed=self.root/"completed_runs"
+        self.failed_requests=self.root/"rejected_billable_requests"
         self.signature=signature
         if resume:
             if not self.status.is_file():
@@ -137,8 +188,34 @@ class ResumeStore:
             old=json.loads(self.status.read_text(encoding="utf-8"))
             if old.get("signature")!=signature:
                 raise ValueError("Resume settings, corpus hashes or model differ; no reuse permitted")
-            if str(old.get("reason","")).startswith("unverified_container_cleanup"):
-                raise RuntimeError("Unsafe resume: previous Docker container termination unverified; checkpoint quarantined")
+            if str(old.get("reason","")).startswith(("unverified_container_cleanup","unverified_api_spend")):
+                raise RuntimeError("Unsafe resume: previous paid inference/cleanup unverified; checkpoint quarantined")
+            # Ledger directories are part of the checkpoint's required
+            # durable evidence, including when empty. A damaged/partial
+            # restore must never be upgraded to an empty ledger here.
+            # Legacy checkpoints missing these directories require explicit
+            # offline reconciliation/migration; do not silently initialize.
+            try:
+                for directory in (self.requests,self.completed,self.failed_requests):
+                    self._ledger_paths(directory)
+            except RuntimeError as exc:
+                raise RuntimeError(
+                    "Unsafe resume: missing or unreadable checkpoint ledger; "
+                    "cannot verify prior charges or completed work"
+                ) from exc
+            # A marker written before sending paid traffic survives SIGKILL,
+            # a failed billable ledger fsync, or any ambiguous API response.
+            # Never issue a second paid request while its charge is unknown.
+            if (self.root/API_INFLIGHT).exists():
+                self._quarantine_unverified_spend()
+                raise RuntimeError("Unsafe resume: unverified_api_spend; a previous paid API request is in-flight or unaccounted")
+            # This check precedes any new model request AND the resumed status.
+            # In-flight markers are fsynced before Docker CREATE/START.
+            try:
+                reconcile_stale_codex_container(self.root)
+            except RuntimeError:
+                self._write_status("failed",reason="unverified_container_cleanup: stale Docker state cannot be verified")
+                raise
             if old.get("state")=="completed":
                 raise RuntimeError("Benchmark is already locked; do not resume a completed run")
             if old.get("state") not in ("paused_quota","failed","running"):
@@ -148,8 +225,12 @@ class ResumeStore:
                 raise FileExistsError("Output directory exists and is not empty; use --resume")
             durable_mkdir(self.root)
             self._write_status("running",reason="new experiment")
-        durable_mkdir(self.requests)
-        durable_mkdir(self.completed)
+        if not resume:
+            # Only brand-new, explicitly empty studies may initialize
+            # accounting directories. Resume must preserve their existence.
+            durable_mkdir(self.requests)
+            durable_mkdir(self.completed)
+            durable_mkdir(self.failed_requests)
         if resume:
             self._write_status("running",reason="resumed by explicit user command")
         self.cache_hits=0
@@ -163,7 +244,7 @@ class ResumeStore:
         prior={}
         if self.status.exists():
             prior=json.loads(self.status.read_text(encoding="utf-8"))
-        if str(prior.get("reason","")).startswith("unverified_container_cleanup"):
+        if str(prior.get("reason","")).startswith(("unverified_container_cleanup","unverified_api_spend")):
             # Cannot be reset by a late generic error from another thread or
             # the next stage. Quarantine survives any subsequent status update.
             state="failed"
@@ -178,14 +259,37 @@ class ResumeStore:
         }
         atomic_json(self.status,info)
 
+    def _quarantine_unverified_spend(self)->None:
+        # The fsynced in-flight marker is primary evidence. Even if the
+        # status file cannot be written, the marker blocks future resumes.
+        try:
+            self._write_status("failed",reason="unverified_api_spend: operator reconciliation required")
+        except OSError:
+            pass
+
+    def _clear_api_inflight(self)->None:
+        marker=self.root/API_INFLIGHT
+        marker.unlink()
+        _sync_directory(marker.parent)
+
     def mark(self,state:str,*,reason:str="",current:str="")->None:
         if state not in ("running","paused_quota","failed","completed"):
             raise ValueError("Invalid checkpoint state")
         self._write_status(state,reason=reason,current=current)
 
     def invoke(self,chat:dict,*,provider,model:str,effort:str,provider_name:str,
-               logical_id:str)->dict:
-        """Cache by stable run/round/phase, never deduplicate two real model turns."""
+               logical_id:str,max_provider_attempts:int|None=None)->dict:
+        """Replay saved responses for free; charge budget only on cache misses."""
+        with self._attempt_lock:
+            return self._invoke_serialized(
+                chat,provider=provider,model=model,effort=effort,
+                provider_name=provider_name,logical_id=logical_id,
+                max_provider_attempts=max_provider_attempts)
+
+    def _invoke_serialized(self,chat:dict,*,provider,model:str,effort:str,
+                           provider_name:str,logical_id:str,
+                           max_provider_attempts:int|None)->dict:
+        """Keep whole-study budget and request journaling in one critical section."""
         if not isinstance(logical_id,str) or not logical_id or len(logical_id)>256:
             raise ValueError("Each model call requires a stable logical identity")
         key=digest({"version":self.VERSION,"chat":chat,"model":model,
@@ -201,17 +305,106 @@ class ResumeStore:
                 raise ValueError("Corrupt saved response")
             self.cache_hits+=1
             return result
-        answer=provider(chat)
+        if max_provider_attempts is not None:
+            # Count ALL previous successful responses, including cells skipped
+            # by finished_run() on resume, plus every rejected billed attempt.
+            # A cache hit above needs no new provider allowance.
+            if type(max_provider_attempts) is not int or max_provider_attempts<1:
+                raise ValueError("Invalid whole-study provider call budget")
+            prior_attempts=(len(self.stored_replies())
+                           +len(self.stored_rejected_billable()))
+            if prior_attempts>=max_provider_attempts:
+                raise RuntimeError("API call budget exhausted (all persisted successful and rejected attempts)")
+        paid=provider_name=="OPENAI_RESPONSES"
+        if paid:
+            marker=self.root/API_INFLIGHT
+            if marker.exists():
+                self._quarantine_unverified_spend()
+                raise RuntimeError("Unsafe paid API request: prior charge remains unverified")
+            # Durable PRE-CALL write: even an immediate process kill leaves
+            # the request quarantined until an operator reconciles billing.
+            atomic_json(marker,{"version":1,"request_key":key,
+                                "logical_id":logical_id,"requested_model":model})
+        try:
+            answer=provider(chat)
+        except BillableResponseRejected as exc:
+            try:
+                if not paid:
+                    raise RuntimeError("Rejected billable response on non-API provider")
+                self.record_rejected_billable(
+                    request_key=key,logical_id=logical_id,model=model,exc=exc)
+                self._clear_api_inflight()
+            except BaseException:
+                self._quarantine_unverified_spend()
+                raise
+            raise
         if not isinstance(answer,dict) or "choices" not in answer:
             raise RuntimeError("Provider response invalid; will not checkpoint")
+        # For paid responses, only release the in-flight marker AFTER the
+        # successful response is durably saved.
         atomic_json(path,{"request_key":key,"response_digest":digest(answer),"reply":answer})
+        if paid:
+            self._clear_api_inflight()
         self.real_new_calls+=1
         return answer
+
+    def record_rejected_billable(self,*,request_key:str,logical_id:str,
+                                 model:str,exc:BillableResponseRejected)->None:
+        """Write billable failed usage durably; NEVER create a successful reply."""
+        usage=exc.usage
+        vals=[usage.get(q) for q in ("prompt_tokens","completion_tokens",
+                                    "cached_input_tokens","reasoning_tokens")]
+        if (any(type(x)is not int or x<0 for x in vals) or
+            vals[2]>vals[0] or vals[3]>vals[1]):
+            self.mark("failed",reason="unverified_api_spend: rejected response lacked valid usage")
+            raise RuntimeError("Unable to durably price rejected API response")
+        if (not isinstance(exc.actual_model,str) or not exc.actual_model.strip()):
+            self._quarantine_unverified_spend()
+            raise RuntimeError("Unverified rejected API model: manual spend reconciliation required")
+        entry={"request_key":request_key,"logical_id":logical_id,
+               "model":model,"actual_model":exc.actual_model,"usage":usage,
+               "remote_response_id":exc.remote_response_id,
+               "rejected":True}
+        entry["digest"]=digest({k:v for k,v in entry.items() if k!="digest"})
+        # Each paid retry must be independently accounted, even for an
+        # identical prompt, so never overwrite a previous failed attempt.
+        filename=secrets.token_hex(16)+".json"
+        path=self.failed_requests/filename
+        atomic_json(path,entry)
+
+    @staticmethod
+    def _ledger_paths(directory:Path)->list[Path]:
+        """Fail closed on unreadable ledger directories.
+
+        pathlib.Path.glob() can hide PermissionError on Linux, silently
+        erasing incurred charges; os.scandir() propagates EACCES/ENOENT.
+        """
+        try:
+            with os.scandir(directory) as entries:
+                return sorted(Path(item.path) for item in entries
+                              if item.name.endswith(".json"))
+        except OSError as exc:
+            raise RuntimeError("Cannot enumerate model billing ledger; refuse resume or paid calls") from exc
+
+    def stored_rejected_billable(self)->list[dict]:
+        """Verify all separately charged failures before a resume/spend cap."""
+        records=[]
+        for path in self._ledger_paths(self.failed_requests):
+            item=json.loads(path.read_text(encoding="utf-8"))
+            if (not isinstance(item,dict) or item.get("rejected") is not True
+                or item.get("digest")!=digest({k:v for k,v in item.items() if k!="digest"})
+                or not isinstance(item.get("request_key"),str)
+                or not isinstance(item.get("usage"),dict)
+                or not isinstance(item.get("actual_model"),str)
+                or not item["actual_model"].strip()):
+                raise RuntimeError("Failed billable API usage ledger corrupt; refuse resume")
+            records.append(item)
+        return records
 
     def stored_replies(self)->list[dict]:
         """Verify each saved reply's filename/digests before using it for money."""
         records=[]
-        for path in sorted(self.requests.glob("*.json")):
+        for path in self._ledger_paths(self.requests):
             record=json.loads(path.read_text(encoding="utf-8"))
             if (record.get("request_key")!=path.stem or
                 record.get("response_digest")!=digest(record.get("reply")) or

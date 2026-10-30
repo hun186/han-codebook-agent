@@ -79,7 +79,9 @@ def generate_vocabulary(case: dict, *, metadata: bool, llm_settings: dict,
         reply = query(url,model,packet,timeout=llm_settings.get('timeout_seconds',90),
                       allow_private_network=llm_settings.get('allow_private_network',False),
                       allowed_hosts=llm_settings.get('allowed_hosts', []),
-                      api_key_env=llm_settings.get('api_key_env'),on_exchange=capture)
+                      api_key_env=llm_settings.get('api_key_env'),on_exchange=capture,
+                      reasoning_effort=llm_settings.get('reasoning_effort'),
+                      response_format=llm_settings.get('response_format'))
         entries = reply.get('vocabulary')
         if not isinstance(entries,list):
             raise CaseError('LLM vocabulary reply must contain vocabulary array')
@@ -102,13 +104,18 @@ def generate_vocabulary(case: dict, *, metadata: bool, llm_settings: dict,
         if len(terms)<5:
             raise CaseError('LLM supplied fewer than five valid terms; no fixed vocabulary fallback')
         patterns = []
+        pattern_diagnostics = {'not_token_arrays':0, 'unknown_terms':0, 'valid':0}
         for item in reply.get('patterns',[]):
             if not isinstance(item,list) or not 2 <= len(item)<=24:
+                pattern_diagnostics['not_token_arrays']+=1
                 continue
             if all(isinstance(w,str) and w in terms for w in item):
                 patterns.append(item)
+                pattern_diagnostics['valid']+=1
                 if len(patterns)>=30:
                     break
+            else:
+                pattern_diagnostics['unknown_terms']+=1
         # Base language model includes these generated patterns; nothing from
         # the synthetic corpus generator's gold-aware domain profiles survives.
         generated = case_from_vocabulary_record(case, {'terms':[{'term':w} for w in terms],
@@ -116,6 +123,9 @@ def generate_vocabulary(case: dict, *, metadata: bool, llm_settings: dict,
         record.update({'status':'completed','elapsed_seconds':round(time.monotonic()-started,3),
                        'terms':[{'term':w,'reason':reasons[w]} for w in terms],
                        'patterns':patterns, 'candidate_count':len(terms),
+                        'vocabulary_diagnostics': {'raw_items':len(entries), 'unique_accepted':len(terms),
+                                                   'truncated_at':128 if len(terms)==128 else None,
+                                                   'patterns':pattern_diagnostics},
                        'discarded_manual_profiles':True})
         progress(f'[vocab] Generated {len(terms)} distinct candidates, {len(patterns)} language patterns '
                  f'(not verified code mappings)')

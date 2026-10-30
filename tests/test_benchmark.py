@@ -125,9 +125,14 @@ class BenchmarkTests(unittest.TestCase):
                 suite.write_text(json.dumps({'version':1,'cases':[entry]}),encoding='utf-8')
                 report=run_suite(suite,variants=(True,),rounds=1,audit_dir=path/'audit',
                    llm_settings={'base_url':f'http://127.0.0.1:{server.server_port}/v1','model':'mock-local',
-                                 'allow_private_network':False,'allowed_hosts':[]})
+                                 'allow_private_network':False,'allowed_hosts':[],
+                                 'reasoning_effort':'none','response_format':'json_object'})
                 self.assertEqual(report['runs'][0]['llm_rounds'],1)
                 self.assertEqual(len(requests),1)
+                request_body=json.loads(requests[0])
+                self.assertEqual(request_body['reasoning_effort'],'none')
+                self.assertEqual(request_body['response_format'],{'type':'json_object'})
+                self.assertEqual(request_body['model'],'mock-local')
                 self.assertNotIn('ground_truth',requests[0])
                 self.assertNotIn('07_alias_mixed_length.json',requests[0])
                 self.assertTrue(list((path/'audit').glob('*.sqlite')))

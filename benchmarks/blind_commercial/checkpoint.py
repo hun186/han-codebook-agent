@@ -173,6 +173,10 @@ class ResumeStore:
         # Gateway provider handlers and the runner can report failures from
         # different threads. Serialize status read/update/atomic replace.
         self._status_lock=threading.RLock()
+        # Separate from status lock: serialize cache lookup, whole-study
+        # attempt accounting, paid model invocation and journal persistence.
+        # Do not block the independent late-failure quarantine status writer.
+        self._attempt_lock=threading.RLock()
         self.status=self.root/"run_status.json"
         self.requests=self.root/"successful_requests"
         self.completed=self.root/"completed_runs"
@@ -258,8 +262,18 @@ class ResumeStore:
         self._write_status(state,reason=reason,current=current)
 
     def invoke(self,chat:dict,*,provider,model:str,effort:str,provider_name:str,
-               logical_id:str)->dict:
-        """Cache by stable run/round/phase, never deduplicate two real model turns."""
+               logical_id:str,max_provider_attempts:int|None=None)->dict:
+        """Replay saved responses for free; charge budget only on cache misses."""
+        with self._attempt_lock:
+            return self._invoke_serialized(
+                chat,provider=provider,model=model,effort=effort,
+                provider_name=provider_name,logical_id=logical_id,
+                max_provider_attempts=max_provider_attempts)
+
+    def _invoke_serialized(self,chat:dict,*,provider,model:str,effort:str,
+                           provider_name:str,logical_id:str,
+                           max_provider_attempts:int|None)->dict:
+        """Keep whole-study budget and request journaling in one critical section."""
         if not isinstance(logical_id,str) or not logical_id or len(logical_id)>256:
             raise ValueError("Each model call requires a stable logical identity")
         key=digest({"version":self.VERSION,"chat":chat,"model":model,
@@ -275,6 +289,16 @@ class ResumeStore:
                 raise ValueError("Corrupt saved response")
             self.cache_hits+=1
             return result
+        if max_provider_attempts is not None:
+            # Count ALL previous successful responses, including cells skipped
+            # by finished_run() on resume, plus every rejected billed attempt.
+            # A cache hit above needs no new provider allowance.
+            if type(max_provider_attempts) is not int or max_provider_attempts<1:
+                raise ValueError("Invalid whole-study provider call budget")
+            prior_attempts=(len(self.stored_replies())
+                           +len(self.stored_rejected_billable()))
+            if prior_attempts>=max_provider_attempts:
+                raise RuntimeError("API call budget exhausted (all persisted successful and rejected attempts)")
         paid=provider_name=="OPENAI_RESPONSES"
         if paid:
             marker=self.root/API_INFLIGHT
@@ -332,12 +356,24 @@ class ResumeStore:
         path=self.failed_requests/filename
         atomic_json(path,entry)
 
+    @staticmethod
+    def _ledger_paths(directory:Path)->list[Path]:
+        """Fail closed on unreadable ledger directories.
+
+        pathlib.Path.glob() can hide PermissionError on Linux, silently
+        erasing incurred charges; os.scandir() propagates EACCES/ENOENT.
+        """
+        try:
+            with os.scandir(directory) as entries:
+                return sorted(Path(item.path) for item in entries
+                              if item.name.endswith(".json"))
+        except OSError as exc:
+            raise RuntimeError("Cannot enumerate model billing ledger; refuse resume or paid calls") from exc
+
     def stored_rejected_billable(self)->list[dict]:
         """Verify all separately charged failures before a resume/spend cap."""
         records=[]
-        if not self.failed_requests.exists():
-            return records
-        for path in sorted(self.failed_requests.glob("*.json")):
+        for path in self._ledger_paths(self.failed_requests):
             item=json.loads(path.read_text(encoding="utf-8"))
             if (not isinstance(item,dict) or item.get("rejected") is not True
                 or item.get("digest")!=digest({k:v for k,v in item.items() if k!="digest"})
@@ -352,7 +388,7 @@ class ResumeStore:
     def stored_replies(self)->list[dict]:
         """Verify each saved reply's filename/digests before using it for money."""
         records=[]
-        for path in sorted(self.requests.glob("*.json")):
+        for path in self._ledger_paths(self.requests):
             record=json.loads(path.read_text(encoding="utf-8"))
             if (record.get("request_key")!=path.stem or
                 record.get("response_digest")!=digest(record.get("reply")) or

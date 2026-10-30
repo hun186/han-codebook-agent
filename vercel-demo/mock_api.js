@@ -85,6 +85,16 @@
     for (const ideas of Object.values(caseData.candidate_ideas || {})) {
       for (const idea of ideas) if (idea.status !== 'rejected') words.add(idea.term);
     }
+    // Match local core.analyze(): a current researcher preferred hypothesis
+    // contributes to the shared vocabulary for *all* unverified codes, not
+    // just the code where the mark was entered. A removed/reverted mark has
+    // no effect, and stale marks on absent codes cannot create new words.
+    const presentCodes = new Set(caseData.messages.flatMap(m => m.codes));
+    for (const [code, mark] of Object.entries(caseData.hypothesis_marks || {})) {
+      if (presentCodes.has(code) && mark && typeof mark.preferred === 'string') {
+        words.add(mark.preferred);
+      }
+    }
     return [...words].filter(w => typeof w === 'string' && w.length > 0 && w.length <= 32).sort();
   }
   const unique = arr => [...new Set(arr.filter(x => typeof x === 'string' && x))];

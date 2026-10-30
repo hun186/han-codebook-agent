@@ -125,7 +125,7 @@ class RejectedApiBillingTests(unittest.TestCase):
             # Path.glob can suppress this error and turn a real $0.501
             # charge into an apparent zero on resume. Ensure fail closed.
             with patch("checkpoint.os.scandir",side_effect=permission_denied):
-                with self.assertRaisesRegex(RuntimeError,"Cannot enumerate model billing ledger"):
+                with self.assertRaisesRegex(RuntimeError,"Unsafe resume: missing or unreadable checkpoint ledger"):
                     attempt(True,forbidden)
             self.assertEqual(calls,[1])
             with self.assertRaisesRegex(RuntimeError,"Previously incurred API usage exceeds"):

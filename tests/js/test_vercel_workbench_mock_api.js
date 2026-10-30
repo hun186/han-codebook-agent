@@ -598,6 +598,70 @@ const { TextEncoder } = require('node:util');
   assert.ok(!Buffer.from(sandbox.HanMockDemo.makeDocxForTest(cleared))
     .includes(Buffer.from('研究替代詞')));
 
+  // Codex PR #10 P2: legal existing terms (including segmented known
+  // plaintext and full-sentence priors) must not inherit the 32-character
+  // limit intended only for *new* researcher bold hypotheses.
+  const longPhrase='可信原詞'.repeat(9); // 36 Chinese characters.
+  const longAligned=JSON.parse(JSON.stringify(coldCase));
+  longAligned.messages=[{id:'a',codes:['000']},{id:'b',codes:['001']}];
+  longAligned.known_pairs=[{message_id:'a',segments:[longPhrase]}];
+  for(const rounds of [0,2]){
+    const longResult=(await get('/api/jobs/'+(await post('/api/start',{
+      case:longAligned,candidate_mode:'static',rounds
+    })).job_id)).result;
+    assert.equal(longResult.proposals['000'].status,'verified_alignment');
+    assert.equal(longResult.proposals['000'].term,longPhrase);
+    assert.equal(longResult.proposals['001'].status,'hypothesis_unverified');
+    assert.equal(longResult.proposals['001'].term,longPhrase);
+    assert.equal(longResult.decoded_messages[0].reading,longPhrase);
+    assert.equal(longResult.decoded_messages[1].reading,longPhrase);
+  }
+  const longProfile=JSON.parse(JSON.stringify(coldCase));
+  longProfile.profiles.logistics.lexicon={[longPhrase]:1};
+  const profileResult=(await get('/api/jobs/'+(await post('/api/start',{
+    case:longProfile,rounds:0
+  })).job_id)).result;
+  assert.equal(profileResult.proposals['000'].term,longPhrase);
+  const longSentence=JSON.parse(JSON.stringify(coldCase));
+  longSentence.profiles.logistics.sentences=[[longPhrase]];
+  const sentenceResult=(await get('/api/jobs/'+(await post('/api/start',{
+    case:longSentence,rounds:0
+  })).job_id)).result;
+  assert.equal(sentenceResult.proposals['000'].term,longPhrase);
+  const longHumanId=(await post('/api/start',{
+    case:longAligned,rounds:1,candidate_mode:'human'
+  })).job_id;
+  const longHumanPending=await get('/api/jobs/'+longHumanId);
+  await post('/api/jobs/'+longHumanId+'/review',{
+    round:1,review_token:longHumanPending.pending_review.review_token,
+    approved:[],added:[]
+  });
+  const longHuman=(await get('/api/jobs/'+longHumanId)).result;
+  assert.equal(longHuman.proposals['001'].term,longPhrase);
+  assert.equal(longHuman.proposals['001'].status,'hypothesis_unverified');
+
+  // Codex P2: XML 1.0 forbidden controls in a researcher note used to make
+  // Word document.xml unparseable. The note remains intact in the job's
+  // research evidence; only the Word output substitutes U+FFFD. Export a
+  // synthetic DOCX for Python ElementTree verification of actual XML.
+  const controlCase=JSON.parse(JSON.stringify(boldCase));
+  controlCase.bold_hypotheses['000'].note='line'+String.fromCharCode(11)
+    +'note'+String.fromCharCode(12)+'\tvalid\nemoji😀'
+    +String.fromCharCode(0xd800);
+  const controlResult=(await get('/api/jobs/'+(await post('/api/start',{
+    case:controlCase,rounds:0
+  })).job_id)).result;
+  assert.equal(controlResult.bold_hypotheses['000'].note,
+    controlCase.bold_hypotheses['000'].note,'do not silently rewrite research evidence');
+  const controlDoc=Buffer.from(sandbox.HanMockDemo.makeDocxForTest(controlResult));
+  assert.equal(controlDoc.readUInt32LE(0),0x04034b50,'DOCX must be a real zip');
+  assert.ok(controlDoc.includes(Buffer.from('line\uFFFDnote\uFFFD')),
+    'DOCX output must visibly replace invalid controls with U+FFFD');
+  assert.ok(controlDoc.includes(Buffer.from('emoji😀\uFFFD')),
+    'XML sanitizer must preserve full Unicode surrogate pairs');
+  assert.ok(!controlDoc.includes(Buffer.from('line'+String.fromCharCode(11)+'note')));
+  console.log('MOCK_XML_VALIDATION_DOCX_BASE64:'+controlDoc.toString('base64'));
+
   const proposal=await post('/api/suggest-vocabulary',{case:caseData,confirmed:true});
   const vocabJob=await get('/api/jobs/'+proposal.job_id);
   assert.equal(vocabJob.type,'vocabulary');

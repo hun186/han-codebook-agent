@@ -260,7 +260,9 @@
     const newMap = Object.fromEntries(Object.entries(after?.proposals || {}).map(([k,v])=>[k,v.term]));
     const changes = {};
     for(const code of Object.keys(newMap)){
-      if(Object.hasOwn(oldMap,code) && oldMap[code] !== newMap[code])
+      if (!Object.hasOwn(oldMap,code) && before === null)
+        changes[code] = {before:null, after:newMap[code]};
+      else if (Object.hasOwn(oldMap,code) && oldMap[code] !== newMap[code])
         changes[code] = {before:oldMap[code], after:newMap[code]};
     }
     return {mapping:newMap,changes,changed_count:Object.keys(changes).length};
@@ -296,7 +298,7 @@
       task:'generate_vocabulary',metadata_enabled:state.metadata,
       round:state.round,case_id:state.caseData.case_id,
       observable_message_count:state.caseData.messages.length,
-      current_hypotheses_unverified:Object.keys(state.current.proposals).length
+      current_hypotheses_unverified:Object.keys(state.current?.proposals || {}).length
     },{vocabulary:candidates,patterns:[],label:'PUBLIC MOCK'});
     const review_token='PUBLIC-MOCK-'+state.id+'-ROUND-'+state.round+'-TOKEN-'+(++sequence);
     item.status='awaiting_review';
@@ -307,6 +309,10 @@
   function applyAdaptiveRound(state, approved, added, suggestions) {
     const item=jobs.get(state.id);
     const chosen=approved.concat(added);
+    // An empty first-round case has no lawful mapping until vocabulary is
+    // actually approved. Never fabricate a hypothesis from fixture snapshots.
+    if(!state.current && !chosen.length)
+      validationError('PUBLIC MOCK: approve or add a word to bootstrap the empty vocabulary');
     if(state.dynamicWords.length+chosen.length>128)
       validationError('PUBLIC MOCK: dynamic candidate vocabulary is limited to 128 terms');
     const prior=state.current;
@@ -370,9 +376,15 @@
     }
   }
   function startAdaptive(c,rounds,metadata,mode,capture) {
-    const base=mockMapping(c,0,metadata);
-    const start=job('analysis',null,[{round:0,stage:'statistical_baseline',
-      payload:{score:base.objective_score,mapping:mappingDelta(null,base).mapping}}]);
+    // Mirror local run_agent() cold start. Static mode still rejects an empty
+    // vocabulary; adaptive mode must propose/approve words BEFORE mapping.
+    const coldStart=lexicalCandidates(c).length===0;
+    const base=coldStart?null:mockMapping(c,0,metadata);
+    const start=job('analysis',null,[{round:0,
+      stage:coldStart?'vocabulary_bootstrap_required':'statistical_baseline',
+      payload:{score:base?.objective_score??null,
+        mapping:base?mappingDelta(null,base).mapping:{},changed_count:0,
+        ...(coldStart?{note:'PUBLIC MOCK: no baseline; vocabulary approval required before decoding'}:{})}}]);
     const item=jobs.get(start.job_id);
     item.logs=['PUBLIC MOCK · '+mode+' 自適應詞庫分析：完全在瀏覽器記憶體執行，沒有模型呼叫'];
     const state={id:start.job_id,round:1,rounds,metadata,mode,capture,
@@ -385,7 +397,7 @@
         task:'generate_vocabulary',metadata_enabled:metadata,
         round:state.round,case_id:c.case_id,
         observable_message_count:c.messages.length,
-        current_hypotheses_unverified:Object.keys(state.current.proposals).length
+        current_hypotheses_unverified:Object.keys(state.current?.proposals || {}).length
       },{vocabulary:suggestions,patterns:[],label:'PUBLIC MOCK'});
       const approved=suggestions.map(x=>x.term);
       applyAdaptiveRound(state,approved,[],suggestions);
@@ -420,6 +432,10 @@
       validationError('Dynamic vocabulary limit (128 total) reached');
     // The review response is single-use and bound to its exact round/token.
     const round=state.round;
+    // Keep the exact review token usable if all first-round suggestions are
+    // rejected: the researcher may approve/add a word instead of losing the job.
+    if(!state.current && !approved.length && !added.length)
+      validationError('PUBLIC MOCK: approve or add a word to bootstrap the empty vocabulary');
     item.review_submitted=true;
     applyAdaptiveRound(state,approved,added,item.pending_review.candidates);
     return {status:'submitted',round,accepted:approved.length,

@@ -512,6 +512,91 @@ const { TextEncoder } = require('node:util');
   });
   assert.equal(reusedToken.status,409,'successful retry must consume the old token');
 
+  // Codex PR #10 P2: researcher's bold counterfactuals are independently
+  // confirmed notes on trusted anchors, NEVER verified replacement plaintext.
+  // They must survive static/automatic/human Mock results and both downloads.
+  const boldCase=JSON.parse(JSON.stringify(caseData));
+  boldCase.messages=[{id:'bold-case',codes:['000']}];
+  boldCase.known_pairs=[{message_id:'bold-case',segments:['可信原詞']}];
+  boldCase.bold_hypotheses={'000':{
+    term:'研究替代詞',note:'文獻對讀 | <待查> 不是證明',confirmed:true
+  }};
+  const assertBoldReport=result=>{
+    assert.equal(result.verified_anchors['000'],'可信原詞');
+    assert.equal(result.proposals['000'].term,'可信原詞');
+    assert.equal(result.proposals['000'].status,'verified_alignment');
+    assert.deepEqual(result.proposals['000'].alternatives,[]);
+    assert.deepEqual(result.bold_hypotheses,boldCase.bold_hypotheses);
+    assert.equal(result.decoded_messages[0].reading,'可信原詞');
+    const md=sandbox.HanMockDemo.makeMarkdownForTest(result);
+    assert.match(md,/研究員大膽指定/);
+    assert.match(md,/已驗證原詞/);
+    assert.match(md,/未驗證大膽假說/);
+    assert.match(md,/可信原詞/);
+    assert.match(md,/研究替代詞/);
+    assert.match(md,/文獻對讀 ／ <待查> 不是證明/);
+    assert.doesNotMatch(md,/文獻對讀 \| <待查>/,
+      'research note must not break the Markdown table');
+    const doc=Buffer.from(sandbox.HanMockDemo.makeDocxForTest(result));
+    for(const phrase of ['可信原詞','研究替代詞','未驗證大膽假說','文獻對讀'])
+      assert.ok(doc.includes(Buffer.from(phrase)),phrase+' must be in Word XML');
+    assert.ok(doc.includes(Buffer.from('&lt;待查&gt;')),
+      'Word notes must be escaped as XML text');
+    assert.ok(!doc.includes(Buffer.from('<待查>')),
+      'untrusted XML must never become markup');
+  };
+  for(const rounds of [0,2]){
+    const run=await get('/api/jobs/'+(await post('/api/start',{
+      case:boldCase,candidate_mode:'static',rounds
+    })).job_id);
+    assert.equal(run.status,'completed');
+    assertBoldReport(run.result);
+  }
+  const boldAuto=await get('/api/jobs/'+(await post('/api/start',{
+    case:boldCase,candidate_mode:'automatic',rounds:2
+  })).job_id);
+  assert.equal(boldAuto.status,'completed');
+  assertBoldReport(boldAuto.result);
+  const boldHumanId=(await post('/api/start',{
+    case:boldCase,candidate_mode:'human',rounds:1
+  })).job_id;
+  const boldPending=await get('/api/jobs/'+boldHumanId);
+  assert.equal(boldPending.status,'awaiting_review');
+  await post('/api/jobs/'+boldHumanId+'/review',{
+    round:boldPending.pending_review.round,
+    review_token:boldPending.pending_review.review_token,approved:[],added:[]
+  });
+  assertBoldReport((await get('/api/jobs/'+boldHumanId)).result);
+
+  // Reject malformed, unconfirmed or non-anchored bold hypotheses both
+  // when running and when saving. No guessed plaintext is promoted to gold.
+  for(const invalidBold of [
+    {'001':{term:'研究替代詞',note:'錯誤碼組',confirmed:true}},
+    {'000':{term:'可信原詞',note:'與錨點相同',confirmed:true}},
+    {'000':{term:'研究替代詞',note:'未確認',confirmed:false}},
+    {'000':{term:'研究替代詞',note:'備註',confirmed:true,verified:true}},
+    {'000':{term:' '+ '研究替代詞',note:'前端空白',confirmed:true}},
+    {'000':{term:'研究替代詞',note:'x'.repeat(501),confirmed:true}},
+    ['非物件']
+  ]){
+    const invalid={...boldCase,bold_hypotheses:invalidBold};
+    for(const route of ['/api/start','/api/save']){
+      const response=await sandbox.fetch(route,{
+        method:'POST',body:JSON.stringify(route==='/api/save'
+          ?{case:invalid,name:'bad_bold_case'}:{case:invalid,rounds:0})
+      });
+      assert.equal(response.status,400,'invalid counterfactual must fail '+route);
+    }
+  }
+  const removedBold={...boldCase,bold_hypotheses:{}};
+  const cleared=(await get('/api/jobs/'+(await post('/api/start',{
+    case:removedBold,rounds:0
+  })).job_id)).result;
+  assert.deepEqual(cleared.bold_hypotheses,{});
+  assert.doesNotMatch(sandbox.HanMockDemo.makeMarkdownForTest(cleared),/研究員大膽指定/);
+  assert.ok(!Buffer.from(sandbox.HanMockDemo.makeDocxForTest(cleared))
+    .includes(Buffer.from('研究替代詞')));
+
   const proposal=await post('/api/suggest-vocabulary',{case:caseData,confirmed:true});
   const vocabJob=await get('/api/jobs/'+proposal.job_id);
   assert.equal(vocabJob.type,'vocabulary');

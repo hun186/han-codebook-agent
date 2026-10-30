@@ -349,7 +349,11 @@ const { TextEncoder } = require('node:util');
   assert.equal(excludedAnchorResult.proposals['000'].status,'verified_alignment');
   assert.equal(excludedAnchorResult.proposals['001'].term,'研究備選詞');
   assert.equal(excludedAnchorResult.proposals['001'].status,'hypothesis_unverified');
-  assertAllowed(excludedAnchorResult,['研究備選詞']);
+  // The full decoded report still contains code 000's legitimate trusted
+  // alignment; only the unverified 001 candidate must exclude that term.
+  assertAllowed(excludedAnchorResult,['研究備選詞','已知新詞']);
+  assert.equal(excludedAnchorResult.proposals['001'].alternatives.some(
+    option=>option.term==='已知新詞'),false);
   const excludedOnly=JSON.parse(JSON.stringify(anchorsOnly));
   excludedOnly.hypothesis_marks={'001':{
     preferred:null,pinned:false,excluded:['已知新詞']

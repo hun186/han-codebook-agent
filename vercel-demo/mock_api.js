@@ -130,7 +130,10 @@
         words.add(mark.preferred);
       }
     }
-    return [...words].filter(w => typeof w === 'string' && w.length > 0 && w.length <= 32).sort();
+    // Existing research lexicon phrases and explicitly aligned plaintext can
+    // represent entire sentences. The <=32-character rule applies only to
+    // NEW bold hypotheses, not to these trusted or pre-existing words.
+    return [...words].filter(w => typeof w === 'string' && w.length > 0).sort();
   }
   const unique = arr => [...new Set(arr.filter(x => typeof x === 'string' && x))];
   const stableIndex = (code, length) => {
@@ -612,7 +615,17 @@
 
   // The original GUI expects the same API report routes as the local Python
   // backend; offer genuinely downloadable MOCK artifacts without a server.
-  const escapeXml =s=>String(s??'').replace(/[&<>"']/g,c=>({
+  // XML 1.0 Char permits TAB, LF, CR, U+0020..D7FF,
+  // U+E000..FFFD and U+10000..10FFFF. Iterate by Unicode code point so
+  // valid surrogate *pairs* (e.g. emoji) survive; substitute U+FFFD for
+  // forbidden controls, lone surrogates, U+FFFE/U+FFFF. Every DOCX text
+  // cell and paragraph passes through this output-only sanitizer.
+  const xmlChar=s=>Array.from(String(s??''),c=>{
+    const n=c.codePointAt(0);
+    return n===0x9||n===0xa||n===0xd||(n>=0x20&&n<=0xd7ff)||
+      (n>=0xe000&&n<=0xfffd)||(n>=0x10000&&n<=0x10ffff)?c:'\uFFFD';
+  }).join('');
+  const escapeXml=s=>xmlChar(s).replace(/[&<>"']/g,c=>({
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'
   }[c]));
   const enc =new TextEncoder();

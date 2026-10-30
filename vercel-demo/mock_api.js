@@ -684,7 +684,7 @@
   }
   function reportMarkdown(result) {
     const clean=value=>String(value??'').replace(/[\r\n]+/g,' ')
-      .replace(/\\|/g,'／').replace(/`/g,'ˋ');
+      .replace(/\|/g,'／').replace(/`/g,'ˋ');
     const bold=Object.entries(result.bold_hypotheses||{}).sort(([a],[b])=>a.localeCompare(b));
     return '# PUBLIC MOCK · 中文數字碼本研究報告\n\n'
       +'**公開合成資料；瀏覽器內的模擬結果，不是歷史密文的破譯。**\n\n'

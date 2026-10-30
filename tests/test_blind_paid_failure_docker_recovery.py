@@ -252,6 +252,77 @@ class RejectedApiBillingTests(unittest.TestCase):
             self.assertFalse((out/"predictions_LOCKED.json").exists())
 
 
+    def test_missing_charged_ledger_on_resume_never_recreates_or_retries(self):
+        # Reproduce the exact Codex P2: a $0.501 charged rejection occurred,
+        # then a partial restore omitted the rejected-billable directory.
+        # With a $0.50 cost cap, no further provider calls are permitted.
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            public,private,out=root/"public",root/"PRIVATE_GOLD",root/"results"
+            generate(public,private,repeats=1,fixture_seed=97417)
+            manifest=public/"manifest.json"
+            obj=json.loads(manifest.read_text(encoding="utf-8"))
+            for study in obj["studies"]:
+                study["fixture_only"]=False
+            manifest.write_text(json.dumps(obj),encoding="utf-8")
+            calls=[]
+            def rejected(_):
+                calls.append("first paid call")
+                raise BillableResponseRejected(
+                    "TEST ONLY: incomplete response with billable usage",
+                    usage=charged_usage(),actual_model="gpt-6-astra",
+                    remote_response_id="resp_TEST_MISSING_LEDGER")
+            options=dict(model="gpt-6-astra",effort="high",rounds=1,
+                         max_calls=16,timeout=2,real_api=True,
+                         provider_name="OPENAI_RESPONSES",
+                         solver_iterations=1,solver_restarts=1,
+                         max_estimated_usd=.50)
+            with self.assertRaisesRegex(RuntimeError,"Inference failed"):
+                run_experiment(public,out,provider=rejected,resume=False,**options)
+            ledger=out/"rejected_billable_requests"
+            original_files=list(ledger.glob("*.json"))
+            self.assertEqual(len(original_files),1)
+            self.assertEqual(
+                json.loads(original_files[0].read_text(encoding="utf-8"))["usage"],
+                charged_usage())
+            missing_backup=out/"rejected_ledger_MOVED_FOR_TEST"
+            ledger.rename(missing_backup)
+            self.assertFalse(ledger.exists())
+            original_status=json.loads((out/"run_status.json").read_text(encoding="utf-8"))
+            def forbidden(_):
+                calls.append("second paid call")
+                raise AssertionError("Provider must never run after a missing ledger")
+            with self.assertRaisesRegex(RuntimeError,
+                                        "Unsafe resume: missing or unreadable checkpoint ledger"):
+                run_experiment(public,out,provider=forbidden,resume=True,**options)
+            self.assertEqual(calls,["first paid call"])
+            self.assertFalse(ledger.exists(),"Resume must not replace missing ledger with empty directory")
+            self.assertEqual(len(list(missing_backup.glob("*.json"))),1)
+            self.assertEqual(original_status,
+                             json.loads((out/"run_status.json").read_text(encoding="utf-8")),
+                             "Unsafe resume must not rewrite the checkpoint into a running state")
+            self.assertFalse((out/"predictions_LOCKED.json").exists())
+
+    def test_all_required_checkpoint_directories_fail_closed_on_resume(self):
+        # A restore with a missing successful-response cache or completed
+        # cell ledger is just as unsafe as an absent rejected-charges ledger.
+        # There is no implicit migration from older, unverified checkpoints.
+        for missing in ("successful_requests","completed_runs","rejected_billable_requests"):
+            with self.subTest(missing=missing),tempfile.TemporaryDirectory() as td:
+                output=Path(td)/"study"
+                signature={"case":"missing-ledger","missing":missing}
+                ResumeStore(output,signature=signature,resume=False)
+                directory=output/missing
+                directory.rmdir()
+                status_before=(output/"run_status.json").read_bytes()
+                with self.assertRaisesRegex(
+                    RuntimeError,"Unsafe resume: missing or unreadable checkpoint ledger"
+                ):
+                    ResumeStore(output,signature=signature,resume=True)
+                self.assertFalse(directory.exists(),
+                                 "Resume must not auto-migrate a damaged checkpoint")
+                self.assertEqual((output/"run_status.json").read_bytes(),status_before)
+
     def test_unreadable_rejected_directory_permissions_propagate_on_linux(self):
         if os.name!="posix" or (hasattr(os,"geteuid") and os.geteuid()==0):
             self.skipTest("Linux non-root permission regression")

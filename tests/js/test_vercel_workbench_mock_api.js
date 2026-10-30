@@ -274,6 +274,105 @@ const { TextEncoder } = require('node:util');
   assert.equal(emptyResponse.status,400);
   assert.match((await emptyResponse.json()).error,/remove every candidate/);
 
+  // Codex PR #10 P2: explicit segmented known plaintext is a trusted
+  // mapping for its aligned code only, but its phrase is a legitimate
+  // vocabulary candidate for every OTHER (still unverified) code.
+  const anchorsOnly=JSON.parse(JSON.stringify(caseData));
+  anchorsOnly.messages=[{id:'a',codes:['000']},{id:'b',codes:['001']}];
+  anchorsOnly.known_pairs=[{message_id:'a',segments:['已知新詞']}];
+  anchorsOnly.candidate_ideas={};
+  anchorsOnly.hypothesis_marks={};
+  for(const profile of Object.values(anchorsOnly.profiles)){
+    profile.lexicon={};
+    profile.sentences=[];
+  }
+  const assertAnchorBoundary=result=>{
+    assert.equal(result.known_code_count,1);
+    assert.equal(result.unknown_code_count,1);
+    assert.equal(result.verified_anchors['000'],'已知新詞');
+    assert.equal(result.verified_anchors['001'],undefined,
+      'known plaintext must not be promoted to a new code');
+    assert.equal(result.proposals['000'].term,'已知新詞');
+    assert.equal(result.proposals['000'].status,'verified_alignment');
+    assert.deepEqual(result.proposals['000'].alternatives,[]);
+    assert.equal(result.proposals['001'].term,'已知新詞');
+    assert.equal(result.proposals['001'].status,'hypothesis_unverified');
+    assertAllowed(result,['已知新詞']);
+    assert.equal(result.decoded_messages[0].verified_codes,1);
+    assert.equal(result.decoded_messages[1].verified_codes,0);
+  };
+  for(const rounds of [0,2]){
+    const id=(await post('/api/start',{
+      case:anchorsOnly,rounds,candidate_mode:'static'
+    })).job_id;
+    const result=(await get('/api/jobs/'+id)).result;
+    assertAnchorBoundary(result);
+  }
+  const anchorAutoId=(await post('/api/start',{
+    case:anchorsOnly,rounds:2,candidate_mode:'automatic'
+  })).job_id;
+  const anchorAuto=await get('/api/jobs/'+anchorAutoId);
+  assert.equal(anchorAuto.status,'completed');
+  assert.deepEqual(Object.entries(anchorAuto.events[0].payload.mapping),
+    [['000','已知新詞'],['001','已知新詞']],
+    'automatic baseline must share aligned words without verifying other codes');
+  assert.equal(anchorAuto.result.proposals['000'].status,'verified_alignment');
+  assert.equal(anchorAuto.result.proposals['001'].status,'hypothesis_unverified');
+  assert.equal(anchorAuto.result.verified_anchors['001'],undefined);
+  assertAllowed(anchorAuto.result,
+    ['已知新詞',...anchorAuto.result.dynamic_vocabulary_terms]);
+  const anchorHumanId=(await post('/api/start',{
+    case:anchorsOnly,rounds:1,candidate_mode:'human'
+  })).job_id;
+  const anchorHumanPending=await get('/api/jobs/'+anchorHumanId);
+  assert.equal(anchorHumanPending.status,'awaiting_review');
+  assert.deepEqual(Object.entries(anchorHumanPending.events[0].payload.mapping),
+    [['000','已知新詞'],['001','已知新詞']]);
+  await post('/api/jobs/'+anchorHumanId+'/review',{
+    round:anchorHumanPending.pending_review.round,
+    review_token:anchorHumanPending.pending_review.review_token,
+    approved:[],added:[]
+  });
+  assertAnchorBoundary((await get('/api/jobs/'+anchorHumanId)).result);
+
+  // A verified word used only as another code's hypothesis remains subject
+  // to that unverified code's exclusions, without modifying the anchor.
+  const anchorExcluded=JSON.parse(JSON.stringify(anchorsOnly));
+  anchorExcluded.profiles.logistics.lexicon={'研究備選詞':1};
+  anchorExcluded.hypothesis_marks={'001':{
+    preferred:null,pinned:false,excluded:['已知新詞']
+  }};
+  const excludedAnchorResult=(await get('/api/jobs/'+(await post('/api/start',{
+    case:anchorExcluded,rounds:0
+  })).job_id)).result;
+  assert.equal(excludedAnchorResult.proposals['000'].term,'已知新詞');
+  assert.equal(excludedAnchorResult.proposals['000'].status,'verified_alignment');
+  assert.equal(excludedAnchorResult.proposals['001'].term,'研究備選詞');
+  assert.equal(excludedAnchorResult.proposals['001'].status,'hypothesis_unverified');
+  assertAllowed(excludedAnchorResult,['研究備選詞']);
+  const excludedOnly=JSON.parse(JSON.stringify(anchorsOnly));
+  excludedOnly.hypothesis_marks={'001':{
+    preferred:null,pinned:false,excluded:['已知新詞']
+  }};
+  const excludedOnlyResponse=await sandbox.fetch('/api/start',{
+    method:'POST',body:JSON.stringify({case:excludedOnly,rounds:0})
+  });
+  assert.equal(excludedOnlyResponse.status,400);
+  assert.match((await excludedOnlyResponse.json()).error,/remove every candidate/);
+
+  // Only explicitly segmented, current known pairs can supply trusted
+  // anchors. Undoing the pair or supplying unsegmented review-only text
+  // must not silently revive a removed word via the public snapshot.
+  for(const pairs of [[],[{message_id:'a',plaintext:'尚未逐碼切詞'}]]){
+    const unverifiedOnly=JSON.parse(JSON.stringify(anchorsOnly));
+    unverifiedOnly.known_pairs=pairs;
+    const response=await sandbox.fetch('/api/start',{
+      method:'POST',body:JSON.stringify({case:unverifiedOnly,rounds:0})
+    });
+    assert.equal(response.status,400);
+    assert.match((await response.json()).error,/remove every candidate/);
+  }
+
   const proposal=await post('/api/suggest-vocabulary',{case:caseData,confirmed:true});
   const vocabJob=await get('/api/jobs/'+proposal.job_id);
   assert.equal(vocabJob.type,'vocabulary');

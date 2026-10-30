@@ -135,7 +135,7 @@ class RejectedApiBillingTests(unittest.TestCase):
 
             record["usage"]["completion_tokens"]=1
             ledger[0].write_text(json.dumps(record),encoding="utf-8")
-            with self.assertRaisesRegex(RuntimeError,"ledger corrupt"):
+            with self.assertRaisesRegex(RuntimeError,"Unsafe checkpoint request ledger manifest"):
                 attempt(True,forbidden)
             self.assertEqual(calls,[1])
 

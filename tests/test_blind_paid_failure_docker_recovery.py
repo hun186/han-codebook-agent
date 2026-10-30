@@ -117,6 +117,17 @@ class RejectedApiBillingTests(unittest.TestCase):
             def forbidden(_):
                 calls.append(2)
                 raise AssertionError("A paid call occurred after billing cap")
+            original_scandir=os.scandir
+            def permission_denied(path):
+                if Path(path)==out/"rejected_billable_requests":
+                    raise PermissionError("test-only: denied listing charged responses")
+                return original_scandir(path)
+            # Path.glob can suppress this error and turn a real $0.501
+            # charge into an apparent zero on resume. Ensure fail closed.
+            with patch("checkpoint.os.scandir",side_effect=permission_denied):
+                with self.assertRaisesRegex(RuntimeError,"Cannot enumerate model billing ledger"):
+                    attempt(True,forbidden)
+            self.assertEqual(calls,[1])
             with self.assertRaisesRegex(RuntimeError,"Previously incurred API usage exceeds"):
                 attempt(True,forbidden)
             self.assertEqual(calls,[1])
@@ -239,6 +250,101 @@ class RejectedApiBillingTests(unittest.TestCase):
                                resume=True,**opts)
             self.assertEqual(calls,["charged"])
             self.assertFalse((out/"predictions_LOCKED.json").exists())
+
+
+    def test_unreadable_rejected_directory_permissions_propagate_on_linux(self):
+        if os.name!="posix" or (hasattr(os,"geteuid") and os.geteuid()==0):
+            self.skipTest("Linux non-root permission regression")
+        with tempfile.TemporaryDirectory() as td:
+            store=ResumeStore(Path(td)/"study",signature={"case":"chmod_0300"},resume=False)
+            directory=store.failed_requests
+            directory.chmod(0o300)
+            try:
+                with self.assertRaisesRegex(RuntimeError,"Cannot enumerate model billing ledger"):
+                    store.stored_rejected_billable()
+            finally:
+                directory.chmod(0o700)
+
+    def test_cache_replay_free_but_next_new_call_obeys_total_budget(self):
+        with tempfile.TemporaryDirectory() as td:
+            store=ResumeStore(Path(td)/"study",signature={"case":"budget_replay"},resume=False)
+            calls=[]
+            reply={"choices":[{"message":{"content":"{}"}}],"usage":{}}
+            def fake(_):
+                calls.append(1)
+                return reply
+            opts=dict(provider=fake,model="TEST",effort="high",
+                      provider_name="TEST_DOUBLE",max_provider_attempts=1)
+            first=store.invoke({"messages":[]},logical_id="round_1:vocabulary",**opts)
+            replay=store.invoke({"messages":[]},logical_id="round_1:vocabulary",**opts)
+            self.assertEqual(first,replay)
+            self.assertEqual(store.cache_hits,1)
+            with self.assertRaisesRegex(RuntimeError,"API call budget exhausted"):
+                store.invoke({"messages":[]},logical_id="round_1:hypotheses",**opts)
+            self.assertEqual(calls,[1])
+
+    def test_finished_cells_and_rejected_attempts_consume_resumed_global_call_cap(self):
+        # Eight cells, two turns each = 16 successful logical calls to lock.
+        # First cell completes, third call incurs a rejected billable charge;
+        # resume MUST NOT allow the 17th paid provider attempt.
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td)
+            public,private,out=root/"public",root/"PRIVATE_GOLD",root/"results"
+            generate(public,private,repeats=1,fixture_seed=10491)
+            manifest=public/"manifest.json"
+            m=json.loads(manifest.read_text(encoding="utf-8"))
+            for study in m["studies"]:study["fixture_only"]=False
+            manifest.write_text(json.dumps(m),encoding="utf-8")
+
+            def answer(packet):
+                task=json.loads(packet["messages"][1]["content"])
+                if task.get("task")=="generate_vocabulary":
+                    value={"vocabulary":[{"term":"運輸","reason":"TEST DOUBLE ONLY"}],
+                           "patterns":[]}
+                else:
+                    words=task.get("available_vocabulary",[])
+                    value={"hypotheses":[
+                        {"code":code,"candidates":words[:1],"reason":"TEST DOUBLE ONLY"}
+                        for code in list(task.get("unresolved",{}))[:5]]}
+                return {"choices":[{"message":{"content":json.dumps(value,ensure_ascii=False)}}],
+                        "model":"gpt-6-astra",
+                        "usage":{"prompt_tokens":10,"cached_input_tokens":0,
+                                 "completion_tokens":10,"reasoning_tokens":0}}
+
+            calls=[]
+            def first_provider(packet):
+                calls.append("initial")
+                if len(calls)==3:
+                    raise BillableResponseRejected("TEST ONLY: third paid attempt rejected",
+                        usage={"prompt_tokens":10,"cached_input_tokens":0,
+                               "completion_tokens":10,"reasoning_tokens":0},
+                        actual_model="gpt-6-astra",
+                        remote_response_id="resp_FAKE_THIRD_ATTEMPT")
+                return answer(packet)
+            opts=dict(model="gpt-6-astra",effort="high",rounds=1,max_calls=16,
+                      timeout=5,real_api=True,provider_name="OPENAI_RESPONSES",
+                      solver_iterations=1,solver_restarts=1,
+                      max_estimated_usd=100.0)
+            with self.assertRaisesRegex(RuntimeError,"Inference failed"):
+                run_experiment(public,out,provider=first_provider,resume=False,**opts)
+            self.assertEqual(len(calls),3)
+            self.assertEqual(len(list((out/"completed_runs").glob("*.json"))),1)
+            self.assertEqual(len(list((out/"successful_requests").glob("*.json"))),2)
+            self.assertEqual(len(list((out/"rejected_billable_requests").glob("*.json"))),1)
+
+            resume_calls=[]
+            def resumed_provider(packet):
+                resume_calls.append("new paid request")
+                return answer(packet)
+            with self.assertRaisesRegex(RuntimeError,"API call budget exhausted|Inference failed"):
+                run_experiment(public,out,provider=resumed_provider,resume=True,**opts)
+            self.assertEqual(len(resume_calls),13)
+            self.assertEqual(3+len(resume_calls),16,
+                             "all paid provider attempts must remain at the 16-call cap")
+            self.assertEqual(len(list((out/"successful_requests").glob("*.json"))),15)
+            self.assertEqual(len(list((out/"rejected_billable_requests").glob("*.json"))),1)
+            self.assertFalse((out/"predictions_LOCKED.json").exists())
+            self.assertFalse((out/"predictions_LOCKED.sha256").exists())
 
 
 class DurableDockerMarkerTests(unittest.TestCase):

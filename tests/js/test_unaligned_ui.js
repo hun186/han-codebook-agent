@@ -4,12 +4,15 @@ const fs=require('fs');
 const vm=require('vm');
 const source=fs.readFileSync(process.argv[2],'utf8');
 const script=source.split('<script>')[1].split('</script>')[0];
-const begin=script.indexOf('async function previewAlignmentCandidates(){');
+const begin=script.indexOf('function captureAlignmentOrigin(){');
 const end=script.indexOf('function applyKnown(){try{',begin);
 assert(begin>=0&&end>begin,'manual-review functions missing');
 assert(source.includes('id="previewAlignment"'));
 assert(source.includes('id="confirmAlignment"'));
 let requests=[],notices=[],allowed=true,accepted=false,dom={};
+// Match the PRODUCTION fingerprint, which intentionally omits history for
+// ordinary inference jobs. Alignment acceptance must add its own strict check.
+const normalFingerprint=caseObj=>{const copy={...caseObj};delete copy.hypothesis_revision_history;return JSON.stringify(copy)};
 const el=id=>dom[id] ||= {value:'',innerHTML:'',textContent:'',disabled:false,querySelectorAll:()=>[]};
 const caseData={
  case_id:'synthetic',messages:[{id:'m1',codes:['001','002']}],
@@ -26,9 +29,9 @@ const context={el,esc:s=>String(s).replace(/</g,'&lt;'),notice:(s,error)=>notice
    saved:false,status:'researcher_confirmed_not_saved'
  }},
  matchesCaseReference:origin=>origin.caseRef===context.research,
- caseFingerprint:()=>JSON.stringify(context.research),
- captureOrigin:()=>({caseRef:context.research,fingerprint:JSON.stringify(context.research)}),
- matchesOrigin:origin=>origin.caseRef===context.research&&origin.fingerprint===JSON.stringify(context.research),
+ caseFingerprint:()=>normalFingerprint(context.research),
+ captureOrigin:()=>({caseRef:context.research,fingerprint:normalFingerprint(context.research)}),
+ matchesOrigin:origin=>origin.caseRef===context.research&&origin.fingerprint===normalFingerprint(context.research),
  presentCase:()=>{accepted=true},
 };
 vm.createContext(context);
@@ -66,6 +69,33 @@ el('alignmentCandidates').querySelectorAll=()=>[{dataset:{alignmentPair:'0',alig
  await context.confirmAlignmentCandidate();
  assert(!accepted,'stale candidate applied after case mutation');
  assert(requests.every(x=>x.path!=='/api/unaligned/accept'));
+ // Official Codex P2: changing ONLY Undo history while HTTP accept is in
+ // flight must not silently replace newer snapshots with an old response.
+ accepted=false;requests=[];
+ const historyOnly={...caseData,messages:[{...caseData.messages[0]}],hypothesis_marks:{}};
+ context.research=historyOnly;
+ vm.runInContext('research=globalThis.research;',context);
+ await context.previewAlignmentCandidates();click();
+ el('alignmentTyped').value='["補給","車隊"]';
+ const oldApi=context.api;
+ let resolveDelayed;
+ context.api=(path,data)=>{
+  if(path!=='/api/unaligned/accept')return oldApi(path,data);
+  requests.push({path,data});
+  return new Promise(resolve=>{resolveDelayed=()=>resolve({
+   case:{...data.case,known_pairs:[{...data.case.known_pairs[0],segments:['補給','車隊']}]},
+   saved:false,status:'researcher_confirmed_not_saved'
+  })});
+ };
+ const pendingAccept=context.confirmAlignmentCandidate();
+ assert.strictEqual(typeof resolveDelayed,'function','accept request not started');
+ historyOnly.hypothesis_revision_history={version:1,cursor:0,snapshots:[{other:{preferred:'甲'}}],actions:['edited']};
+ assert(context.matchesOrigin(vm.runInContext('alignmentOrigin',context)),
+        'ordinary job fingerprint should ignore undo-history only changes');
+ resolveDelayed();await pendingAccept;
+ assert(!accepted,'stale accept response discarded newer history snapshots');
+ assert.strictEqual(historyOnly.hypothesis_revision_history.actions[0],'edited');
+ context.api=oldApi;
  // Rejected confirmation must not send any POST accept.
  requests=[];allowed=false;
  const newCase={...caseData,messages:[{...caseData.messages[0]}]};

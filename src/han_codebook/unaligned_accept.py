@@ -100,18 +100,6 @@ def accept_reviewed_alignment(
         "review_candidate_rank": candidate_rank,
         "not_historical_authenticity_proof": True,
     }
-    # Researcher undo/redo snapshots are *hypotheses*, not verified evidence.
-    # A cleared mark may still exist in an earlier snapshot. Once these codes
-    # become trusted, prune them from EVERY saved mark-history snapshot, not
-    # only the current mark state, or Undo can resurrect an illegal verified
-    # mark in both CLI output and the browser workbench.
-    history = result.get("hypothesis_revision_history")
-    if isinstance(history, dict) and isinstance(history.get("snapshots"), list):
-        locked = set(codes)
-        for snapshot in history["snapshots"]:
-            if isinstance(snapshot, dict):
-                for code in locked:
-                    snapshot.pop(code, None)
     # Re-validating the newly promoted anchors must fail closed on conflicts
     # and inconsistent repetitions before any file can be saved.
     review_unsegmented(result, top_n=top_n, beam_width=beam_width)

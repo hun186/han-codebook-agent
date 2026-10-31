@@ -11,4 +11,6 @@
 
 - PR #20 anchor-aware bounded segmentation robustness merged into main as `490da8ea0bfaff76400df51a0cb9c788872ac2ba` after latest-head 8/8 Hosted CI and official Codex Completed/No Findings. Post-merge main CI requires separate verification.
 - PR #21 merged into main as `3732a72ad43ed545b8d0b41ddb04608e1076360d`; main post-merge GitHub CI #41165785923 SUCCESS (confirmed 2026-10-31). Independent offline holdout Top-N report does not expose plaintext.
-- Current: next focused PR introduces **explicit CLI researcher candidate acceptance** (retyped exact full segments, affirmative flag, stale-report digest, no source overwrite) with trusted-anchor fail-closed checks. Formal Hosted CI/Codex Review pending. Next after this: connect guarded preview/confirmation to loopback browser UI and keep Vercel Mock isolated.
+- PR #22 explicit CLI researcher confirmation merged as `5c19ae6b9acf0d34125bf851b8e3959b459f26d7` after latest-head 8/8 Hosted CI, formal Codex Completed/No Findings and resolved P2 fixture; main post-merge CI pending fresh verification.
+- Active: add separate loopback-only `/api/unaligned/preview` and `/api/unaligned/accept` API endpoints, which only return an amended copy without saving. New full HTTP integration tests verify opt-in, stale/cross-origin/oracle rejection and explicit `/api/save`. Hosted CI and formal review pending.
+- Next: build separate browser preview/confirm UX reusing those endpoints while keeping canonical Vercel Mock parity and public safety.

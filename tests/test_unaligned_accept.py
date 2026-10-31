@@ -143,6 +143,39 @@ class ManualAlignmentAcceptanceTests(unittest.TestCase):
         for item in result["reviews"][0]["candidates"]:
             self.assertEqual(item["segments"][0], item["segments"][2])
 
+    def test_undo_history_cannot_resurrect_newly_verified_code(self):
+        case = fixture()
+        # The researcher marked 002 in an earlier revision, then cleared it
+        # while keeping a separate legitimate experimental code 009.
+        case["messages"].append({"id": "other", "codes": ["009"]})
+        other = {"preferred": "後勤", "excluded": [], "pinned": False}
+        old = {"preferred": "車隊", "excluded": [], "pinned": False}
+        case["hypothesis_marks"] = {"009": deepcopy(other)}
+        case["hypothesis_revision_history"] = {
+            "version": 1, "cursor": 1,
+            "snapshots": [
+                {"002": deepcopy(old), "009": deepcopy(other)},
+                {"009": deepcopy(other)},
+            ],
+            "actions": ["標記 002", "清除 002"],
+        }
+        report = review_unsegmented(case)
+        before = deepcopy(case)
+        updated = accept_reviewed_alignment(
+            case, report, known_pair_index=1, candidate_rank=1,
+            confirmed_segments=["補給", "車隊", "出發"], confirmed=True
+        )
+        self.assertEqual(case, before)
+        history = updated["hypothesis_revision_history"]
+        self.assertEqual(history["cursor"], 1)
+        self.assertEqual(history["actions"], ["標記 002", "清除 002"])
+        for snapshot in history["snapshots"]:
+            self.assertNotIn("002", snapshot)
+            self.assertEqual(snapshot["009"], other)
+        self.assertEqual(updated["hypothesis_marks"], {"009": other})
+        self.assertEqual(updated["known_pairs"][1]["segments"],
+                         ["補給", "車隊", "出發"])
+
     def test_cli_requires_confirmation_and_exclusive_private_new_file(self):
         with TemporaryDirectory() as td:
             inp = Path(td) / "original.json"

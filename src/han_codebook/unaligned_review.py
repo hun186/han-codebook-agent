@@ -157,8 +157,21 @@ def review_unsegmented(case: dict[str, Any], *, top_n: int = 8,
         key in case for key in ("gold", "ground_truth", "codebook")
     ):
         raise CaseError("alignment review must not accept embedded evaluation oracle")
-    validate_case(case)
+    # core.validate_case() normally invokes legacy recursive suggestion
+    # generation when mark/bold keys exist, even if they are empty. Validate
+    # the base case first without triggering that unbounded search, then
+    # validate annotations against ONLY independently verified anchors.
+    base_case = dict(case)
+    base_case.pop("hypothesis_marks", None)
+    base_case.pop("bold_hypotheses", None)
+    validate_case(base_case)
     trusted, vocab = _verified_and_vocabulary(case)
+    if "hypothesis_marks" in case:
+        from .hypothesis_marks import normalize_marks
+        normalize_marks(case, trusted)
+    if "bold_hypotheses" in case:
+        from .bold_hypotheses import normalize_bold_hypotheses
+        normalize_bold_hypotheses(case, trusted)
     by_id = {m["id"]: m["codes"] for m in case["messages"]}
     rows = []
     for record_index, pair in enumerate(case.get("known_pairs", [])):

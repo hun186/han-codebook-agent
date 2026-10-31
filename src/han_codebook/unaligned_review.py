@@ -38,6 +38,8 @@ def _verified_and_vocabulary(case: dict[str, Any]) -> tuple[dict[str, str], set[
         if "segments" not in pair:
             continue
         codes = messages[pair["message_id"]]["codes"]
+        if len(pair["segments"]) != len(codes):
+            raise CaseError(f"known pair {pair['message_id']}: segment count must match code count")
         for code, term in zip(codes, pair["segments"]):
             if code in trusted and trusted[code] != term:
                 raise CaseError(f"conflicting verified known plaintext for code {code}")

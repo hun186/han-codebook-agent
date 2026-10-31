@@ -71,3 +71,20 @@ python -m han_codebook.context_ablation \
 每個變體都執行既有 `holdout_verification`，相同留出錨點的參考詞只在**推論完成後**供計分。報告不包含留出的正解詞、求解詞組、原始觀察文字或公開合成 gold。對照差值只使用兩個變體都**真正完成推論**的相同 `(留出電文, 碼組)`；如果沒有任何共同可比較碼組，差值是 `null`，不應推測優劣。每回合仍可能重複評估同一碼組，不能當成獨立的歷史實驗樣本。
 
 `--minimum-paired` 預設 10，少於該數即標示 `insufficient_paired_evidence`；超過門檻時若同一組碼的 Top-1 命中方向不同，僅標示 `possible_context_harm`／`possible_context_benefit` 的**探索性訊號**，不是顯著性檢定、不是保證正確率會提升。**不會自動選擇模型、不會修改正式推理權重，也不會呼叫 LLM。** 候選詞庫、例句、領域先驗仍然是研究員提供，因此不是零情報盲解或歷史破譯成功率。
+
+## 未逐碼切分的已知明文：候選對齊與研究員覆核（純離線）
+
+針對 `known_pairs` 只有完整 `plaintext`、尚未指定各碼組 `segments` 的案例，新增獨立的**候選對齊診斷**：
+
+```bash
+python -m han_codebook.unaligned_review \
+  --case benchmarks/cases/05_unaligned_crib.json \
+  --out artifacts/unaligned_review.json \
+  --top-n 8 --beam-width 96
+```
+
+執行後以既有 `profiles[].lexicon/sentences` 與**其他已正式切段的可信 `known_pairs[].segments`** 作候選詞與固定錨點，嘗試把一整句中文切為與該封密電碼組數相同的片段。每種候選強制保留其他可信明文、同一封密電內重複碼組必須指向相同片段，並產生最多 8 個 `candidate_unverified` 結果。包含 500 字以下、字詞長度混合的明文，使用有界 beam search 避免指數路徑爆炸；可藉 `beam_width` 取捨候選涵蓋量與成本。
+
+**重要限制：** 這是排序啟發式，不是機率校準，也不是已證實的破譯；`heuristic_score` 不等於信賴度。Beam 截斷可能漏掉合理候選，甚至出現 `no_feasible_alignment`。它**不修改**原案例、不自動寫回 `known_pairs[].segments`、不新增 `verified_alignment`，必須由研究員另外確認完整碼組—明文分段才可升為可信對照。資料完全離線，不載入合成 `gold`／`ground_truth`、不呼叫任何 LLM。**輸出的 JSON 含研究員輸入的明文，應按敏感研究檔案管理，不宜上傳公開 Repository 或分享。**
+
+目前這是一項獨立 CLI 診斷能力；尚未整合進瀏覽器的覆核／接受按鈕，更沒有自動將候選推進真實密文求解。

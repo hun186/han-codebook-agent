@@ -184,6 +184,34 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                 return
             try:
                 data = self._body()
+                # Local-only, two-phase alignment workflow. Preview is read-only;
+                # acceptance returns a revised case to the browser but NEVER
+                # writes to disk. A separate explicit /api/save remains needed.
+                if self.path == "/api/unaligned/preview":
+                    if set(data) - {"case", "top_n", "beam_width"}:
+                        raise CaseError("Unexpected alignment preview parameters")
+                    from .unaligned_review import review_unsegmented
+                    return self._json(200, review_unsegmented(
+                        data.get("case"), top_n=data.get("top_n", 8),
+                        beam_width=data.get("beam_width", 96)
+                    ))
+                if self.path == "/api/unaligned/accept":
+                    required = {"case", "report", "known_pair_index",
+                                "candidate_rank", "confirmed_segments", "confirmed"}
+                    if set(data) != required:
+                        raise CaseError("Acceptance needs complete explicit confirmation")
+                    from .unaligned_accept import accept_reviewed_alignment
+                    accepted = accept_reviewed_alignment(
+                        data["case"], data["report"],
+                        known_pair_index=data["known_pair_index"],
+                        candidate_rank=data["candidate_rank"],
+                        confirmed_segments=data["confirmed_segments"],
+                        confirmed=data["confirmed"],
+                    )
+                    return self._json(200, {
+                        "case": accepted, "saved": False,
+                        "status": "researcher_confirmed_not_saved",
+                    })
                 cancel_match = re.fullmatch(r"/api/jobs/([0-9a-f]{16})/cancel", self.path)
                 if cancel_match:
                     if data:

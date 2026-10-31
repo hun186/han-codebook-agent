@@ -85,6 +85,6 @@ python -m han_codebook.unaligned_review \
 
 執行後以既有 `profiles[].lexicon/sentences` 與**其他已正式切段的可信 `known_pairs[].segments`** 作候選詞與固定錨點，嘗試把一整句中文切為與該封密電碼組數相同的片段。每種候選強制保留其他可信明文、同一封密電內重複碼組必須指向相同片段，並產生最多 8 個 `candidate_unverified` 結果。包含 500 字以下、字詞長度混合的明文，使用有界 beam search 避免指數路徑爆炸；可藉 `beam_width` 取捨候選涵蓋量與成本。
 
-**重要限制：** 這是排序啟發式，不是機率校準，也不是已證實的破譯；`heuristic_score` 不等於信賴度。Beam 截斷可能漏掉合理候選，甚至出現 `no_feasible_alignment`。它**不修改**原案例、不自動寫回 `known_pairs[].segments`、不新增 `verified_alignment`，必須由研究員另外確認完整碼組—明文分段才可升為可信對照。資料完全離線，不載入合成 `gold`／`ground_truth`、不呼叫任何 LLM。**輸出的 JSON 含研究員輸入的明文，應按敏感研究檔案管理，不宜上傳公開 Repository 或分享。**
+**重要限制：** 這是排序啟發式，不是機率校準，也不是已證實的破譯；`heuristic_score` 不等於信賴度。搜尋會先以可信錨點及每個碼組至少一字的必要條件，預判剩餘明文是否仍可能被完整消耗，避免長文有效切分在進入 Beam 前被不相關的高分短詞排擠；此預判不會將猜測升為可信錨點。Beam 截斷仍可能漏掉合理候選，甚至出現 `no_feasible_alignment`。它**不修改**原案例、不自動寫回 `known_pairs[].segments`、不新增 `verified_alignment`，必須由研究員另外確認完整碼組—明文分段才可升為可信對照。資料完全離線，不載入合成 `gold`／`ground_truth`、不呼叫任何 LLM。**輸出的 JSON 含研究員輸入的明文，應按敏感研究檔案管理，不宜上傳公開 Repository 或分享。**
 
 目前這是一項獨立 CLI 診斷能力；尚未整合進瀏覽器的覆核／接受按鈕，更沒有自動將候選推進真實密文求解。

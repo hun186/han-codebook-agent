@@ -53,6 +53,41 @@ class ManualAlignmentAcceptanceTests(unittest.TestCase):
         self.assertTrue(prov["not_historical_authenticity_proof"])
         self.assertEqual(prov["source_case_sha256"], report["source_case_sha256"])
 
+    def test_promotion_prunes_old_undo_snapshots_but_keeps_other_marks(self):
+        case = fixture()
+        case["messages"].append({"id": "other", "codes": ["004"]})
+        retained = {"preferred": "車站", "excluded": [], "pinned": False}
+        former = {"preferred": "車隊", "excluded": [], "pinned": False}
+        case["hypothesis_marks"] = {"004": retained}
+        case["hypothesis_revision_history"] = {
+            "version": 1, "cursor": 1,
+            "snapshots": [
+                {"002": former, "003": former, "004": retained},
+                {"004": retained},
+            ],
+            "actions": ["先前標註", "清除已驗證前的標註"],
+        }
+        before = deepcopy(case)
+        reviewed = review_unsegmented(case)
+        updated = accept_reviewed_alignment(
+            case, reviewed, known_pair_index=1, candidate_rank=1,
+            confirmed_segments=["補給", "車隊", "出發"], confirmed=True,
+        )
+        self.assertEqual(case, before)
+        history = updated["hypothesis_revision_history"]
+        self.assertEqual(history["cursor"], 1)
+        self.assertEqual(history["actions"], before["hypothesis_revision_history"]["actions"])
+        self.assertEqual(history["snapshots"], [
+            {"004": retained}, {"004": retained}
+        ])
+        self.assertEqual(updated["hypothesis_marks"], {"004": retained})
+        # Simulates later browser Undo; no old mark on a new trusted code.
+        for snapshot in history["snapshots"]:
+            self.assertFalse({"001", "002", "003"} & set(snapshot))
+            replayed = deepcopy(updated)
+            replayed["hypothesis_marks"] = snapshot
+            review_unsegmented(replayed)
+
     def test_unconfirmed_or_wrong_retyped_segments_fail_closed(self):
         case = fixture()
         report = review_unsegmented(case)

@@ -128,3 +128,13 @@ python -m han_codebook.unaligned_accept \
 - 研究員確認只是對切段的**人工決策**，不是 AI 自動確證歷史明文真偽。原始研究明文與輸出檔都應保密，不能放進公開 GitHub。純離線、無模型呼叫、無 `gold`／`ground_truth` 進入推理。
 
 目前是獨立 CLI 安全核准；**瀏覽器的候選預覽與按鈕尚未完成**，不能宣稱 UI 已支援。
+
+## 本機工作台：人工候選預覽與回傳已確認案例（HTTP API）
+
+自 PR #22 的人工確認 CLI 起，新增同源且僅限 loopback 的兩階段路由。這些路由供後續瀏覽器 UI 串接；**這個 PR 仍未加入可操作的瀏覽器候選按鈕**。
+
+- `POST /api/unaligned/preview`，JSON `{"case": <research_case>, "top_n": 8, "beam_width": 96}`：只產生候選報告（含原始明文），絕不改寫磁碟或可信錨點。
+- `POST /api/unaligned/accept`：需完整提供 `case`、原 `report`、`known_pair_index`、`candidate_rank`、`confirmed_segments`、`confirmed: true`。伺服器重新核驗**原始案例 SHA-256**、候選、手動輸入、可信錨點及研究員標註。只回傳 `{"case": ..., "saved": false, "status": "researcher_confirmed_not_saved"}`；並不持久化。
+- 研究員要把確認的案例寫入磁碟，必須**再額外明確呼叫現有** `POST /api/save`，並指定全新 ASCII 檔名。現有防跨來源、請求上限與建立新檔不覆寫保護維持不變。
+
+此介面不是外網 API、不是對公開 Vercel Mock 開放的功能；沒有呼叫模型，也不承諾切段代表歷史破譯正確。不要用外部資料夾或公開分享方式儲存明文報告。

@@ -527,6 +527,8 @@
     const url=new URL(path,globalThis.location?.origin||'https://demo.invalid');
     const route=url.pathname;
     if (data && oracleFields.some(k=>Object.hasOwn(data,k))) throw Error('Embedded gold is not allowed');
+    if(route==='/api/unaligned/preview'||route==='/api/unaligned/accept')
+      throw Error('PUBLIC MOCK 無法確認任何真實明文；請在本機離線研究工作台操作。');
     if(route==='/api/cases')return [...cases.keys()].map(id=>({id}));
     if(route==='/api/case'){
       const item=cases.get(url.searchParams.get('id'));
@@ -740,6 +742,13 @@
       'afterbegin',
       '<p class="alert" role="status">【展示模式】模型設定欄位僅供觀看本機操作版面；此頁不會儲存或使用任何端點設定，連線測試永遠顯示未連線。</p>'
     );
+    for (const id of ['previewAlignment','confirmAlignment']) {
+      const control = document.getElementById(id);
+      if (control) {
+        control.disabled = true;
+        control.title = 'PUBLIC MOCK 僅展示介面；真正切段確認請在本機研究工作台執行';
+      }
+    }
     const status = document.getElementById('llmSettingStatus');
     if (status) status.textContent = 'PUBLIC MOCK：不提供任何真實模型連線或端點設定';
   });

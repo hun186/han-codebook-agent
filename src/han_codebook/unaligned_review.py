@@ -102,7 +102,9 @@ def suggest_alignments(plaintext: str, codes: list[str],
             else:
                 endings = range(offset + 1, size - slots_after + 1)
             for end in endings:
-                if end > size - slots_after:
+                if end > size - slots_after or (slots_after == 0 and end != size):
+                    # The final code must consume the ENTIRE known plaintext
+                    # before ranking/pruning; a partial suffix is not a solution.
                     continue
                 expansions += 1
                 if expansions > MAX_EXPANSIONS:

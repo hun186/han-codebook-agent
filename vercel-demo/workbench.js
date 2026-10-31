@@ -181,15 +181,25 @@ function applyEvidence(){
 }
 function renderObservations(){let data=[];try{data=JSON.parse(el('observations').value)||[]}catch(e){}el('obsCards').innerHTML=Array.isArray(data)?data.map((o,i)=>`<div class="message"><strong>觀察 ${i+1}</strong>：${esc(o.source||'未知來源')} · ${esc(o.activity||'')} · ${esc(o.destination||'')} · 可信度 ${esc(o.confidence??0.5)}　<button data-removeobs="${i}">移除</button></div>`).join(''):'';el('obsCards').querySelectorAll('[data-removeobs]').forEach(b=>b.onclick=()=>{let a=JSON.parse(el('observations').value);a.splice(Number(b.dataset.removeobs),1);el('observations').value=JSON.stringify(a,null,2);renderObservations()})}
 function addObservation(){try{let data=JSON.parse(el('observations').value);if(!Array.isArray(data))throw Error('觀察資料不是陣列');let source=el('obsSource').value.trim(),n=Number(el('obsConfidence').value);if(!source||!Number.isFinite(n)||n<0||n>1)throw Error('來源不能空白，可信度須介於 0~1');data.push({source,observed_at:el('obsWhen').value.trim(),activity:el('obsActivity').value.trim(),destination:el('obsDest').value.trim(),status:el('obsStatus').value.trim(),confidence:n,note:el('obsNote').value.trim()});el('observations').value=JSON.stringify(data,null,2);renderObservations();notice('觀察已加入；按「套用此封情報」才納入分析')}catch(e){notice(e.message,true)}}
+// Alignment confirmation must preserve even Undo/Redo-only changes during async
+// requests. Ordinary jobs deliberately ignore mark-history churn, but acceptance
+// replaces the ENTIRE case: never let an old response discard newer snapshots.
+function captureAlignmentOrigin(){
+ const origin=captureOrigin();
+ return {...origin,fullFingerprint:JSON.stringify(research)};
+}
+function matchesAlignmentOrigin(origin){
+ return !!(origin&&matchesOrigin(origin)&&origin.fullFingerprint===JSON.stringify(research));
+}
 async function previewAlignmentCandidates(){
  if(!research)return notice('請先載入案例',true);
- const origin=captureOrigin(),button=el('previewAlignment');button.disabled=true;
+ const origin=captureAlignmentOrigin(),button=el('previewAlignment');button.disabled=true;
  alignmentReport=null;alignmentOrigin=null;alignmentChoice=null;
  el('alignmentCandidates').textContent='正在產生離線候選…';
  el('alignmentTyped').value='';
  try{
   const report=await api('/api/unaligned/preview',{case:research,top_n:8,beam_width:96});
-  if(!matchesOrigin(origin)){el('alignmentCandidates').textContent='案例已變更，舊候選無效';return notice('案例已變更，請重新預覽',true);}
+  if(!matchesAlignmentOrigin(origin)){el('alignmentCandidates').textContent='案例已變更，舊候選無效';return notice('案例已變更，請重新預覽',true);}
   alignmentReport=report;alignmentOrigin=origin;
   const rows=(report.reviews||[]).flatMap(row=>(row.candidates||[]).map((candidate,i)=>({
    pair:row.known_pair_index,rank:i+1,message:row.message_id,codes:row.code_groups,segments:candidate.segments
@@ -201,7 +211,7 @@ async function previewAlignmentCandidates(){
    <button data-alignment-pair="${item.pair}" data-alignment-rank="${item.rank}">選擇此候選供人工覆核</button>
    </div>`).join('');
   el('alignmentCandidates').querySelectorAll('[data-alignment-pair]').forEach(button=>button.onclick=()=>{
-   if(!matchesOrigin(origin)){alignmentChoice=null;return notice('案例已修改，必須重新產生候選',true);}
+   if(!matchesAlignmentOrigin(origin)){alignmentChoice=null;return notice('案例已修改，必須重新產生候選',true);}
    alignmentChoice={index:Number(button.dataset.alignmentPair),rank:Number(button.dataset.alignmentRank)};
    el('alignmentTyped').value='';
    notice('已選擇對照 #'+alignmentChoice.index+' 候選 '+alignmentChoice.rank+'；請自行逐碼重新輸入完整切段 JSON，並再次核對來源');
@@ -227,7 +237,7 @@ async function confirmAlignmentCandidate(){
    case:research,report:alignmentReport,known_pair_index:alignmentChoice.index,
    candidate_rank:alignmentChoice.rank,confirmed_segments:segments,confirmed:true
   });
-  if(!matchesOrigin(origin))return notice('資料在確認期間已變更；未套用舊結果，請重新預覽',true);
+  if(!matchesAlignmentOrigin(origin))return notice('資料在確認期間已變更；未套用舊結果，請重新預覽',true);
   if(!result||result.saved!==false||result.status!=='researcher_confirmed_not_saved'||!result.case)
    throw Error('伺服器未回傳安全的未存檔確認結果');
   research=result.case;presentCase();

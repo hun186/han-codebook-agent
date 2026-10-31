@@ -12,5 +12,6 @@
 - PR #20 anchor-aware bounded segmentation robustness merged into main as `490da8ea0bfaff76400df51a0cb9c788872ac2ba` after latest-head 8/8 Hosted CI and official Codex Completed/No Findings. Post-merge main CI requires separate verification.
 - PR #21 merged into main as `3732a72ad43ed545b8d0b41ddb04608e1076360d`; main post-merge GitHub CI #41165785923 SUCCESS (confirmed 2026-10-31). Independent offline holdout Top-N report does not expose plaintext.
 - PR #22 explicit CLI researcher confirmation merged as `5c19ae6b9acf0d34125bf851b8e3959b459f26d7` after latest-head 8/8 Hosted CI, formal Codex Completed/No Findings and resolved P2 fixture; main post-merge CI pending fresh verification.
-- Active: add separate loopback-only `/api/unaligned/preview` and `/api/unaligned/accept` API endpoints, which only return an amended copy without saving. New full HTTP integration tests verify opt-in, stale/cross-origin/oracle rejection and explicit `/api/save`. Hosted CI and formal review pending.
-- Next: build separate browser preview/confirm UX reusing those endpoints while keeping canonical Vercel Mock parity and public safety.
+- PR #23 merged into main as `a6ad3b60481e5e57dbd75582449cf8d5a9baa5f2` after latest-head 8/8 Hosted CI and formal Codex Completed/No Findings; main post-merge CI must be independently verified.
+- Active: canonical local GUI manual candidate preview, explicit selection, researcher retyping and separate accept/save; Node VM tests and Vercel UI sync, with PUBLIC MOCK buttons disabled and endpoint calls blocked. Formal Hosted CI/Codex Review still pending.
+- Next: after UI merge, evaluate usability on user workstation with real cases and long unsegmented messages; no real Qwen or historical decipherment assumed.

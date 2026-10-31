@@ -1,5 +1,6 @@
 const el=id=>document.getElementById(id);let research=null,lastJob=null,poll=null,markSnapshots=[],markCursor=-1,markActions=[],priorResult=null,ideaSnapshots=[],ideaCursor=-1,lastLLMEntries=[];
 let caseGeneration=0,lastLLMOrigin=null,vocabOrigin=null,vocabTimer=null;
+let alignmentReport=null,alignmentOrigin=null,alignmentChoice=null;
 let vocabRequestSerial=0,vocabActiveJobId=null,analysisRequestSerial=0,activeHumanReviewJobId=null;
 function caseFingerprint(){
  if(!research)return null;
@@ -63,6 +64,8 @@ async function testLLMSettings(){
  el('llmSettingStatus').textContent=(result.connected?'基本連線檢查成功':'基本連線檢查未成功')+'\n'+(result.diagnostics||[]).join('\n')+'\n'+result.note;
 }
 function presentCase(){
+ alignmentReport=null;alignmentOrigin=null;alignmentChoice=null;
+ el('alignmentCandidates').textContent='尚未產生候選';el('alignmentTyped').value='';
  invalidateOldJobs();priorResult=null;vocabCandidateRecord=[];
  for(const id of ['summary','reportLink','bars','readings','roundChart','changes','exchanges','eventLinks'])el(id).replaceChildren();
  el('progress').textContent='此案例尚未執行分析';
@@ -178,6 +181,70 @@ function applyEvidence(){
 }
 function renderObservations(){let data=[];try{data=JSON.parse(el('observations').value)||[]}catch(e){}el('obsCards').innerHTML=Array.isArray(data)?data.map((o,i)=>`<div class="message"><strong>觀察 ${i+1}</strong>：${esc(o.source||'未知來源')} · ${esc(o.activity||'')} · ${esc(o.destination||'')} · 可信度 ${esc(o.confidence??0.5)}　<button data-removeobs="${i}">移除</button></div>`).join(''):'';el('obsCards').querySelectorAll('[data-removeobs]').forEach(b=>b.onclick=()=>{let a=JSON.parse(el('observations').value);a.splice(Number(b.dataset.removeobs),1);el('observations').value=JSON.stringify(a,null,2);renderObservations()})}
 function addObservation(){try{let data=JSON.parse(el('observations').value);if(!Array.isArray(data))throw Error('觀察資料不是陣列');let source=el('obsSource').value.trim(),n=Number(el('obsConfidence').value);if(!source||!Number.isFinite(n)||n<0||n>1)throw Error('來源不能空白，可信度須介於 0~1');data.push({source,observed_at:el('obsWhen').value.trim(),activity:el('obsActivity').value.trim(),destination:el('obsDest').value.trim(),status:el('obsStatus').value.trim(),confidence:n,note:el('obsNote').value.trim()});el('observations').value=JSON.stringify(data,null,2);renderObservations();notice('觀察已加入；按「套用此封情報」才納入分析')}catch(e){notice(e.message,true)}}
+// Alignment confirmation must preserve even Undo/Redo-only changes during async
+// requests. Ordinary jobs deliberately ignore mark-history churn, but acceptance
+// replaces the ENTIRE case: never let an old response discard newer snapshots.
+function captureAlignmentOrigin(){
+ const origin=captureOrigin();
+ return {...origin,fullFingerprint:JSON.stringify(research)};
+}
+function matchesAlignmentOrigin(origin){
+ return !!(origin&&matchesOrigin(origin)&&origin.fullFingerprint===JSON.stringify(research));
+}
+async function previewAlignmentCandidates(){
+ if(!research)return notice('請先載入案例',true);
+ const origin=captureAlignmentOrigin(),button=el('previewAlignment');button.disabled=true;
+ alignmentReport=null;alignmentOrigin=null;alignmentChoice=null;
+ el('alignmentCandidates').textContent='正在產生離線候選…';
+ el('alignmentTyped').value='';
+ try{
+  const report=await api('/api/unaligned/preview',{case:research,top_n:8,beam_width:96});
+  if(!matchesAlignmentOrigin(origin)){el('alignmentCandidates').textContent='案例已變更，舊候選無效';return notice('案例已變更，請重新預覽',true);}
+  alignmentReport=report;alignmentOrigin=origin;
+  const rows=(report.reviews||[]).flatMap(row=>(row.candidates||[]).map((candidate,i)=>({
+   pair:row.known_pair_index,rank:i+1,message:row.message_id,codes:row.code_groups,segments:candidate.segments
+  })));
+  if(!rows.length){el('alignmentCandidates').textContent='沒有可供人工確認的完整候選；請檢查原始對照資料與固定錨點';return;}
+  el('alignmentCandidates').innerHTML=rows.map(item=>`<div class="panel">
+   <strong>電文 ${esc(item.message)}｜第 ${item.pair} 筆對照｜候選 #${item.rank}（未驗證）</strong>
+   <div class="muted">${item.codes.map((code,i)=>esc(code)+' → '+esc(item.segments[i])).join(' ｜ ')}</div>
+   <button data-alignment-pair="${item.pair}" data-alignment-rank="${item.rank}">選擇此候選供人工覆核</button>
+   </div>`).join('');
+  el('alignmentCandidates').querySelectorAll('[data-alignment-pair]').forEach(button=>button.onclick=()=>{
+   if(!matchesAlignmentOrigin(origin)){alignmentChoice=null;return notice('案例已修改，必須重新產生候選',true);}
+   alignmentChoice={index:Number(button.dataset.alignmentPair),rank:Number(button.dataset.alignmentRank)};
+   el('alignmentTyped').value='';
+   notice('已選擇對照 #'+alignmentChoice.index+' 候選 '+alignmentChoice.rank+'；請自行逐碼重新輸入完整切段 JSON，並再次核對來源');
+  });
+  notice('已產生 '+rows.length+' 個待人工確認候選；沒有變更任何可信對照');
+ }catch(e){
+  if(matchesCaseReference(origin))el('alignmentCandidates').textContent='候選產生失敗';
+  notice(e.message,true);
+ }finally{button.disabled=false;}
+}
+async function confirmAlignmentCandidate(){
+ if(!research||!alignmentReport||!alignmentChoice||!alignmentOrigin)return notice('請先產生並選擇一個候選',true);
+ if(!matchesAlignmentOrigin(alignmentOrigin))return notice('研究資料已變更，請重新產生候選',true);
+ let segments;
+ try{
+  segments=JSON.parse(el('alignmentTyped').value);
+  if(!Array.isArray(segments)||!segments.length||segments.some(x=>typeof x!=='string'||!x))throw Error('請輸入完整、非空的字串陣列');
+ }catch(e){return notice('逐碼切段 JSON 無效：'+e.message,true);}
+ if(!confirm('我已逐碼核對原始明文、密碼組與候選，並理解此步僅記錄研究員確認、不是歷史真偽證明；要將候選套用至目前頁面嗎？'))return;
+ const origin=alignmentOrigin,button=el('confirmAlignment');button.disabled=true;
+ try{
+  const result=await api('/api/unaligned/accept',{
+   case:research,report:alignmentReport,known_pair_index:alignmentChoice.index,
+   candidate_rank:alignmentChoice.rank,confirmed_segments:segments,confirmed:true
+  });
+  if(!matchesAlignmentOrigin(origin))return notice('資料在確認期間已變更；未套用舊結果，請重新預覽',true);
+  if(!result||result.saved!==false||result.status!=='researcher_confirmed_not_saved'||!result.case)
+   throw Error('伺服器未回傳安全的未存檔確認結果');
+  research=result.case;presentCase();
+  notice('研究員確認已套用到目前頁面，但尚未存檔。請使用「另存案例」建立新檔。');
+ }catch(e){notice(e.message,true)}
+ finally{button.disabled=false;}
+}
 function applyKnown(){try{
  let pairs=JSON.parse(el('knownEdit').value);if(!Array.isArray(pairs))throw Error('對照表需為陣列');
  const byId=new Map(research.messages.map(m=>[m.id,m])), anchored=new Map();
@@ -594,4 +661,4 @@ el('llmPreset').onchange=()=>{
    '自訂內網相容端點：僅接受 loopback 或明確允許的私人 IPv4。';
 };
 el('saveLLM').onclick=()=>saveLLMSettings().catch(e=>notice(e.message,true));el('testLLM').onclick=()=>testLLMSettings().catch(e=>notice(e.message,true));
-el('loadCase').onclick=()=>loadCase().catch(e=>notice(e.message,true));el('profilePick').onchange=loadProfile;el('messagePick').onchange=loadEvidence;el('wordSearch').oninput=renderVocab;el('addWord').onclick=()=>{let w=el('newWord').value.trim(),n=Number(el('newWeight').value);if(w&&Number.isFinite(n)&&n>=0){profile().lexicon[w]=n;el('newWord').value='';renderVocab()}};el('saveProfile').onclick=saveProfile;el('applyEvidence').onclick=applyEvidence;el('addObservation').onclick=addObservation;el('applyKnown').onclick=applyKnown;el('run').onclick=start;el('save').onclick=save;el('runBenchmark').onclick=startBenchmark;el('loadBenchmark').onclick=()=>api('/api/benchmark').then(renderBenchmark).catch(e=>notice(e.message,true));listCases().then(loadCase).catch(e=>notice(e.message,true));
+el('loadCase').onclick=()=>loadCase().catch(e=>notice(e.message,true));el('profilePick').onchange=loadProfile;el('messagePick').onchange=loadEvidence;el('wordSearch').oninput=renderVocab;el('addWord').onclick=()=>{let w=el('newWord').value.trim(),n=Number(el('newWeight').value);if(w&&Number.isFinite(n)&&n>=0){profile().lexicon[w]=n;el('newWord').value='';renderVocab()}};el('saveProfile').onclick=saveProfile;el('applyEvidence').onclick=applyEvidence;el('addObservation').onclick=addObservation;el('applyKnown').onclick=applyKnown;el('previewAlignment').onclick=previewAlignmentCandidates;el('confirmAlignment').onclick=confirmAlignmentCandidate;el('run').onclick=start;el('save').onclick=save;el('runBenchmark').onclick=startBenchmark;el('loadBenchmark').onclick=()=>api('/api/benchmark').then(renderBenchmark).catch(e=>notice(e.message,true));listCases().then(loadCase).catch(e=>notice(e.message,true));

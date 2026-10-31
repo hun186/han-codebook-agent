@@ -53,6 +53,41 @@ class ManualAlignmentAcceptanceTests(unittest.TestCase):
         self.assertTrue(prov["not_historical_authenticity_proof"])
         self.assertEqual(prov["source_case_sha256"], report["source_case_sha256"])
 
+    def test_promotion_prunes_old_undo_snapshots_but_keeps_other_marks(self):
+        case = fixture()
+        case["messages"].append({"id": "other", "codes": ["004"]})
+        retained = {"preferred": "車站", "excluded": [], "pinned": False}
+        former = {"preferred": "車隊", "excluded": [], "pinned": False}
+        case["hypothesis_marks"] = {"004": retained}
+        case["hypothesis_revision_history"] = {
+            "version": 1, "cursor": 1,
+            "snapshots": [
+                {"002": former, "003": former, "004": retained},
+                {"004": retained},
+            ],
+            "actions": ["先前標註", "清除已驗證前的標註"],
+        }
+        before = deepcopy(case)
+        reviewed = review_unsegmented(case)
+        updated = accept_reviewed_alignment(
+            case, reviewed, known_pair_index=1, candidate_rank=1,
+            confirmed_segments=["補給", "車隊", "出發"], confirmed=True,
+        )
+        self.assertEqual(case, before)
+        history = updated["hypothesis_revision_history"]
+        self.assertEqual(history["cursor"], 1)
+        self.assertEqual(history["actions"], before["hypothesis_revision_history"]["actions"])
+        self.assertEqual(history["snapshots"], [
+            {"004": retained}, {"004": retained}
+        ])
+        self.assertEqual(updated["hypothesis_marks"], {"004": retained})
+        # Simulates later browser Undo; no old mark on a new trusted code.
+        for snapshot in history["snapshots"]:
+            self.assertFalse({"001", "002", "003"} & set(snapshot))
+            replayed = deepcopy(updated)
+            replayed["hypothesis_marks"] = snapshot
+            review_unsegmented(replayed)
+
     def test_unconfirmed_or_wrong_retyped_segments_fail_closed(self):
         case = fixture()
         report = review_unsegmented(case)
@@ -142,6 +177,39 @@ class ManualAlignmentAcceptanceTests(unittest.TestCase):
         result = review_unsegmented(case)
         for item in result["reviews"][0]["candidates"]:
             self.assertEqual(item["segments"][0], item["segments"][2])
+
+    def test_undo_history_cannot_resurrect_newly_verified_code(self):
+        case = fixture()
+        # The researcher marked 002 in an earlier revision, then cleared it
+        # while keeping a separate legitimate experimental code 009.
+        case["messages"].append({"id": "other", "codes": ["009"]})
+        other = {"preferred": "後勤", "excluded": [], "pinned": False}
+        old = {"preferred": "車隊", "excluded": [], "pinned": False}
+        case["hypothesis_marks"] = {"009": deepcopy(other)}
+        case["hypothesis_revision_history"] = {
+            "version": 1, "cursor": 1,
+            "snapshots": [
+                {"002": deepcopy(old), "009": deepcopy(other)},
+                {"009": deepcopy(other)},
+            ],
+            "actions": ["標記 002", "清除 002"],
+        }
+        report = review_unsegmented(case)
+        before = deepcopy(case)
+        updated = accept_reviewed_alignment(
+            case, report, known_pair_index=1, candidate_rank=1,
+            confirmed_segments=["補給", "車隊", "出發"], confirmed=True
+        )
+        self.assertEqual(case, before)
+        history = updated["hypothesis_revision_history"]
+        self.assertEqual(history["cursor"], 1)
+        self.assertEqual(history["actions"], ["標記 002", "清除 002"])
+        for snapshot in history["snapshots"]:
+            self.assertNotIn("002", snapshot)
+            self.assertEqual(snapshot["009"], other)
+        self.assertEqual(updated["hypothesis_marks"], {"009": other})
+        self.assertEqual(updated["known_pairs"][1]["segments"],
+                         ["補給", "車隊", "出發"])
 
     def test_cli_requires_confirmation_and_exclusive_private_new_file(self):
         with TemporaryDirectory() as td:

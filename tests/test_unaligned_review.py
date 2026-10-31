@@ -113,6 +113,27 @@ class UnalignedReviewTests(unittest.TestCase):
         self.assertEqual(len(result["candidates"][0]["segments"]), 75)
         self.assertEqual("".join(result["candidates"][0]["segments"]), text)
 
+    def test_one_code_long_unknown_phrase_must_consume_entire_plaintext(self):
+        # Official Codex P2: an unconstrained final slot used to retain
+        # short, incomplete prefixes and prune the sole full-length answer.
+        message = "甲" * 97
+        answer = suggest_alignments(message, ["001"], set(), {},
+                                    beam_width=96)
+        self.assertEqual(answer["status"], "manual_confirmation_required")
+        self.assertEqual(answer["candidates"][0]["segments"], [message])
+        self.assertFalse(answer["beam_pruned"])
+        self.assertEqual(answer["expanded_states"], 1)
+
+    def test_last_code_must_consume_all_remaining_plaintext(self):
+        answer = suggest_alignments("補給甲" * 35, ["001", "002"],
+                                    {"補給"}, {"001": "補給"},
+                                    beam_width=24)
+        # Existing trusted anchor only covers the first two characters.
+        # The remaining sentence belongs to the second code regardless
+        # of unknown-string length or heuristic score.
+        self.assertEqual(answer["candidates"][0]["segments"],
+                         ["補給", "甲" + "補給甲" * 34])
+
     def test_too_few_chars_or_impossible_forced_phrase_returns_no_candidates(self):
         empty = suggest_alignments("甲", ["001", "002"], {"甲"}, {})
         self.assertEqual(empty["status"], "no_feasible_alignment")

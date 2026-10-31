@@ -181,13 +181,14 @@ class UnalignedReviewTests(unittest.TestCase):
         # A suffix check is only necessary, not sufficient, when the same
         # unknown code appears more than once. The normal beam still enforces
         # identical per-message phrase mapping and cannot invent an anchor.
-        result = suggest_alignments("甲乙補給丙丁",
-                                    ["001", "002", "001", "003"],
-                                    {"補給"}, {}, beam_width=32)
+        full = "補給車隊補給軍令"
+        result = suggest_alignments(full, ["001", "002", "001", "003"],
+                                    {"補給", "車隊", "軍令"}, {}, beam_width=128)
+        self.assertTrue(result["candidates"])
         for candidate in result["candidates"]:
             self.assertEqual(candidate["segments"][0],
                              candidate["segments"][2])
-            self.assertEqual("".join(candidate["segments"]), "甲乙補給丙丁")
+            self.assertEqual("".join(candidate["segments"]), full)
 
     def test_one_code_long_unknown_phrase_must_consume_entire_plaintext(self):
         # Official Codex P2: an unconstrained final slot used to retain

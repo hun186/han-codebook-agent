@@ -82,6 +82,48 @@ class UnalignedReviewTests(unittest.TestCase):
         with self.assertRaisesRegex(CaseError, "conflicting verified"):
             review_unsegmented(case)
 
+    def test_annotations_do_not_invoke_legacy_recursive_segmentation(self):
+        # Official Codex P2: even empty mark/bold annotation objects used to
+        # force core.validate_case -> anchors_and_review -> unbounded legacy
+        # segmentation. The new CLI must remain bounded in annotated cases.
+        case = sample()
+        case["hypothesis_marks"] = {"102": {
+            "preferred": "車隊", "excluded": [], "pinned": False, "note": ""
+        }}
+        case["bold_hypotheses"] = {"101": {
+            "term": "後勤", "note": "", "confirmed": True
+        }}
+        before = deepcopy(case)
+        with patch("han_codebook.core.segmentation_candidates",
+                   side_effect=AssertionError("legacy recursion forbidden")):
+            result = review_unsegmented(case, top_n=2, beam_width=8)
+        self.assertEqual(case, before)
+        self.assertEqual(result["reviews"][0]["status"],
+                         "manual_confirmation_required")
+        self.assertEqual(result["trusted_anchor_count_unchanged"], 1)
+
+        empty_annotations = deepcopy(case)
+        empty_annotations["hypothesis_marks"] = {}
+        empty_annotations["bold_hypotheses"] = {}
+        with patch("han_codebook.core.segmentation_candidates",
+                   side_effect=AssertionError("legacy recursion forbidden")):
+            self.assertEqual(review_unsegmented(empty_annotations)
+                             ["unaligned_pair_count"], 1)
+
+    def test_annotation_validation_still_rejects_verified_code_edit(self):
+        case = sample()
+        case["hypothesis_marks"] = {
+            "101": {"preferred": "錯誤", "excluded": [], "pinned": True}
+        }
+        with self.assertRaisesRegex(CaseError, "cannot mark absent or verified"):
+            review_unsegmented(case)
+        case = sample()
+        case["bold_hypotheses"] = {"102": {
+            "term": "車隊", "confirmed": True
+        }}
+        with self.assertRaisesRegex(CaseError, "existing verified"):
+            review_unsegmented(case)
+
     def test_bad_segment_count_cannot_create_partial_trusted_anchor(self):
         case = sample()
         case["messages"][0]["codes"] = ["101", "108"]

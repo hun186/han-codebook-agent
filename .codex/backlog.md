@@ -9,4 +9,4 @@
 - P2: MCP interface for Decipher-like agents, safe tool budget and long-running jobs.
 - P2: Web UI, investigation provenance explorer, task state machine and worker coordination.
 
-- Next: extend the review-only longer-text segmentation proposals with human acceptance workflow and held-out validation; browser UI remains single-user loopback only.
+- Next: verify anchor-aware reachability for longer unsegmented plaintext (new focused PR; Hosted CI/Codex review required), then add separately controlled manual acceptance and held-out validation; browser UI remains single-user loopback only.

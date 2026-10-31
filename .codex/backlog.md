@@ -9,4 +9,5 @@
 - P2: MCP interface for Decipher-like agents, safe tool budget and long-running jobs.
 - P2: Web UI, investigation provenance explorer, task state machine and worker coordination.
 
-- Next: verify anchor-aware reachability for longer unsegmented plaintext (new focused PR; Hosted CI/Codex review required), then add separately controlled manual acceptance and held-out validation; browser UI remains single-user loopback only.
+- PR #20 anchor-aware bounded segmentation robustness merged into main as `490da8ea0bfaff76400df51a0cb9c788872ac2ba` after latest-head 8/8 Hosted CI and official Codex Completed/No Findings. Post-merge main CI requires separate verification.
+- Next: PR #21 adds independent offline leave-one-message-out **segmentation candidate** Top-N scoring; review and Hosted CI on exact latest SHA required, and overlap folds excluded from independent denominator. Then design a separately controlled researcher acceptance workflow. Browser UI remains single-user loopback only.

@@ -83,6 +83,17 @@ def accept_reviewed_alignment(
     if "segments" in pair:
         raise CaseError("this known pair was already segmented")
     pair["segments"] = list(chosen)
+    # Undo history may contain obsolete marks on a code that is NOW trusted,
+    # even if the current researcher marks were cleared before acceptance.
+    # Keep unrelated snapshots and their ordering, but never allow Undo to
+    # resurrect a hypothesis on newly verified evidence.
+    revision = result.get("hypothesis_revision_history")
+    if isinstance(revision, dict) and isinstance(revision.get("snapshots"), list):
+        newly_trusted = set(codes)
+        for snapshot in revision["snapshots"]:
+            if isinstance(snapshot, dict):
+                for code in newly_trusted:
+                    snapshot.pop(code, None)
     pair["alignment_provenance"] = {
         "method": "explicit_researcher_confirmed_review_candidate",
         "source_case_sha256": _digest(case),

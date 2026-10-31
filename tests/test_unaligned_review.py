@@ -155,6 +155,41 @@ class UnalignedReviewTests(unittest.TestCase):
         self.assertEqual(len(result["candidates"][0]["segments"]), 75)
         self.assertEqual("".join(result["candidates"][0]["segments"]), text)
 
+    def test_suffix_trusted_anchor_survives_narrow_beam(self):
+        # A low-scoring 80-char prefix is the ONLY valid split before
+        # a trusted suffix. Previously the beam preferred 8 short prefixes
+        # and incorrectly reported no feasible candidate.
+        full = "甲" * 80 + "補給"
+        result = suggest_alignments(full, ["001", "002"], set(),
+                                    {"002": "補給"}, beam_width=8)
+        self.assertEqual(result["status"], "manual_confirmation_required")
+        self.assertEqual(result["candidates"][0]["segments"],
+                         ["甲" * 80, "補給"])
+        self.assertFalse(result["beam_pruned"])
+
+    def test_middle_trusted_anchor_survives_narrow_beam(self):
+        # The anchored phrase may also be followed by an unknown final code.
+        full = "甲" * 60 + "補給" + "乙" * 20
+        result = suggest_alignments(full, ["001", "002", "003"],
+                                    set(), {"002": "補給"}, beam_width=8)
+        self.assertEqual(result["status"], "manual_confirmation_required")
+        self.assertEqual(result["candidates"][0]["segments"],
+                         ["甲" * 60, "補給", "乙" * 20])
+        self.assertFalse(result["beam_pruned"])
+
+    def test_reachability_does_not_promote_unverified_repeats(self):
+        # A suffix check is only necessary, not sufficient, when the same
+        # unknown code appears more than once. The normal beam still enforces
+        # identical per-message phrase mapping and cannot invent an anchor.
+        full = "補給車隊補給軍令"
+        result = suggest_alignments(full, ["001", "002", "001", "003"],
+                                    {"補給", "車隊", "軍令"}, {}, beam_width=128)
+        self.assertTrue(result["candidates"])
+        for candidate in result["candidates"]:
+            self.assertEqual(candidate["segments"][0],
+                             candidate["segments"][2])
+            self.assertEqual("".join(candidate["segments"]), full)
+
     def test_one_code_long_unknown_phrase_must_consume_entire_plaintext(self):
         # Official Codex P2: an unconstrained final slot used to retain
         # short, incomplete prefixes and prune the sole full-length answer.

@@ -83,6 +83,30 @@ def suggest_alignments(plaintext: str, codes: list[str],
     if len(plaintext) < len(codes):
         return {"status": "no_feasible_alignment", "candidates": [],
                 "beam_pruned": False, "expanded_states": 0}
+    # Precompute a NECESSARY suffix reachability condition before the beam
+    # search. It ignores repeated unknown-code assignments (so it may admit
+    # impossible paths), but never prunes a truly feasible full alignment.
+    # For an unknown code, any nonempty segment may precede a reachable suffix;
+    # a trusted code can only consume its exact verified phrase.
+    size = len(plaintext)
+    reachable = [[False] * (size + 1) for _ in range(len(codes) + 1)]
+    reachable[-1][size] = True
+    for i in range(len(codes) - 1, -1, -1):
+        fixed = trusted.get(codes[i])
+        if fixed is not None:
+            for offset in range(size - len(fixed) + 1):
+                reachable[i][offset] = (
+                    plaintext.startswith(fixed, offset)
+                    and reachable[i + 1][offset + len(fixed)]
+                )
+        else:
+            suffix_possible = False
+            for offset in range(size - 1, -1, -1):
+                suffix_possible = suffix_possible or reachable[i + 1][offset + 1]
+                reachable[i][offset] = suffix_possible
+    if not reachable[0][0]:
+        return {"status": "no_feasible_alignment", "candidates": [],
+                "beam_pruned": False, "expanded_states": 0}
     repeated = {code for code, count in Counter(codes).items() if count > 1}
     # (heuristic_score, character_offset, segments, repeated_unknown_assignments)
     states: list[tuple[float, int, tuple[str, ...], tuple[tuple[str, str], ...]]] = [
@@ -102,6 +126,10 @@ def suggest_alignments(plaintext: str, codes: list[str],
             else:
                 endings = range(offset + 1, size - slots_after + 1)
             for end in endings:
+                if not reachable[index + 1][end]:
+                    # Do not let heuristic beam ranking discard every path
+                    # capable of satisfying later immutable trusted anchors.
+                    continue
                 if end > size - slots_after or (slots_after == 0 and end != size):
                     # The final code must consume the ENTIRE known plaintext
                     # before ranking/pruning; a partial suffix is not a solution.

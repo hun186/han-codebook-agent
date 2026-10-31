@@ -110,8 +110,8 @@ class ManualAlignmentAcceptanceTests(unittest.TestCase):
             ("hypothesis_marks", {"002": {
                 "preferred": "車隊", "excluded": [], "pinned": False
             }}),
-            ("bold_hypotheses", {"002": {
-                "term": "車隊", "confirmed": True
+            ("bold_hypotheses", {"001": {
+                "term": "後勤", "confirmed": True
             }}),
             ("candidate_ideas", {"002": [{"term": "車隊"}]}),
         ):

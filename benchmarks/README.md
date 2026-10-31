@@ -51,3 +51,23 @@ python -m han_codebook.holdout_verification --case benchmarks/cases/01_known_and
 **限制非常重要：** 原有的候選詞庫、人工先驗、範例句、密文字組與背景資料仍參與推理。因此這是「已知明文留出一致性測試」，**不是完全陌生詞庫的盲解，也不是歷史破譯成功率**。同一碼組出現在不同留出回合時會重複被計成不同 fold-code assessment，不能把它誤當獨立樣本數。
 
 - **無法求解的留出回合**：即使總詞庫不為空，其他仍未錨定的碼組也可能因先前的研究員 `excluded` 排除全部候選。此時不放寬排除條件、不補回留出的答案；該 fold 註記 `candidate_exclusions_blocked_inference`，並列出阻擋的碼組。保留先前已成功的 fold；此類 fold 不進 Top-1／Top-5 的實際評分分母。`independently_testable_fold_code_assessments` 是潛在可測量數，`scored_fold_code_assessments` 才是比率分母，`not_scored_due_to_candidate_exclusions` 則另行計數。若全部無法評分，比率應為 `null`，不可虛構命中率。
+
+## 情報與觀察資料的配對消融（純離線）
+
+當案例有可靠、已逐碼切分的 `known_pairs[].segments` 時，可以在**相同留出電文／碼組**上比較四種設定：
+
+```bash
+python -m han_codebook.context_ablation \
+  --case benchmarks/cases/01_known_and_metadata.json \
+  --out artifacts/context_ablation.json \
+  --max-folds 10 --iterations 3 --restarts 2 --minimum-paired 10
+```
+
+- `legacy_context`：沿用傳統觀察資料權重與其他可用元資料。
+- `without_observations`：保留收發單位等元資料，但移除所有外部觀察，測試觀察資料有沒有幫忙。
+- `time_relevance`：保留外部觀察，改用日期／時間關聯與不相關狀態的折減規則。
+- `no_metadata`：移除收發單位、日期和觀察資料，並以 `use_metadata=False` 求解；既有先驗詞庫、已知明文及密文仍適用。
+
+每個變體都執行既有 `holdout_verification`，相同留出錨點的參考詞只在**推論完成後**供計分。報告不包含留出的正解詞、求解詞組、原始觀察文字或公開合成 gold。對照差值只使用兩個變體都**真正完成推論**的相同 `(留出電文, 碼組)`；如果沒有任何共同可比較碼組，差值是 `null`，不應推測優劣。每回合仍可能重複評估同一碼組，不能當成獨立的歷史實驗樣本。
+
+`--minimum-paired` 預設 10，少於該數即標示 `insufficient_paired_evidence`；超過門檻時若同一組碼的 Top-1 命中方向不同，僅標示 `possible_context_harm`／`possible_context_benefit` 的**探索性訊號**，不是顯著性檢定、不是保證正確率會提升。**不會自動選擇模型、不會修改正式推理權重，也不會呼叫 LLM。** 候選詞庫、例句、領域先驗仍然是研究員提供，因此不是零情報盲解或歷史破譯成功率。

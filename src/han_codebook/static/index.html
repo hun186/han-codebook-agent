@@ -351,7 +351,7 @@ async function previewAlignmentCandidates(){
 }
 async function confirmAlignmentCandidate(){
  if(!research||!alignmentReport||!alignmentChoice||!alignmentOrigin)return notice('請先產生並選擇一個候選',true);
- if(!matchesOrigin(alignmentOrigin))return notice('研究資料已變更，請重新產生候選',true);
+ if(!matchesAlignmentOrigin(alignmentOrigin))return notice('研究資料已變更，請重新產生候選',true);
  let segments;
  try{
   segments=JSON.parse(el('alignmentTyped').value);

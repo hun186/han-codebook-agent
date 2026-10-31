@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from copy import deepcopy
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -219,6 +220,10 @@ def review_unsegmented(case: dict[str, Any], *, top_n: int = 8,
         })
     return {
         "case_id": case.get("case_id", "unnamed"),
+        "source_case_sha256": hashlib.sha256(json.dumps(
+            case, ensure_ascii=False, sort_keys=True,
+            separators=(",", ":")
+        ).encode("utf-8")).hexdigest(),
         "method": "offline bounded-beam plaintext alignment; review only",
         "review_required": True,
         "top_n": top_n,

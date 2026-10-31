@@ -82,6 +82,13 @@ class UnalignedReviewTests(unittest.TestCase):
         with self.assertRaisesRegex(CaseError, "conflicting verified"):
             review_unsegmented(case)
 
+    def test_bad_segment_count_cannot_create_partial_trusted_anchor(self):
+        case = sample()
+        case["messages"][0]["codes"] = ["101", "108"]
+        # Existing independently aligned plaintext must cover every code.
+        with self.assertRaisesRegex(CaseError, "segment count"):
+            review_unsegmented(case)
+
     def test_actual_synthetic_unsegmented_crib_and_no_oracle_loaded(self):
         case = load_case(ROOT / "benchmarks/cases/05_unaligned_crib.json")
         original = deepcopy(case)

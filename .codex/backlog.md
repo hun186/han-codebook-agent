@@ -18,3 +18,7 @@
 - PR #26 case-wide 2,000,000 expansion cap **MERGED** as `13a6959254631e054f4830b209b40700cfdba6fd`; exact-head Hosted 8/8 Python/Windows/Docker CI, Codex Completed/No Findings, main CI #41286937989 SUCCESS verified 2026-11-01.
 - Current: optional `--extended` on one-click synthetic alignment smoke; preserve 17-check default, add 4 long-text/repeated-code/case-wide budget checks to make 21 total. Windows/Linux wrappers forward flags, output stays sanitized. Hosted CI/Codex/merge pending.
 - Next: private workstation real cases and separately authorized live Ollama; public Vercel remains Mock-only.
+
+- PR #27 actual merge `ac4d6fccb8c54ff6d9a3067468acdcddc7b6066b`, postmerge main CI #41287417134 SUCCESS.
+- PR #28 actual merge `4231aa2f5d46551f1077940fdb8658029621f870`, postmerge main CI #41287789928 SUCCESS checked 2026-11-01.
+- Active `feat/known-pair-row-editor-20261101`: researcher CRUD GUI for each known plaintext/ciphertext pair with per-code input, explicit trust consent, conflict/stale-edit guards, advanced JSON fallback, Node tests and Vercel public Mock UI parity. Hosted latest-head CI and formal Codex review pending. Next: full browser UX verification in user's actual private workstation.

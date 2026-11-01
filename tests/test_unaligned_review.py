@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -283,6 +284,37 @@ class UnalignedReviewTests(unittest.TestCase):
             suggest_alignments("甲" * 501, ["001"], {"甲"}, {})
         with self.assertRaises(CaseError):
             suggest_alignments("甲乙", ["nonnumeric"], {"甲"}, {})
+
+    def test_sensitive_review_report_is_create_only_and_never_replaces_case(self):
+        with TemporaryDirectory() as td:
+            source = Path(td) / "source.json"
+            output = Path(td) / "review.json"
+            original = json.dumps(sample(), ensure_ascii=False)
+            source.write_text(original, encoding="utf-8")
+            opts = ["--case", str(source), "--out", str(output)]
+            self.assertEqual(main(opts), 0)
+            first_bytes = output.read_bytes()
+            self.assertIn("candidate_unverified", first_bytes.decode("utf-8"))
+            self.assertEqual(main(opts), 2, "must reject existing report")
+            self.assertEqual(output.read_bytes(), first_bytes)
+            self.assertEqual(source.read_text(encoding="utf-8"), original)
+            self.assertEqual(main(["--case", str(source), "--out",
+                                   str(source)]), 2)
+            self.assertEqual(source.read_text(encoding="utf-8"), original)
+            if os.name == "posix":
+                self.assertEqual(output.stat().st_mode & 0o077, 0,
+                                 "sensitive report must not be group/world readable")
+            another = Path(td) / "other-important.txt"
+            another.write_text("unmodified", encoding="utf-8")
+            alias = Path(td) / "linked-report.json"
+            try:
+                alias.symlink_to(another)
+            except (OSError, NotImplementedError):
+                pass
+            else:
+                self.assertEqual(main(["--case", str(source), "--out",
+                                       str(alias)]), 2)
+                self.assertEqual(another.read_text(encoding="utf-8"), "unmodified")
 
     def test_cli_serializes_offline_results_and_reports_errors(self):
         with TemporaryDirectory() as td:

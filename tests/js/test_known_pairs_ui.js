@@ -124,7 +124,7 @@ assert(el('knownEdit').value===canonical());
 // Existing advanced JSON editing still uses the shared validator.
 el('knownEdit').value=JSON.stringify([{message_id:'m1',
  plaintext:'補給車隊',segments:['補給','錯誤']}]);
-context.applyKnown();
+ask=false;context.applyKnown();ask=true;
 assert.strictEqual(textCase.known_pairs[0].segments[1],'車隊',
  'conflicting direct JSON may not silently replace old state if rejected');
 // Verify stale JSON cannot be silently replaced by the row manager.

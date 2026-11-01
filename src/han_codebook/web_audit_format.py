@@ -13,7 +13,7 @@ def read_audit_events(path: Path) -> list[dict[str, Any]]:
         raise ValueError("Audit file must be a regular file")
     if path.stat().st_size > 48 * 1024 * 1024:
         raise ValueError("Audit file exceeds diagnostic size cap")
-    with sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True) as db:
+    with sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True) as db:
         rows = db.execute(
             "SELECT at_utc, round, stage, payload_json FROM events ORDER BY id"
         ).fetchall()

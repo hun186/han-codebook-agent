@@ -233,7 +233,7 @@ def main(argv: list[str] | None = None) -> int:
         result = {
             "schema_version": 1, "suite": "offline_synthetic_alignment_e2e",
             "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-            "status": "PASS" if passed == len(result["checks"]) and passed == 15
+            "status": "PASS" if passed == len(result["checks"]) and passed == 17
                       else "FAIL",
             "checks_passed": passed, "checks_total": len(result["checks"]),
             "scope": "synthetic localhost end-to-end only; no real model or historical decoding",

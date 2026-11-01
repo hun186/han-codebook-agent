@@ -8,7 +8,7 @@ const grab=(a,b)=>{let i=script.indexOf(a),j=script.indexOf(b);assert(i>=0&&j>i,
 const elData={knownEdit:{value:''},knownPairs:{innerHTML:'',querySelectorAll:()=>[]},knownRowEditor:{hidden:true},knownRowVerified:{checked:false},alignmentCandidates:{textContent:''},alignmentTyped:{value:''}};
 const research={messages:[{id:'a',codes:['001','002']}],known_pairs:[],hypothesis_marks:{'001':{preferred:'甲',pinned:true,excluded:[],note:'trial'}}};
 const notices=[];
-const ctx={research,el:(id)=>elData[id]||(elData[id]={}),notice:(s,b)=>notices.push({s,b}),initializeMarks:()=>{},
+const ctx={research,el:(id)=>elData[id]||(elData[id]={}),esc:s=>String(s),confirm:()=>true,notice:(s,b)=>notices.push({s,b}),initializeMarks:()=>{},
   Blob,markSnapshots:[{'001':{preferred:'甲',pinned:true,excluded:[],note:'trial'}},{}],markActions:['original','cleared'],markCursor:1,copyMarks:(x)=>JSON.parse(JSON.stringify(x))};
 vm.createContext(ctx);
 vm.runInContext(grab('function persistMarkHistory()', 'function initializeMarks()'),ctx);

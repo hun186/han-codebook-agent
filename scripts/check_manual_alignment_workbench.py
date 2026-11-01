@@ -70,6 +70,9 @@ def run_checks() -> dict:
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         origin = f"http://127.0.0.1:{server.server_port}"
+        # Air-gapped hosts may configure a global HTTP(S) proxy, including
+        # mistakenly for localhost. Never send even SYNTHETIC traffic away.
+        direct = request.build_opener(request.ProxyHandler({}))
 
         def api(path: str, data: dict | None = None, *,
                 other_origin: str | None = None) -> tuple[int, dict | str]:
@@ -82,7 +85,7 @@ def run_checks() -> dict:
             req = request.Request(origin + path, data=payload, headers=headers,
                                   method="POST" if data is not None else "GET")
             try:
-                with request.urlopen(req, timeout=15) as response:
+                with direct.open(req, timeout=15) as response:
                     body = response.read()
                     if response.headers.get("Content-Type", "").startswith("application/json"):
                         return response.status, json.loads(body)
@@ -227,31 +230,48 @@ def main(argv: list[str] | None = None) -> int:
         help="Sanitized result JSON; default is project-root artifacts/diagnostics"
     )
     args = parser.parse_args(argv)
+    now = datetime.now(timezone.utc).isoformat()
+    base = {
+        "schema_version": 1, "suite": "offline_synthetic_alignment_e2e",
+        "timestamp_utc": now,
+        "scope": "synthetic localhost end-to-end only; no real model or historical decoding",
+    }
+    # Invalidate an earlier PASS *before* a new attempt, even if the process
+    # dies before it can produce a current report. A stale success is unsafe.
     try:
-        result = run_checks()
-        passed = sum(x["status"] == "PASS" for x in result["checks"])
-        result = {
-            "schema_version": 1, "suite": "offline_synthetic_alignment_e2e",
-            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-            "status": "PASS" if passed == len(result["checks"]) and passed == 17
-                      else "FAIL",
-            "checks_passed": passed, "checks_total": len(result["checks"]),
-            "scope": "synthetic localhost end-to-end only; no real model or historical decoding",
-            "checks": result["checks"],
-        }
         args.output.parent.mkdir(parents=True, exist_ok=True)
-        staged = args.output.with_name(args.output.name + ".tmp")
-        staged.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n",
-                          encoding="utf-8")
-        os.replace(staged, args.output)
-        print(f"ALIGNMENT_OFFLINE_E2E_{result['status']} {passed}/{len(result['checks'])}")
-        print(f"Sanitized report: {args.output}")
-        return 0 if result["status"] == "PASS" else 2
-    except Exception as exc:
-        # Intentionally avoid logging raw case text or HTTP response payloads.
-        print(f"ALIGNMENT_OFFLINE_E2E_FAILED ({type(exc).__name__})",
+        args.output.unlink(missing_ok=True)
+    except OSError:
+        print("ALIGNMENT_OFFLINE_E2E_FAILED (report invalidation failed)",
               file=sys.stderr)
         return 2
+
+    try:
+        results = run_checks()
+        passed = sum(x["status"] == "PASS" for x in results["checks"])
+        total = len(results["checks"])
+        status = "PASS" if passed == total == 17 else "FAIL"
+        report = {**base, "status": status, "checks_passed": passed,
+                  "checks_total": total, "checks": results["checks"]}
+    except Exception as exc:
+        # No exception message, stack trace or HTTP payload: they could carry
+        # sensitive text on accidental future code paths. Always replace PASS.
+        report = {**base, "status": "FAIL", "checks_passed": 0,
+                  "checks_total": 17, "checks": [],
+                  "error_type": type(exc).__name__}
+    staged = args.output.with_name(args.output.name + ".tmp")
+    try:
+        staged.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+                          encoding="utf-8")
+        os.replace(staged, args.output)
+    except OSError:
+        print("ALIGNMENT_OFFLINE_E2E_FAILED (report write failed)",
+              file=sys.stderr)
+        return 2
+    print(f"ALIGNMENT_OFFLINE_E2E_{report['status']} "
+          f"{report['checks_passed']}/{report['checks_total']}")
+    print(f"Sanitized report: {args.output}")
+    return 0 if report["status"] == "PASS" else 2
 
 
 if __name__ == "__main__":

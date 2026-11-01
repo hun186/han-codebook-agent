@@ -10,7 +10,7 @@ if not exist ".venv\Scripts\python.exe" (
 set "PYTHONPATH=%CD%\src"
 echo [OFFLINE] Running SYNTHETIC alignment preview / acceptance / save checks.
 echo [OFFLINE] Uses only an ephemeral 127.0.0.1 server, no Ollama or real cases.
-".venv\Scripts\python.exe" -u scripts\check_manual_alignment_workbench.py --output "%CD%\artifacts\diagnostics\alignment_smoke_latest.json"
+".venv\Scripts\python.exe" -u scripts\check_manual_alignment_workbench.py --output "%CD%\artifacts\diagnostics\alignment_smoke_latest.json" %*
 set "RC=%ERRORLEVEL%"
 echo.
 if "%RC%"=="0" (echo [PASS] Offline alignment E2E completed.) else (echo [FAIL] See sanitized report in artifacts\diagnostics.)

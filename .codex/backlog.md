@@ -18,3 +18,7 @@
 - PR #26 case-wide 2,000,000 expansion cap **MERGED** as `13a6959254631e054f4830b209b40700cfdba6fd`; exact-head Hosted 8/8 Python/Windows/Docker CI, Codex Completed/No Findings, main CI #41286937989 SUCCESS verified 2026-11-01.
 - Current: optional `--extended` on one-click synthetic alignment smoke; preserve 17-check default, add 4 long-text/repeated-code/case-wide budget checks to make 21 total. Windows/Linux wrappers forward flags, output stays sanitized. Hosted CI/Codex/merge pending.
 - Next: private workstation real cases and separately authorized live Ollama; public Vercel remains Mock-only.
+
+- 2026-11-01 current main `4231aa2f5d46551f1077940fdb8658029621f870` (#28 merged, postmerge CI #41287789928 SUCCESS). PR #29 researcher known-pair row GUI remains OPEN: last seen HEAD `329ffa02e2d9ed9c24e84d0f288ba80074cdce2e`, 8/8 Hosted CI success but latest-head formal Codex No Findings not observed; do NOT merge it without gate.
+- **Active branch `feat/one-click-run-diagnostic-bundle-20261101`**: GUI download share-safe ZIP and explicitly confirmed full private ZIP for completed/failed research runs; persist actual input case and audit, capture run settings, strict same-origin POST, bounded files, partial status, no oracle, public Vercel Mock disabled. Hosted CI/formal Codex Review and merge PENDING.
+- Next: private workstation case 07 one-round endpoint smoke, then case 08 baseline vs three rounds with/without metadata and compare actual downloadable diagnostic ZIPs. No user endpoint run or historical accuracy result claimed.

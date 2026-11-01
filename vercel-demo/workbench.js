@@ -67,7 +67,7 @@ function presentCase(){
  alignmentReport=null;alignmentOrigin=null;alignmentChoice=null;
  el('alignmentCandidates').textContent='尚未產生候選';el('alignmentTyped').value='';
  invalidateOldJobs();priorResult=null;vocabCandidateRecord=[];
- for(const id of ['summary','reportLink','bars','readings','roundChart','changes','exchanges','eventLinks'])el(id).replaceChildren();
+ for(const id of ['summary','reportLink','diagnosticLink','bars','readings','roundChart','changes','exchanges','eventLinks'])el(id).replaceChildren();
  el('progress').textContent='此案例尚未執行分析';
  el('vocabProgress').textContent='';el('vocabSuggestions').replaceChildren();ideaSnapshots=[JSON.parse(JSON.stringify(research.candidate_ideas||{}))];ideaCursor=0;el('markCompare').textContent='重新分析後可與上一輪比較';el('profilePick').innerHTML=Object.keys(research.profiles).map(k=>`<option>${esc(k)}</option>`).join('');el('messagePick').innerHTML=research.messages.map(m=>`<option>${esc(m.id)}</option>`).join('');loadProfile();loadEvidence();initializeMarks();renderIdeas();renderBoldHypotheses();el('knownPairs').textContent=(research.known_pairs||[]).map(x=>`${x.message_id}: ${x.plaintext??(x.segments||[]).join('')} ${x.segments?'【逐碼對齊】':'【需要人工切詞】'}`).join('；');el('knownEdit').value=JSON.stringify(research.known_pairs||[],null,2);notice(`已載入 ${research.case_id}: ${research.messages.length} 封電文`)}
 async function loadCase(){
@@ -466,7 +466,41 @@ async function askVocabulary(){
 function chartBar(label,value,max=1){let val=Number(value)||0;return `<div class="chartrow"><span>${esc(label)}</span><div class="track"><div class="fill" style="width:${Math.max(0,Math.min(100,val/max*100))}%"></div></div><span>${esc(val.toFixed(2))}</span></div>`}
 function lineChart(values){if(values.length<2)return '<p class="muted">至少兩個時間點才能繪製趨勢。</p>';let ys=values.map(v=>v.score),lo=Math.min(...ys),hi=Math.max(...ys),extent=hi-lo||1;let points=values.map((v,i)=>`${26+i*520/(values.length-1)},${160-(v.score-lo)/extent*125}`).join(' ');return `<svg viewBox="0 0 580 200" role="img" aria-label="逐輪統計目標分數趨勢" style="width:100%;max-height:250px"><line x1="26" y1="160" x2="550" y2="160" stroke="#4f6276"/><polyline points="${points}" fill="none" stroke="#4bd0bc" stroke-width="3"/>${values.map((v,i)=>{let x=26+i*520/(values.length-1),y=160-(v.score-lo)/extent*125;return `<circle cx="${x}" cy="${y}" r="5" fill="#4bd0bc"/><text x="${x}" y="182" fill="#a4b9ce" font-size="11" text-anchor="middle">${i===0?'Baseline':'R'+i}</text>`}).join('')}</svg>`}
 function renderBenchmark(report){let rows=report.runs||[];el('benchmarkCharts').innerHTML='<h3>未知碼組 Top-1 正確率（依是否提供元數據）</h3>'+rows.map(x=>`<div class="message"><strong>${esc(x.case_id)}</strong> · 元數據 ${x.metadata?'有':'無'}${chartBar('Top-1 正確率',x.metrics.unknown_code_top1_rate??0,1)}${chartBar('完整電文正確率',x.metrics.non_crib_exact_rate??0,1)}<small>錨點 ${x.metrics.verified_anchor_count} · 未知碼 ${x.metrics.unknown_code_count} · 僅供合成基準評估</small></div>`).join('')+'<p class="alert">這些百分比是本套合成測試的評分，不表示能破解未知真實密電；語言詞彙與示例已提供給求解器。</p>'}
-function renderJob(j){const origin=arguments.length>1?arguments[1]:null;if(origin&&!matchesOrigin(origin))return;if(j.type==='benchmark'){el('benchmarkProgress').textContent=j.logs.join('\n')||j.status;if(j.status==='completed')renderBenchmark(j.result);if(j.error)el('benchmarkProgress').textContent+='\nERROR: '+j.error;return}el('progress').textContent=j.logs.join('\n')||j.status;if(j.error)el('progress').textContent+='\nERROR: '+j.error;if(origin&&!matchesOrigin(origin))return;renderTrace(j);if(j.status!=='completed')return;
+
+async function exportRunDiagnostics(jobId,mode,button){
+ if(!/^[a-f0-9]{16}$/.test(jobId)||!['safe','private'].includes(mode))return;
+ if(mode==='private'&&!confirm('【敏感研究資料】私人完整版包含研究案例、原始電文、候選明文、SQLite 稽核檔，勾選 Prompt 記錄時也包含 LLM 請求及原始回覆。請僅保存在私人電腦並先檢閱 ZIP，確認沒有帳密、內網機密或不宜分享的史料。確定匯出？'))return;
+ if(mode==='safe'&&!confirm('匯出分享診斷版？只含執行狀態、各輪統計與錯誤類型，不包含原始明文和 LLM 請求內容。'))return;
+ button.disabled=true;
+ try{
+  const response=await fetch('/api/jobs/'+jobId+'/diagnostics',{
+   method:'POST',headers:{'Content-Type':'application/json','X-Han-UI':'local'},
+   body:JSON.stringify({mode,confirmed:true})
+  });
+  if(!response.ok){let err;try{err=await response.json()}catch(_){err={error:response.status}}throw Error(err.error||response.status);}
+  const file=await response.blob(),objectUrl=URL.createObjectURL(file);
+  try{const a=document.createElement('a');a.href=objectUrl;a.download='han-codebook-diagnostics-'+mode+'-'+jobId+'.zip';document.body.appendChild(a);a.click();a.remove();}
+  finally{setTimeout(()=>URL.revokeObjectURL(objectUrl),6000);}
+  notice('研究診斷 ZIP 已交由瀏覽器下載。分享前請檢查檔案內容。');
+ }catch(error){notice('診斷匯出失敗：'+error.message,true);}
+ finally{button.disabled=false;}
+}
+function renderDiagnosticButtons(job){
+ const area=el('diagnosticLink');
+ if(globalThis.HanMockDemo){area.textContent='PUBLIC MOCK：不提供真實研究診斷 ZIP；請使用本機工作台';return;}
+ if(!job||job.type!=='analysis'||!['completed','failed'].includes(job.status)){
+  area.replaceChildren();return;
+ }
+ if(area.dataset.jobId===job.id)return;
+ area.replaceChildren();area.dataset.jobId=job.id;
+ const label=document.createElement('span');label.textContent=job.status==='failed'?'此工作未完成，僅匯出 PARTIAL 證據：':'完整執行已結束，可匯出：';
+ area.appendChild(label);
+ for(const [mode,title] of [['safe','下載分享診斷 ZIP'],['private','下載完整私人研究 ZIP']]){
+  const button=document.createElement('button');button.textContent=title;
+  button.onclick=()=>exportRunDiagnostics(job.id,mode,button);area.appendChild(button);
+ }
+}
+function renderJob(j){const origin=arguments.length>1?arguments[1]:null;if(origin&&!matchesOrigin(origin))return;if(j.type==='benchmark'){el('benchmarkProgress').textContent=j.logs.join('\n')||j.status;if(j.status==='completed')renderBenchmark(j.result);if(j.error)el('benchmarkProgress').textContent+='\nERROR: '+j.error;return}el('progress').textContent=j.logs.join('\n')||j.status;if(j.error)el('progress').textContent+='\nERROR: '+j.error;if(origin&&!matchesOrigin(origin))return;renderTrace(j);if(typeof renderDiagnosticButtons==='function')renderDiagnosticButtons(j);if(j.status!=='completed')return;
  if(origin&&!matchesOrigin(origin))return;
  lastLLMEntries=(j.events||[]).filter(x=>x.stage==='llm_proposals_unverified').flatMap(x=>x.payload.accepted||[]);
  lastLLMOrigin=origin;let result=j.result,proposals=Object.entries(result.proposals),anchored=proposals.filter(([,p])=>p.status==='verified_alignment').length;el('summary').innerHTML=`<div class="kpi"><div><small>分析電文</small><strong>${result.decoded_messages.length}</strong></div><div><small>已驗證碼組</small><strong>${anchored}</strong></div><div><small>待驗證碼組</small><strong>${proposals.length-anchored}</strong></div><div><small>完成 LLM 回合</small><strong>${result.agent_rounds_completed}</strong></div></div><p class="alert">候選排名與分數不等於破解成功率。必須使用獨立金標資料評估。</p>`;
@@ -584,7 +618,7 @@ async function start(){
     notice('研究案例已變更：正在取消舊人工審核工作，未審候選不會被採納',true);
    }catch(e){notice('取消舊人工審核工作未成功：'+e.message,true)}
   }
-  for(let k of ['summary','reportLink','bars','readings','roundChart','changes','exchanges'])el(k).innerHTML='';
+  for(let k of ['summary','reportLink','diagnosticLink','bars','readings','roundChart','changes','exchanges'])el(k).innerHTML='';
   const reviewPane=el('pendingVocabularyReview');
   reviewPane.hidden=true;reviewPane.dataset ||= {};reviewPane.dataset.reviewKey='';
   reviewPane.replaceChildren();

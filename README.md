@@ -320,3 +320,5 @@ Windows **雙擊 `check_alignment_workbench_windows.bat`**，Linux/macOS 執行 
 - 脫敏結果固定保存在專案根目錄 `artifacts/diagnostics/alignment_smoke_latest.json`，不含明文、候選片段、可信碼組對照或 gold。可將此檔交給開發者診斷。若失敗，退出碼非零；不會清空、覆寫或修復任何正式研究檔案。
 
 直接 CLI：`python scripts/check_manual_alignment_workbench.py --output artifacts/diagnostics/alignment_smoke_latest.json`。
+
+**離線 Proxy 與報告狀態保護：** 診斷工具的 HTTP 客戶端明確忽略系統 HTTP(S) Proxy、只連臨時的 `127.0.0.1`。每次執行會先讓舊 PASS 診斷失效；即使因埠口或系統錯誤失敗，也會盡可能寫入新一輪脫敏 FAIL JSON，絕不把上次 PASS 當作本次成功。若磁碟本身無法寫檔，會顯示失敗且不保留舊報告。

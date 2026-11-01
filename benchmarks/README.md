@@ -170,3 +170,9 @@ sh check_alignment_workbench.sh --extended
 或直接執行 `python scripts/check_manual_alignment_workbench.py --extended`。擴充模式在同一個臨時 127.0.0.1 loopback 伺服器上加跑 4 項（總共 21 項）：**剛好 500 字**含末尾可信錨點能產生未驗證候選、**501 字**明確拒絕、**重複數字碼組**維持完全相同的候選詞、**兩封未切段電文**共用預算耗盡時拒絕整份預覽。
 
 輸出仍是專案根目錄 `artifacts/diagnostics/alignment_smoke_latest.json`，只含檢查名稱、PASS/FAIL 與時間，不寫出合成明文、切段、原始資料或模型機密。每次先使上一份 PASS 失效，再產生本次結果。**這些測試不等同真實歷史密電破譯、使用者實機效能或 Ollama 已驗證**，也不會呼叫外部模型。
+
+## 離線候選報告的安全另存（不覆寫）
+
+`python -m han_codebook.unaligned_review --case <input> --out <new-json-file>` 產生的檔案包含使用者輸入的原始明文與候選切段，應視為**敏感研究資料**。新版預設以建立新檔（exclusive create）方式輸出，在支援的 POSIX 系統上採最多擁有者讀寫權限 `0600`；如果指定檔案或符號連結已存在，會明確失敗而不覆寫。
+
+請每次指定新的輸出路徑（例如新的檔案名稱），不要對來源案例、上一輪候選報告或其他研究證據覆寫。若想重新產生候選，先選擇其他名稱；報告中的案例雜湊與原驗證設定仍會供後續明確人工確認步驟核對。這不會將候選自動提升為可信錨點。

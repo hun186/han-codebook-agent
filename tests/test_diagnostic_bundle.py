@@ -32,7 +32,7 @@ def unzip(blob):
 
 
 def seed(target: Path):
-    target.mkdir(parents=True)
+    target.mkdir(parents=True, exist_ok=True)
     (target / "input_case.json").write_text(
         json.dumps({"case_id": "TEST", "messages": [{"codes": ["001"],
                        "notes": SENTINEL}]}), encoding="utf-8"

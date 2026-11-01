@@ -184,6 +184,39 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                 return
             try:
                 data = self._body()
+                # Strict same-origin POST, not a cacheable GET. Sensitive ZIPs
+                # require a second explicit full-data confirmation from the GUI.
+                export_match = re.fullmatch(r"/api/jobs/([0-9a-f]{16})/diagnostics", self.path)
+                if export_match:
+                    if set(data) != {"mode", "confirmed"} or data["mode"] not in ("safe", "private") or data["confirmed"] is not True:
+                        raise CaseError("Explicit diagnostic export mode and confirmation required")
+                    export_id = export_match.group(1)
+                    with jobs_lock:
+                        job = copy.deepcopy(jobs.get(export_id))
+                    if not job or job.get("type") != "analysis":
+                        return self._json(404, {"error": "Unknown analysis"})
+                    if job["status"] not in ("completed", "failed"):
+                        return self._json(409, {"error": "Only terminal runs have immutable diagnostic evidence"})
+                    from .diagnostic_bundle import build_diagnostic_zip
+                    cfg = job.get("diagnostic_config")
+                    if not isinstance(cfg, dict):
+                        return self._json(409, {"error": "Run predates diagnostic capture metadata"})
+                    target = root / "artifacts" / "web_runs" / export_id
+                    blob = build_diagnostic_zip(target, job_id=export_id,
+                        status=job["status"], config=cfg,
+                        private=data["mode"] == "private",
+                        error_type=str(job.get("error") or "").partition(":")[0])
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/zip")
+                    self.send_header("Content-Disposition",
+                        'attachment; filename="han-codebook-diagnostics-' + data["mode"] + '-' + export_id + '.zip"')
+                    self.send_header("Content-Length", str(len(blob)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.send_header("Content-Security-Policy", "default-src 'none'")
+                    self.end_headers()
+                    self.wfile.write(blob)
+                    return
                 # Local-only, two-phase alignment workflow. Preview is read-only;
                 # acceptance returns a revised case to the browser but NEVER
                 # writes to disk. A separate explicit /api/save remains needed.
@@ -378,8 +411,10 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                     return self._json(202, {"job_id": job_id})
                 if self.path == "/api/start":
                     case = data.get("case")
-                    if not isinstance(case, dict) or "ground_truth" in case:
-                        raise CaseError("Inference case must exclude ground_truth")
+                    if not isinstance(case, dict) or any(k in case for k in ("ground_truth", "gold", "codebook")):
+                        raise CaseError("Inference case must exclude all gold/codebook/oracle material")
+                    from .diagnostic_bundle import reject_oracle_fields
+                    reject_oracle_fields(case)
                     validate_case(case)
                     rounds = data.get("rounds", 0)
                     if type(rounds) is not int or not 0 <= rounds <= 20:
@@ -404,7 +439,12 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                         job_id = secrets.token_hex(8)
                         jobs[job_id] = {"id": job_id, "type": "analysis", "status": "queued", "logs": [], "result": None,
                                         "events": [], "error": None,
-                                        "candidate_mode": candidate_mode, "cancel_requested": False}
+                                        "candidate_mode": candidate_mode, "cancel_requested": False,
+                                        "diagnostic_config": {
+                                            "model": llm_snapshot.get("model") if rounds else None,
+                                            "rounds_requested": rounds, "metadata": metadata,
+                                            "capture_llm_io": capture and rounds > 0,
+                                            "candidate_mode": candidate_mode}}
                     input_case = copy.deepcopy(case)
                     def work():
                         target = root / "artifacts" / "web_runs" / job_id
@@ -466,6 +506,11 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                                 jobs[job_id]["logs"].append(str(message))
                         try:
                             target.mkdir(parents=True, exist_ok=True)
+                            # The immutable research input used for the actual run.
+                            # No gold or credentials are included; private ZIP export
+                            # requires separate explicit confirmation.
+                            (target / "input_case.json").write_text(
+                                json.dumps(input_case, ensure_ascii=False, indent=2), encoding="utf-8")
                             llm = llm_snapshot
                             result = run_agent(input_case, rounds=rounds,
                                 llm_url=llm.get("base_url", "http://127.0.0.1:11434/v1"),

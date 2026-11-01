@@ -19,6 +19,15 @@
 - Current: optional `--extended` on one-click synthetic alignment smoke; preserve 17-check default, add 4 long-text/repeated-code/case-wide budget checks to make 21 total. Windows/Linux wrappers forward flags, output stays sanitized. Hosted CI/Codex/merge pending.
 - Next: private workstation real cases and separately authorized live Ollama; public Vercel remains Mock-only.
 
-- PR #27 actual merge `ac4d6fccb8c54ff6d9a3067468acdcddc7b6066b`, postmerge main CI #41287417134 SUCCESS.
-- PR #28 actual merge `4231aa2f5d46551f1077940fdb8658029621f870`, postmerge main CI #41287789928 SUCCESS checked 2026-11-01.
-- Active `feat/known-pair-row-editor-20261101`: researcher CRUD GUI for each known plaintext/ciphertext pair with per-code input, explicit trust consent, conflict/stale-edit guards, advanced JSON fallback, Node tests and Vercel public Mock UI parity. Hosted latest-head CI and formal Codex review pending. Next: full browser UX verification in user's actual private workstation.
+- 2026-11-01 current main `4231aa2f5d46551f1077940fdb8658029621f870` (#28 merged, postmerge CI #41287789928 SUCCESS). PR #29 researcher known-pair row GUI remains OPEN: last seen HEAD `329ffa02e2d9ed9c24e84d0f288ba80074cdce2e`, 8/8 Hosted CI success but latest-head formal Codex No Findings not observed; do NOT merge it without gate.
+- **Active branch `feat/one-click-run-diagnostic-bundle-20261101`**: GUI download share-safe ZIP and explicitly confirmed full private ZIP for completed/failed research runs; persist actual input case and audit, capture run settings, strict same-origin POST, bounded files, partial status, no oracle, public Vercel Mock disabled. Hosted CI/formal Codex Review and merge PENDING.
+- Next: private workstation case 07 one-round endpoint smoke, then case 08 baseline vs three rounds with/without metadata and compare actual downloadable diagnostic ZIPs. No user endpoint run or historical accuracy result claimed.
+
+## 2026-11-01 — User explicitly deferred all LAN LLM validation
+- **DEFERRED / TODO, not authorized to run now**: case 07 live local LLM 1-round schema test, case 08 live 3-round with metadata ON/OFF, real LLM prompt/response capture, comparison with 0-round offline, and any live workstation/Ollama claims. User currently cannot use any LLM. Do not auto-run or fabricate results.
+- PR #30 one-click diagnostic ZIP **actually MERGED** into main `c632d459a7f0019a05962ae37a6822fbd5e404a9`; main CI #41300662004 SUCCESS. Safe/private, terminal partial, gold isolation validated by Hosted CI, not by live LLM.
+- PR #29 per-row known-pair GUI remains OPEN, 8/8 Hosted CI but no latest-HEAD formal Codex No Findings at last check; requested fresh review for `329ffa02e2d9ed9c24e84d0f288ba80074cdce2e` on Nov 1. Do not bypass gate.
+- Active `feat/offline-case08-ablation-operator-20261101`: one-click Windows/Linux zero-LLM metadata on/off pair with matched solver parameters, separate read-only post-solve synthetic gold scoring, deterministic summary, private and safe diagnostic ZIPs, unique no-overwrite output directory, and Hosted regression tests. Awaiting CI/formal exact-head Codex and gate.
+
+- PR #31 zero-LLM case08 paired ablation MERGED as `0b6a59e1020886cd0f05e58a1c7c7df7fdc4629b`; main push CI #41302563434 SUCCESS.
+- **PR #29 CONFLICT RESOLUTION** (2026-11-01): original per-row researcher GUI HEAD `329ffa02e2d9ed9c24e84d0f288ba80074cdce2e` was 8/8 Hosted CI and Codex Completed/No Findings but made non-mergeable by later PR #30/#31. New two-parent merge commit reconciles original GUI with current diagnostic ZIP interface, Vercel Mock parity and newest study/docs. Latest merged HEAD must receive NEW full CI and Codex review before merge. No live LLM testing.

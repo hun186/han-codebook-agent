@@ -176,6 +176,34 @@ sh check_alignment_workbench.sh --extended
 `python -m han_codebook.unaligned_review --case <input> --out <new-json-file>` 產生的檔案包含使用者輸入的原始明文與候選切段，應視為**敏感研究資料**。新版預設以建立新檔（exclusive create）方式輸出，在支援的 POSIX 系統上採最多擁有者讀寫權限 `0600`；如果指定檔案或符號連結已存在，會明確失敗而不覆寫。
 
 請每次指定新的輸出路徑（例如新的檔案名稱），不要對來源案例、上一輪候選報告或其他研究證據覆寫。若想重新產生候選，先選擇其他名稱；報告中的案例雜湊與原驗證設定仍會供後續明確人工確認步驟核對。這不會將候選自動提升為可信錨點。
+## 一鍵匯出完整研究診斷 ZIP（本機 GUI）
+
+在「03 推論與解讀」執行完分析後，含執行失敗的終止工作，會出現「下載分享診斷 ZIP／下載完整私人研究 ZIP」。這不是新的破譯方法，而是把每次執行已存在的 SQLite/Word/Markdown 稽核資料做成可供反覆檢視的有限大小 ZIP。只開放 loopback 同源 POST；**執行中的工作不可匯出成完整成果**。
+
+- **分享診斷版（預設）**：`run_manifest.json`（執行狀態、模型名稱隱去、案例 SHA-256、設定非敏感摘要）、`diagnostics.json`（末次觀察回合、各事件階段數量、失敗時的錯誤類別）、`round_trace.jsonl`（各回合數量、採納／拒絕／變更統計及 token 數字，不含任何明文或模型輸入／輸出）、`evaluation.json`（標示沒有啟用金標計分）。
+- **完整私人研究版（再次明確確認）**：除上述摘要外，包含 `input_case.json`（真正執行的案例快照）、`audit_events.jsonl`（逐輪原始事件，包括候選詞與原因）、`audit.sqlite`、成功時的 `result.json`、`report.md` 和 `report.docx`（若當次有成功產出）。若希望追查真正的 LLM Prompt 與回覆，必須在執行前勾選原本「在本機 SQLite 保存完整 LLM Prompt 與回覆」。若沒勾選，之後無法補造沒有記錄的請求。
+- **失敗或中斷**：只要工作已進入 `failed` 終止狀態，ZIP 會清楚標示 `complete=false`、`failure_category`，只包含已存在的部分證據；缺失檔案不得用假結果補齊。未完成的人工審核／仍執行中的工作不准匯出成終態證據。
+- **安全**：輸出前需要使用者點擊，私人模式須額外確認。模組拒絕錯誤 job ID、路徑符號連結及超大原始檔（48 MB 單檔／128 MB 解包資料）；不會蒐集合成 gold 或研究正解；公開 Vercel Mock 不提供真實診斷 ZIP。**私人版可能包含密電、研究員情報、內網路徑、模型回覆與可能被自行貼入 Prompt 的機密**，務必先自己檢查內容，再決定是否分享給 ChatGPT；不要直接上傳 GitHub。分享版保留的計數和狀態有助於診斷故障，**不包含完整破譯研究內容**。
+
+### 建議第一個落地 LLM 精進案例：08
+
+先用 `07_alias_mixed_length` 跑 1 回合確認你的內網 OpenAI-compatible 模型真正能產生回覆，再對 `08_long_dispatch_with_observations` 做 0 回合離線基線、3 回合動態候選自動模式、3 回合相同設定但停用收發與第三方情報。三次使用完全相同的輸入案例（12 封、212 個碼組位置、2 封已知逐碼對照）。每次都下載**私人診斷 ZIP**，並保存獨立副本；模型、回合、元數據、設定與執行結束情況應在報告中明確記錄。沒有連到使用者真正內網模型就不能宣稱已完成實機 E2E。合成 gold 只可在獨立推理完成後評分，不能包含在 LLM 輸入或診斷包中。
+
+## 無 LLM 也能執行：案例 08 離線情報消融一鍵研究
+
+目前若無法使用內網 LLM，**請不要啟動實機 LLM 對照實驗**；案例 07 的 1 回合模型連線，以及案例 08 的三回合「情報開啟／關閉」實機分析，保留為**待辦，不因離線通過而視為已完成**。先執行確實有輸出、完全不連線的 0 回合對照：
+
+```bat
+check_case08_offline_ablation_windows.bat
+```
+
+Linux／macOS 使用 `sh check_case08_offline_ablation.sh`，也可以用 `python scripts/check_case08_offline_ablation.py`。可選 `--output-dir <dir>` 決定資料夾父路徑；每次執行都會建立新的 `case08_時間_亂數` 子目錄，不會覆寫先前研究。Windows 的 bat 會自動偵測專案 `.venv` 並設定 `PYTHONPATH`。
+
+執行同一份 `benchmarks/cases/08_long_dispatch_with_observations.json` 共 **兩次 rounds=0、iterations=3、restarts=2**，只有收發者／第三方情報開關不同；不呼叫模型、沒有網路探測，也不更改已確認錨點。等**兩組推理都完成後**才讀取分離的 `benchmarks/gold/08_long_dispatch_with_observations.json` 計算合成正確率。原始 gold 不進入求解器、Prompt 或診斷 ZIP。
+
+成果在 `artifacts/offline_case08_studies/<unique-id>/`：`comparison.json`、`comparison.md` 供比較合成 Top-1、Top-5、非已知明文完全一致率及每碼組位置正確率，也列出被情報影響而換第一順位的碼組 ID；`metadata_on/`、`metadata_off/` 各有 `input_case.json`、`audit.sqlite`、`result.json`、Markdown／可用時的 Word 報告，以及 `diagnostics_safe.zip`、`diagnostics_private.zip`。私人 ZIP 含完整合成明文、候選等內容，分享前請檢查。
+
+合成分數僅在獨立 gold 後處理階段產生；它不等於歷史密電真實破譯能力，也不能據此宣稱使用了 Ollama。此工具與現有 17／21 項明密文切段離線 smoke 分開，互不取代。
 
 ## 已知明密文對：研究員逐筆維護 GUI
 

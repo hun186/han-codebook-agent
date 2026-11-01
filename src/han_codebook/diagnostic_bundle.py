@@ -21,6 +21,22 @@ MAX_SINGLE_FILE = 48 * 1024 * 1024
 MAX_BUNDLE_BYTES = 128 * 1024 * 1024
 TERMINAL = {"completed", "failed"}
 
+ORACLE_KEYS = frozenset(("gold", "ground_truth", "codebook"))
+
+
+def reject_oracle_fields(case: Any) -> None:
+    """Reject evaluation answers at ANY depth, before LLM or raw snapshots."""
+    stack = [case]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            if any(key in node for key in ORACLE_KEYS):
+                raise ValueError("Research case must not contain evaluation oracle fields at any depth")
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+
+
 def _json(value: Any) -> bytes:
     return (json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
@@ -82,7 +98,11 @@ def build_diagnostic_zip(target: Path, *, job_id: str, status: str,
     if snapshot.is_file():
         if snapshot.is_symlink() or snapshot.stat().st_size > MAX_SINGLE_FILE:
             raise ValueError("Input snapshot unavailable or oversized")
-        case_digest = sha256(snapshot.read_bytes()).hexdigest()
+        case_bytes = snapshot.read_bytes()
+        # Defensive recheck even for older files or if source contents
+        # were manually changed after admission. Never package oracle data.
+        reject_oracle_fields(json.loads(case_bytes))
+        case_digest = sha256(case_bytes).hexdigest()
     trace = _sanitized_trace(events)
     stages: dict[str, int] = {}
     for e in trace:
@@ -124,12 +144,19 @@ def build_diagnostic_zip(target: Path, *, job_id: str, status: str,
         ],
     }
     if private:
-        if not snapshot.is_file():
-            raise ValueError("Private bundle requires original input snapshot")
-        if not db.is_file():
-            raise ValueError("Private bundle requires audit evidence")
-        files["input_case.json"] = snapshot.read_bytes()
-        files["audit_events.jsonl"] = _jsonl(events)
+        missing_evidence = []
+        if snapshot.is_file():
+            files["input_case.json"] = snapshot.read_bytes()
+        else:
+            missing_evidence.append("input_case.json")
+        if db.is_file():
+            files["audit_events.jsonl"] = _jsonl(events)
+        else:
+            missing_evidence.extend(("audit_events.jsonl", "audit.sqlite"))
+        if status == "completed" and missing_evidence:
+            raise ValueError("Completed run must have a full audit and input snapshot")
+        if missing_evidence:
+            manifest["missing_evidence"] = missing_evidence
         for name in ("result.json", "report.md", "report.docx", "audit.sqlite"):
             path = target / name
             if path.is_file():

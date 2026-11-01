@@ -11,6 +11,7 @@ from collections import Counter
 from copy import deepcopy
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -275,9 +276,17 @@ def main(argv: list[str] | None = None) -> int:
         report = review_unsegmented(
             case, top_n=args.top_n, beam_width=args.beam_width
         )
+        if args.out.resolve() == args.case.resolve():
+            raise CaseError("review output must not replace its source case")
+        # Encode before opening: malformed data cannot create a partial output.
+        encoded = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2)
-                            + "\n", encoding="utf-8")
+        # Candidate segments and user-supplied plaintext are sensitive.
+        # Exclusive creation refuses existing files and symlinks; no implicit
+        # overwrite of another researcher's prior review/evidence.
+        fd = os.open(args.out, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(encoded)
         print(f"Review-only alignment: {report['unaligned_pair_count']} unsegmented pairs")
         print(f"Saved sensitive offline review candidates: {args.out}")
         return 0

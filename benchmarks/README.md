@@ -154,3 +154,19 @@ python -m han_codebook.unaligned_accept \
 若某封耗盡剩餘預算，整筆預覽會以明確 `case-wide search budget exceeded` 失敗，**不會回傳只覆蓋前幾封的部分候選**，也不會自動接受任何候選或移除可信錨點。使用者可拆成較少電文的研究案例，或先由研究員核對並提供可信逐碼分段。成功的預覽會額外回傳 `expanded_states_total` 與 `expansion_budget_per_case`，方便了解用量；兩者都是搜尋運算量，不代表解密正確率或歷史證明。
 
 上限為運算展開數而**非精確秒數**；較長文本仍可能花費時間。實際工作站的 UI/效能及本機 Ollama 呼叫須在使用者裝置另外驗證，這項修改不會呼叫模型或使用真實密電。
+
+## 一鍵診斷：選擇性長篇明文擴充（全部合成資料）
+
+一般雙擊 `check_alignment_workbench_windows.bat`，或執行 `sh check_alignment_workbench.sh`，**仍只跑原本 17 項**純離線、安全、不含真實研究資料的驗證。要額外檢查長篇已知明文和共用運算預算，請明確選擇：
+
+```bat
+check_alignment_workbench_windows.bat --extended
+```
+
+```sh
+sh check_alignment_workbench.sh --extended
+```
+
+或直接執行 `python scripts/check_manual_alignment_workbench.py --extended`。擴充模式在同一個臨時 127.0.0.1 loopback 伺服器上加跑 4 項（總共 21 項）：**剛好 500 字**含末尾可信錨點能產生未驗證候選、**501 字**明確拒絕、**重複數字碼組**維持完全相同的候選詞、**兩封未切段電文**共用預算耗盡時拒絕整份預覽。
+
+輸出仍是專案根目錄 `artifacts/diagnostics/alignment_smoke_latest.json`，只含檢查名稱、PASS/FAIL 與時間，不寫出合成明文、切段、原始資料或模型機密。每次先使上一份 PASS 失效，再產生本次結果。**這些測試不等同真實歷史密電破譯、使用者實機效能或 Ollama 已驗證**，也不會呼叫外部模型。

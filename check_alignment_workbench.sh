@@ -10,4 +10,4 @@ fi
 export PYTHONPATH="$ROOT/src"
 cd "$ROOT"
 "$PYTHON" -u scripts/check_manual_alignment_workbench.py \
-  --output "$ROOT/artifacts/diagnostics/alignment_smoke_latest.json"
+  --output "$ROOT/artifacts/diagnostics/alignment_smoke_latest.json" "$@"

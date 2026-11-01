@@ -413,6 +413,8 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                     case = data.get("case")
                     if not isinstance(case, dict) or any(k in case for k in ("ground_truth", "gold", "codebook")):
                         raise CaseError("Inference case must exclude all gold/codebook/oracle material")
+                    from .diagnostic_bundle import reject_oracle_fields
+                    reject_oracle_fields(case)
                     validate_case(case)
                     rounds = data.get("rounds", 0)
                     if type(rounds) is not int or not 0 <= rounds <= 20:

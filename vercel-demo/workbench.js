@@ -1,6 +1,7 @@
 const el=id=>document.getElementById(id);let research=null,lastJob=null,poll=null,markSnapshots=[],markCursor=-1,markActions=[],priorResult=null,ideaSnapshots=[],ideaCursor=-1,lastLLMEntries=[];
 let caseGeneration=0,lastLLMOrigin=null,vocabOrigin=null,vocabTimer=null;
 let alignmentReport=null,alignmentOrigin=null,alignmentChoice=null;
+let knownEditorIndex=null,knownEditorOrigin=null;
 let vocabRequestSerial=0,vocabActiveJobId=null,analysisRequestSerial=0,activeHumanReviewJobId=null;
 function caseFingerprint(){
  if(!research)return null;
@@ -69,7 +70,7 @@ function presentCase(){
  invalidateOldJobs();priorResult=null;vocabCandidateRecord=[];
  for(const id of ['summary','reportLink','bars','readings','roundChart','changes','exchanges','eventLinks'])el(id).replaceChildren();
  el('progress').textContent='此案例尚未執行分析';
- el('vocabProgress').textContent='';el('vocabSuggestions').replaceChildren();ideaSnapshots=[JSON.parse(JSON.stringify(research.candidate_ideas||{}))];ideaCursor=0;el('markCompare').textContent='重新分析後可與上一輪比較';el('profilePick').innerHTML=Object.keys(research.profiles).map(k=>`<option>${esc(k)}</option>`).join('');el('messagePick').innerHTML=research.messages.map(m=>`<option>${esc(m.id)}</option>`).join('');loadProfile();loadEvidence();initializeMarks();renderIdeas();renderBoldHypotheses();el('knownPairs').textContent=(research.known_pairs||[]).map(x=>`${x.message_id}: ${x.plaintext??(x.segments||[]).join('')} ${x.segments?'【逐碼對齊】':'【需要人工切詞】'}`).join('；');el('knownEdit').value=JSON.stringify(research.known_pairs||[],null,2);notice(`已載入 ${research.case_id}: ${research.messages.length} 封電文`)}
+ el('vocabProgress').textContent='';el('vocabSuggestions').replaceChildren();ideaSnapshots=[JSON.parse(JSON.stringify(research.candidate_ideas||{}))];ideaCursor=0;el('markCompare').textContent='重新分析後可與上一輪比較';el('profilePick').innerHTML=Object.keys(research.profiles).map(k=>`<option>${esc(k)}</option>`).join('');el('messagePick').innerHTML=research.messages.map(m=>`<option>${esc(m.id)}</option>`).join('');loadProfile();loadEvidence();initializeMarks();renderIdeas();renderBoldHypotheses();renderKnownPairs();closeKnownRowEditor();notice(`已載入 ${research.case_id}: ${research.messages.length} 封電文`)}
 async function loadCase(){
  // Invalidate the old case immediately, before the network fetch returns.
  invalidateOldJobs();
@@ -245,24 +246,150 @@ async function confirmAlignmentCandidate(){
  }catch(e){notice(e.message,true)}
  finally{button.disabled=false;}
 }
-function applyKnown(){try{
- let pairs=JSON.parse(el('knownEdit').value);if(!Array.isArray(pairs))throw Error('對照表需為陣列');
- const byId=new Map(research.messages.map(m=>[m.id,m])), anchored=new Map();
- for(const pair of pairs){const m=byId.get(pair.message_id);if(!m)throw Error('已知明文引用不存在的電文 '+pair.message_id);
-  if(Array.isArray(pair.segments)){if(pair.segments.length!==m.codes.length||pair.segments.some(t=>typeof t!=='string'||!t))throw Error('逐碼明文與密碼組長度不一致');
-   m.codes.forEach((c,i)=>{const w=pair.segments[i];if(anchored.has(c)&&anchored.get(c)!==w)throw Error('同一碼組的已知明文互相衝突：'+c);anchored.set(c,w)})
-  }
+
+function renderKnownPairs(){
+ const pairs=research?.known_pairs||[];
+ el('knownPairs').innerHTML=pairs.length?pairs.map((pair,i)=>{
+  const message=research.messages.find(m=>m.id===pair.message_id);
+  const aligned=Array.isArray(pair.segments);
+  const plain=pair.plaintext??(pair.segments||[]).join('');
+  const brief=String(plain).length>200?String(plain).slice(0,200)+'…':String(plain);
+  return '<div class="message"><div class="row"><strong>#'+(i+1)+'　'+esc(pair.message_id)+'</strong><span class="pill">'+(aligned?'研究員逐碼對齊':'完整明文・尚未切段')+'</span></div>'
+   +'<div class="muted">碼組：'+esc(message?.codes.join(' ')||'找不到電文')+'</div>'
+   +'<div>'+esc(brief)+'</div>'
+   +(aligned?'<div class="muted">逐碼：'+esc(message?.codes.map((code,n)=>code+' → '+pair.segments[n]).join(' ｜ ')||pair.segments.join(' ｜ '))+'</div>':'')
+   +'<div class="row"><button data-known-edit="'+i+'">編輯此筆</button><button data-known-delete="'+i+'">刪除此筆</button></div></div>';
+ }).join(''):'<p class="muted">目前沒有明密文對。按「＋ 新增明密文對」逐筆輸入。</p>';
+ el('knownPairs').querySelectorAll('[data-known-edit]').forEach(btn=>btn.onclick=()=>openKnownRowEditor(Number(btn.dataset.knownEdit)));
+ el('knownPairs').querySelectorAll('[data-known-delete]').forEach(btn=>btn.onclick=()=>deleteKnownRow(Number(btn.dataset.knownDelete)));
+ el('knownEdit').value=JSON.stringify(pairs,null,2);
+}
+function closeKnownRowEditor(){knownEditorIndex=null;knownEditorOrigin=null;el('knownRowEditor').hidden=true;el('knownRowVerified').checked=false;}
+function knownJsonIsSynced(){
+ return el('knownEdit').value===JSON.stringify(research.known_pairs||[],null,2);
+}
+function renderKnownWordFields(){
+ const id=el('knownRowMessage').value;
+ const message=research.messages.find(m=>m.id===id);
+ const old=knownEditorIndex===null?null:(research.known_pairs||[])[knownEditorIndex];
+ const segments=old?.message_id===id&&Array.isArray(old.segments)?old.segments:[];
+ el('knownSegmentsGrid').innerHTML=(message?.codes||[]).map((code,i)=>
+  '<div><label>第 '+(i+1)+' 碼　'+esc(code)+'</label><input type="text" data-known-word="'+i+'" value="'+esc(segments[i]||'')+'" placeholder="留白＝尚未切段" spellcheck="false"></div>'
+ ).join('');
+ el('knownRowVerified').checked=false;
+}
+function openKnownRowEditor(index){
+ if(!research||!knownJsonIsSynced())return notice('進階 JSON 尚未套用；請先套用或放棄 JSON 編輯，再使用逐筆管理',true);
+ const existing=index!==null&&index!==undefined;
+ const pair=existing?(research.known_pairs||[])[index]:null;
+ if(existing&&!pair)return notice('找不到該筆明密文對，請重新載入',true);
+ knownEditorIndex=existing?index:-1;
+ knownEditorOrigin={caseRef:research,full:JSON.stringify(research)};
+ el('knownRowEditor').hidden=false;
+ el('knownRowTitle').textContent=existing?'編輯第 '+(index+1)+' 筆明密文對':'新增明密文對';
+ el('knownRowMessage').innerHTML=research.messages.map(m=>'<option value="'+esc(m.id)+'">'+esc(m.id)+'</option>').join('');
+ el('knownRowMessage').value=pair?.message_id||el('messagePick').value||research.messages[0].id;
+ el('knownRowPlaintext').value=pair?.plaintext??(pair?.segments||[]).join('');
+ renderKnownWordFields();
+}
+function checkedKnownEditOrigin(){
+ if(knownEditorIndex===null||!knownEditorOrigin||knownEditorOrigin.caseRef!==research||
+    knownEditorOrigin.full!==JSON.stringify(research))
+  throw Error('案例在編輯期間已變更，請重新開啟此筆，避免覆蓋新研究成果');
+ if(!knownJsonIsSynced())throw Error('進階 JSON 尚未套用，不能用逐筆編輯覆蓋');
+}
+function trustedFromPairs(pairs){
+ const byId=new Map(research.messages.map(m=>[m.id,m])),trusted=new Map();
+ for(const pair of pairs){
+  if(!pair||typeof pair!=='object'||Array.isArray(pair))throw Error('明密文對必須是資料物件');
+  const m=byId.get(pair.message_id);
+  if(!m)throw Error('已知明文引用不存在的電文 '+String(pair.message_id));
+  const hasSegments=Object.hasOwn(pair,'segments');
+  if(hasSegments){
+   if(!Array.isArray(pair.segments)||pair.segments.length!==m.codes.length||
+      pair.segments.some(t=>typeof t!=='string'||!t.trim()))throw Error('逐碼明文與密碼組長度不一致，或存在空白詞句');
+   if(pair.plaintext!==undefined&&(typeof pair.plaintext!=='string'||pair.segments.join('')!==pair.plaintext))
+    throw Error('逐碼詞句串接後與完整明文不一致：'+pair.message_id);
+   m.codes.forEach((code,i)=>{
+    const word=pair.segments[i];
+    if(trusted.has(code)&&trusted.get(code)!==word)throw Error('同一碼組的已知明文互相衝突：'+code);
+    trusted.set(code,word);
+   });
+  }else if(typeof pair.plaintext!=='string'||!pair.plaintext.trim())
+   throw Error('未切段對照必須包含非空完整明文：'+pair.message_id);
  }
- const conflicts=[...anchored.keys()].filter(c=>Object.hasOwn(research.hypothesis_marks||{},c));
+ return trusted;
+}
+function commitKnownPairs(pairs){
+ if(!research||!Array.isArray(pairs))throw Error('對照資料需為陣列');
+ const previous=trustedFromPairs(research.known_pairs||[]);
+ const next=trustedFromPairs(pairs);
+ const changed=[...previous].filter(([code,term])=>next.get(code)!==term).map(([code])=>code);
+ if(changed.length&&!confirm('此操作會修改／移除 '+changed.length+' 個原有逐碼對照的可信錨點。確定已核對原始史料且要更新本頁嗎？'))
+  return false;
+ const conflicts=[...next.keys()].filter(code=>Object.hasOwn(research.hypothesis_marks||{},code));
  if(conflicts.length)throw Error('請先清除以下碼組的人工假說，再套用已知明文：'+conflicts.join('、'));
  research.known_pairs=pairs;
- // Counterfactual readings remain only when a verified, different original
- // exists; never let old researcher hypotheses acquire anchor status.
  if(research.bold_hypotheses)for(const code of Object.keys(research.bold_hypotheses)){
-  if(!anchored.has(code)||anchored.get(code)===research.bold_hypotheses[code].term)delete research.bold_hypotheses[code];
+  if(!next.has(code)||next.get(code)===research.bold_hypotheses[code].term)delete research.bold_hypotheses[code];
  }
- markSnapshots=markSnapshots.map(snapshot=>{const clean=copyMarks(snapshot);for(const code of anchored.keys())delete clean[code];return clean});persistMarkHistory();initializeMarks();if(typeof renderBoldHypotheses==='function')renderBoldHypotheses();notice('已知明密文對已套用；舊版歷史中的已驗證碼組標註已清理')
-}catch(e){notice(e.message,true)}}
+ markSnapshots=markSnapshots.map(snapshot=>{const clean=copyMarks(snapshot);for(const code of next.keys())delete clean[code];return clean});
+ persistMarkHistory();initializeMarks();if(typeof renderBoldHypotheses==='function')renderBoldHypotheses();
+ alignmentReport=null;alignmentChoice=null;alignmentOrigin=null;
+ el('alignmentCandidates').textContent='對照資料已變更，請重新產生離線候選';
+ el('alignmentTyped').value='';
+ renderKnownPairs();closeKnownRowEditor();
+ return true;
+}
+function saveKnownRow(){
+ try{
+  checkedKnownEditOrigin();
+  const id=el('knownRowMessage').value,m=research.messages.find(x=>x.id===id);
+  if(!m)throw Error('請先選擇存在的電文');
+  const plain=el('knownRowPlaintext').value;
+  if(!plain.trim())throw Error('請輸入已知完整明文');
+  const inputs=[...el('knownSegmentsGrid').querySelectorAll('[data-known-word]')];
+  if(inputs.length!==m.codes.length)throw Error('碼組欄位已過期，請重新選擇電文');
+  const words=inputs.map(input=>input.value);
+  const aligned=words.some(x=>x.trim());
+  if(aligned){
+   if(words.some(x=>!x.trim()))throw Error('逐碼對照必須全部填寫，或全部留白表示未切段');
+   if(words.join('')!==plain)throw Error('逐碼詞句串接後必須與完整明文完全一致');
+   if(!el('knownRowVerified').checked)throw Error('請先逐碼核對並勾選研究員確認，才能建立可信錨點');
+   if(!confirm('確認將逐碼對照記錄為研究員核對的可信錨點？這不代表已證明歷史真偽。'))return;
+  }else if(el('knownRowVerified').checked)throw Error('尚未提供完整逐碼詞句，不能勾選已逐碼核對');
+  const pairs=(research.known_pairs||[]).map(x=>({...x}));
+  const original=knownEditorIndex>=0?pairs[knownEditorIndex]:null;
+  if(pairs.some((x,i)=>x.message_id===id&&i!==knownEditorIndex))
+   throw Error('此封電文已有一筆明密文對，請編輯現有條目');
+  const updated={...(original||{}),message_id:id,plaintext:plain};
+  if(aligned)updated.segments=words;
+  else delete updated.segments;
+  const altered=!original||original.message_id!==id||original.plaintext!==plain||
+    JSON.stringify(original.segments||null)!==JSON.stringify(aligned?words:null);
+  if(altered)delete updated.alignment_provenance;
+  if(knownEditorIndex<0)pairs.push(updated);else pairs[knownEditorIndex]=updated;
+  if(commitKnownPairs(pairs))notice('明密文對已逐筆套用，目前只在本頁；要持久保存請「另存案例」');
+ }catch(e){notice(e.message,true)}
+}
+function deleteKnownRow(index){
+ try{
+  if(!research||!knownJsonIsSynced())throw Error('請先套用或放棄進階 JSON 修改');
+  const old=(research.known_pairs||[])[index];
+  if(!old)throw Error('該筆明密文對已不存在');
+  const snapshot=JSON.stringify(research);
+  if(!confirm('確定刪除電文 '+old.message_id+' 的第 '+(index+1)+' 筆明密文對？此操作僅影響當前頁面。'))return;
+  if(snapshot!==JSON.stringify(research))throw Error('案例已變更，請重新操作');
+  const pairs=research.known_pairs.filter((x,i)=>i!==index);
+  if(commitKnownPairs(pairs))notice('此筆明密文對已從本頁移除；原案例檔案未覆寫');
+ }catch(e){notice(e.message,true)}
+}
+function applyKnown(){
+ try{
+  const pairs=JSON.parse(el('knownEdit').value);
+  if(commitKnownPairs(pairs))notice('明密文對 JSON 已套用（尚未存檔）；請使用「另存案例」');
+ }catch(e){notice(e.message,true)}
+}
 function saveProfile(){let p=profile();p.keywords=el('keywords').value.split(',').map(x=>x.trim()).filter(Boolean);p.sentences=el('sentences').value.split('\n').map(x=>x.trim().split(/\s+/).filter(Boolean)).filter(x=>x.length);notice('詞彙與範例句已套用（尚未保存到磁碟）')}
 
 // Researcher marks are a reversible experiment separate from verified known pairs.
@@ -661,4 +788,4 @@ el('llmPreset').onchange=()=>{
    '自訂內網相容端點：僅接受 loopback 或明確允許的私人 IPv4。';
 };
 el('saveLLM').onclick=()=>saveLLMSettings().catch(e=>notice(e.message,true));el('testLLM').onclick=()=>testLLMSettings().catch(e=>notice(e.message,true));
-el('loadCase').onclick=()=>loadCase().catch(e=>notice(e.message,true));el('profilePick').onchange=loadProfile;el('messagePick').onchange=loadEvidence;el('wordSearch').oninput=renderVocab;el('addWord').onclick=()=>{let w=el('newWord').value.trim(),n=Number(el('newWeight').value);if(w&&Number.isFinite(n)&&n>=0){profile().lexicon[w]=n;el('newWord').value='';renderVocab()}};el('saveProfile').onclick=saveProfile;el('applyEvidence').onclick=applyEvidence;el('addObservation').onclick=addObservation;el('applyKnown').onclick=applyKnown;el('previewAlignment').onclick=previewAlignmentCandidates;el('confirmAlignment').onclick=confirmAlignmentCandidate;el('run').onclick=start;el('save').onclick=save;el('runBenchmark').onclick=startBenchmark;el('loadBenchmark').onclick=()=>api('/api/benchmark').then(renderBenchmark).catch(e=>notice(e.message,true));listCases().then(loadCase).catch(e=>notice(e.message,true));
+el('loadCase').onclick=()=>loadCase().catch(e=>notice(e.message,true));el('profilePick').onchange=loadProfile;el('messagePick').onchange=loadEvidence;el('wordSearch').oninput=renderVocab;el('addWord').onclick=()=>{let w=el('newWord').value.trim(),n=Number(el('newWeight').value);if(w&&Number.isFinite(n)&&n>=0){profile().lexicon[w]=n;el('newWord').value='';renderVocab()}};el('saveProfile').onclick=saveProfile;el('applyEvidence').onclick=applyEvidence;el('addObservation').onclick=addObservation;el('applyKnown').onclick=applyKnown;el('knownAdd').onclick=()=>openKnownRowEditor(null);el('knownRowSave').onclick=saveKnownRow;el('knownRowCancel').onclick=closeKnownRowEditor;el('knownRowMessage').onchange=renderKnownWordFields;el('previewAlignment').onclick=previewAlignmentCandidates;el('confirmAlignment').onclick=confirmAlignmentCandidate;el('run').onclick=start;el('save').onclick=save;el('runBenchmark').onclick=startBenchmark;el('loadBenchmark').onclick=()=>api('/api/benchmark').then(renderBenchmark).catch(e=>notice(e.message,true));listCases().then(loadCase).catch(e=>notice(e.message,true));

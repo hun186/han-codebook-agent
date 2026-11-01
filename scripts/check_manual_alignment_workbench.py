@@ -55,7 +55,7 @@ def synthetic_case() -> dict:
     }
 
 
-def run_checks() -> dict:
+def run_checks(*, extended: bool = False) -> dict:
     checks: list[dict[str, str]] = []
 
     def record(name: str, ok: bool) -> None:
@@ -215,6 +215,61 @@ def run_checks() -> dict:
                            reloaded == modified)
                 else:
                     record("saved_case_roundtrip_preserves_provenance_and_history", False)
+                if extended:
+                    # Optional long-text cases run strictly on this temporary
+                    # loopback server and never accept any hypothesis.
+                    long_case = synthetic_case()
+                    long_case["messages"][1]["codes"] = ["010", "001"]
+                    long_case["known_pairs"][1]["plaintext"] = "甲" * 498 + "補給"
+                    status, long_report = api("/api/unaligned/preview", {
+                        "case": long_case, "top_n": 2, "beam_width": 8
+                    })
+                    items = (long_report.get("reviews", [{}])[0]
+                             .get("candidates", [])) if isinstance(long_report, dict) else []
+                    record("max_500_character_anchor_alignment_is_review_only",
+                           status == 200 and bool(items)
+                           and items[0]["segments"] == ["甲" * 498, "補給"]
+                           and items[0]["status"] == "candidate_unverified"
+                           and long_report.get("expanded_states_total", 0) > 0)
+
+                    over = deepcopy(long_case)
+                    over["known_pairs"][1]["plaintext"] = "甲" * 499 + "補給"
+                    no, _ = api("/api/unaligned/preview", {"case": over})
+                    record("over_500_characters_fails_without_promoting", no == 400)
+
+                    repeated = synthetic_case()
+                    repeated["messages"][1]["codes"] = ["010", "011", "010"]
+                    repeated["known_pairs"][1]["plaintext"] = "甲乙甲"
+                    st, repeated_report = api("/api/unaligned/preview", {
+                        "case": repeated, "top_n": 3, "beam_width": 8
+                    })
+                    candidates = (repeated_report.get("reviews", [{}])[0]
+                                  .get("candidates", [])) if isinstance(repeated_report, dict) else []
+                    record("repeated_unknown_code_keeps_identical_phrase",
+                           st == 200 and bool(candidates) and all(
+                               c["segments"][0] == c["segments"][2]
+                               and "".join(c["segments"]) == "甲乙甲"
+                               and c["status"] == "candidate_unverified"
+                               for c in candidates))
+
+                    multi = synthetic_case()
+                    multi["messages"] = [
+                        {"id": "anchor", "codes": ["001"]},
+                        {"id": "left", "codes": ["010"]},
+                        {"id": "right", "codes": ["011"]},
+                    ]
+                    multi["known_pairs"] = [
+                        {"message_id": "anchor", "segments": ["補給"]},
+                        {"message_id": "left", "plaintext": "甲"},
+                        {"message_id": "right", "plaintext": "乙"},
+                    ]
+                    multi.pop("hypothesis_marks", None)
+                    multi.pop("hypothesis_revision_history", None)
+                    with patch("han_codebook.unaligned_review.MAX_CASE_EXPANSIONS", 1):
+                        no, response = api("/api/unaligned/preview", {"case": multi})
+                    record("multiple_messages_exhaust_shared_budget_without_partial_result",
+                           no == 400 and isinstance(response, dict)
+                           and "case-wide search budget" in response.get("error", ""))
         finally:
             server.shutdown()
             server.server_close()
@@ -229,6 +284,8 @@ def main(argv: list[str] | None = None) -> int:
         default=ROOT / "artifacts/diagnostics/alignment_smoke_latest.json",
         help="Sanitized result JSON; default is project-root artifacts/diagnostics"
     )
+    parser.add_argument("--extended", action="store_true",
+                        help="Run four additional synthetic long-text and shared-budget checks")
     args = parser.parse_args(argv)
     now = datetime.now(timezone.utc).isoformat()
     base = {
@@ -247,17 +304,18 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        results = run_checks()
+        results = run_checks(extended=args.extended)
         passed = sum(x["status"] == "PASS" for x in results["checks"])
         total = len(results["checks"])
-        status = "PASS" if passed == total == 17 else "FAIL"
+        expected = 21 if args.extended else 17
+        status = "PASS" if passed == total == expected else "FAIL"
         report = {**base, "status": status, "checks_passed": passed,
                   "checks_total": total, "checks": results["checks"]}
     except Exception as exc:
         # No exception message, stack trace or HTTP payload: they could carry
         # sensitive text on accidental future code paths. Always replace PASS.
         report = {**base, "status": "FAIL", "checks_passed": 0,
-                  "checks_total": 17, "checks": [],
+                  "checks_total": 21 if args.extended else 17, "checks": [],
                   "error_type": type(exc).__name__}
     staged = args.output.with_name(args.output.name + ".tmp")
     try:

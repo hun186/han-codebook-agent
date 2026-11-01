@@ -90,7 +90,9 @@ el('knownRowVerified').checked=true;
 context.saveKnownRow();
 assert.strictEqual(textCase.known_pairs.length,2);
 assert.strictEqual(textCase.known_pairs[1].segments[0],'補給');
-// Provenance is bound to exact earlier content and must vanish after a revision.
+// Existing independently verified codes MUST NOT be silently replaced even
+// after clicking multiple confirmations. Amendments require explicit retraction
+// of the old trusted evidence, THEN a separate independent new alignment.
 textCase.known_pairs[1].alignment_provenance={method:'explicit_researcher_confirmed_review_candidate'};
 context.renderKnownPairs();
 context.openKnownRowEditor(1);
@@ -98,7 +100,25 @@ el('knownRowPlaintext').value='補給糧秣';
 setFields(['補給','糧秣']);
 el('knownRowVerified').checked=true;
 context.saveKnownRow();
-assert(!Object.hasOwn(textCase.known_pairs[1],'alignment_provenance'),'stale provenance must not survive edit');
+assert(errors().some(x=>x.includes('不得直接以不同詞句覆寫')));
+assert.strictEqual(textCase.known_pairs[1].segments[1],'出發');
+assert(Object.hasOwn(textCase.known_pairs[1],'alignment_provenance'),
+       'failed replacement must retain trusted provenance');
+// Researcher can explicitly retract the old row's segment verification.
+context.openKnownRowEditor(1);
+el('knownRowPlaintext').value='補給糧秣';
+setFields(['','']);
+context.saveKnownRow();
+assert(!Object.hasOwn(textCase.known_pairs[1],'segments'));
+assert(!Object.hasOwn(textCase.known_pairs[1],'alignment_provenance'),
+       'retracted alignment cannot retain outdated provenance');
+// New independent review, now free of the old code's anchor, is allowed.
+context.openKnownRowEditor(1);
+el('knownRowPlaintext').value='補給糧秣';
+setFields(['補給','糧秣']);
+el('knownRowVerified').checked=true;
+context.saveKnownRow();
+assert.strictEqual(textCase.known_pairs[1].segments[1],'糧秣');
 // A second trusted code may still not overwrite an existing trusted term.
 context.openKnownRowEditor(1);
 el('knownRowPlaintext').value='錯誤糧秣';
@@ -124,7 +144,8 @@ assert(el('knownEdit').value===canonical());
 // Existing advanced JSON editing still uses the shared validator.
 el('knownEdit').value=JSON.stringify([{message_id:'m1',
  plaintext:'補給車隊',segments:['補給','錯誤']}]);
-ask=false;context.applyKnown();ask=true;
+context.applyKnown();
+assert(errors().some(x=>x.includes('不得直接以不同詞句覆寫')));
 assert.strictEqual(textCase.known_pairs[0].segments[1],'車隊',
  'conflicting direct JSON may not silently replace old state if rejected');
 // Verify stale JSON cannot be silently replaced by the row manager.

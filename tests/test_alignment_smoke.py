@@ -60,6 +60,41 @@ class OfflineAlignmentSmokeTests(unittest.TestCase):
                 )
 
 
+    def test_optional_extended_long_alignment_suite_preserves_default(self):
+        with TemporaryDirectory() as temp:
+            report = Path(temp) / "extended" / "sanitized.json"
+            env = os.environ.copy()
+            env.update({
+                "HTTP_PROXY": "http://127.0.0.1:1",
+                "HTTPS_PROXY": "http://127.0.0.1:1",
+                "NO_PROXY": "",
+            })
+            cmd = [sys.executable, str(SCRIPT), "--extended",
+                   "--output", str(report)]
+            result = subprocess.run(
+                cmd, cwd=temp, env=env, capture_output=True, text=True,
+                timeout=90,
+            )
+            self.assertEqual(result.returncode, 0,
+                             result.stdout + result.stderr)
+            self.assertIn("ALIGNMENT_OFFLINE_E2E_PASS 21/21", result.stdout)
+            raw = report.read_text(encoding="utf-8")
+            data = json.loads(raw)
+            self.assertEqual(data["status"], "PASS")
+            self.assertEqual(data["checks_total"], 21)
+            self.assertEqual(data["checks_passed"], 21)
+            self.assertEqual(len({row["check"] for row in data["checks"]}), 21)
+            self.assertTrue(all(row["status"] == "PASS"
+                                for row in data["checks"]))
+            for prohibited in ("甲", "乙", "補給", "車隊", "known_pairs",
+                               "confirmed_segments", "source_case_sha256",
+                               "192.168."):
+                self.assertNotIn(prohibited, raw)
+            self.assertTrue(any(
+                x["check"] == "multiple_messages_exhaust_shared_budget_without_partial_result"
+                for x in data["checks"]
+            ))
+
     def test_exception_replaces_earlier_pass_report_with_redacted_fail(self):
         with TemporaryDirectory() as temp:
             out = Path(temp) / "diagnostics/result.json"

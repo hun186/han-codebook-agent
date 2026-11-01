@@ -188,3 +188,19 @@ sh check_alignment_workbench.sh --extended
 ### 建議第一個落地 LLM 精進案例：08
 
 先用 `07_alias_mixed_length` 跑 1 回合確認你的內網 OpenAI-compatible 模型真正能產生回覆，再對 `08_long_dispatch_with_observations` 做 0 回合離線基線、3 回合動態候選自動模式、3 回合相同設定但停用收發與第三方情報。三次使用完全相同的輸入案例（12 封、212 個碼組位置、2 封已知逐碼對照）。每次都下載**私人診斷 ZIP**，並保存獨立副本；模型、回合、元數據、設定與執行結束情況應在報告中明確記錄。沒有連到使用者真正內網模型就不能宣稱已完成實機 E2E。合成 gold 只可在獨立推理完成後評分，不能包含在 LLM 輸入或診斷包中。
+
+## 無 LLM 也能執行：案例 08 離線情報消融一鍵研究
+
+目前若無法使用內網 LLM，**請不要啟動實機 LLM 對照實驗**；案例 07 的 1 回合模型連線，以及案例 08 的三回合「情報開啟／關閉」實機分析，保留為**待辦，不因離線通過而視為已完成**。先執行確實有輸出、完全不連線的 0 回合對照：
+
+```bat
+check_case08_offline_ablation_windows.bat
+```
+
+Linux／macOS 使用 `sh check_case08_offline_ablation.sh`，也可以用 `python scripts/check_case08_offline_ablation.py`。可選 `--output-dir <dir>` 決定資料夾父路徑；每次執行都會建立新的 `case08_時間_亂數` 子目錄，不會覆寫先前研究。Windows 的 bat 會自動偵測專案 `.venv` 並設定 `PYTHONPATH`。
+
+執行同一份 `benchmarks/cases/08_long_dispatch_with_observations.json` 共 **兩次 rounds=0、iterations=3、restarts=2**，只有收發者／第三方情報開關不同；不呼叫模型、沒有網路探測，也不更改已確認錨點。等**兩組推理都完成後**才讀取分離的 `benchmarks/gold/08_long_dispatch_with_observations.json` 計算合成正確率。原始 gold 不進入求解器、Prompt 或診斷 ZIP。
+
+成果在 `artifacts/offline_case08_studies/<unique-id>/`：`comparison.json`、`comparison.md` 供比較合成 Top-1、Top-5、非已知明文完全一致率及每碼組位置正確率，也列出被情報影響而換第一順位的碼組 ID；`metadata_on/`、`metadata_off/` 各有 `input_case.json`、`audit.sqlite`、`result.json`、Markdown／可用時的 Word 報告，以及 `diagnostics_safe.zip`、`diagnostics_private.zip`。私人 ZIP 含完整合成明文、候選等內容，分享前請檢查。
+
+合成分數僅在獨立 gold 後處理階段產生；它不等於歷史密電真實破譯能力，也不能據此宣稱使用了 Ollama。此工具與現有 17／21 項明密文切段離線 smoke 分開，互不取代。

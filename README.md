@@ -322,3 +322,16 @@ Windows **雙擊 `check_alignment_workbench_windows.bat`**，Linux/macOS 執行 
 直接 CLI：`python scripts/check_manual_alignment_workbench.py --output artifacts/diagnostics/alignment_smoke_latest.json`。
 
 **離線 Proxy 與報告狀態保護：** 診斷工具的 HTTP 客戶端明確忽略系統 HTTP(S) Proxy、只連臨時的 `127.0.0.1`。每次執行會先讓舊 PASS 診斷失效；即使因埠口或系統錯誤失敗，也會盡可能寫入新一輪脫敏 FAIL JSON，絕不把上次 PASS 當作本次成功。若磁碟本身無法寫檔，會顯示失敗且不保留舊報告。
+
+## 一鍵匯出完整研究診斷 ZIP（本機 GUI）
+
+在「03 推論與解讀」執行完分析後，含執行失敗的終止工作，會出現「下載分享診斷 ZIP／下載完整私人研究 ZIP」。這不是新的破譯方法，而是把每次執行已存在的 SQLite/Word/Markdown 稽核資料做成可供反覆檢視的有限大小 ZIP。只開放 loopback 同源 POST；**執行中的工作不可匯出成完整成果**。
+
+- **分享診斷版（預設）**：`run_manifest.json`（執行狀態、模型名稱隱去、案例 SHA-256、設定非敏感摘要）、`diagnostics.json`（末次觀察回合、各事件階段數量、失敗時的錯誤類別）、`round_trace.jsonl`（各回合數量、採納／拒絕／變更統計及 token 數字，不含任何明文或模型輸入／輸出）、`evaluation.json`（標示沒有啟用金標計分）。
+- **完整私人研究版（再次明確確認）**：除上述摘要外，包含 `input_case.json`（真正執行的案例快照）、`audit_events.jsonl`（逐輪原始事件，包括候選詞與原因）、`audit.sqlite`、成功時的 `result.json`、`report.md` 和 `report.docx`（若當次有成功產出）。若希望追查真正的 LLM Prompt 與回覆，必須在執行前勾選原本「在本機 SQLite 保存完整 LLM Prompt 與回覆」。若沒勾選，之後無法補造沒有記錄的請求。
+- **失敗或中斷**：只要工作已進入 `failed` 終止狀態，ZIP 會清楚標示 `complete=false`、`failure_category`，只包含已存在的部分證據；缺失檔案不得用假結果補齊。未完成的人工審核／仍執行中的工作不准匯出成終態證據。
+- **安全**：輸出前需要使用者點擊，私人模式須額外確認。模組拒絕錯誤 job ID、路徑符號連結及超大原始檔（48 MB 單檔／128 MB 解包資料）；不會蒐集合成 gold 或研究正解；公開 Vercel Mock 不提供真實診斷 ZIP。**私人版可能包含密電、研究員情報、內網路徑、模型回覆與可能被自行貼入 Prompt 的機密**，務必先自己檢查內容，再決定是否分享給 ChatGPT；不要直接上傳 GitHub。分享版保留的計數和狀態有助於診斷故障，**不包含完整破譯研究內容**。
+
+### 建議第一個落地 LLM 精進案例：08
+
+先用 `07_alias_mixed_length` 跑 1 回合確認你的內網 OpenAI-compatible 模型真正能產生回覆，再對 `08_long_dispatch_with_observations` 做 0 回合離線基線、3 回合動態候選自動模式、3 回合相同設定但停用收發與第三方情報。三次使用完全相同的輸入案例（12 封、212 個碼組位置、2 封已知逐碼對照）。每次都下載**私人診斷 ZIP**，並保存獨立副本；模型、回合、元數據、設定與執行結束情況應在報告中明確記錄。沒有連到使用者真正內網模型就不能宣稱已完成實機 E2E。合成 gold 只可在獨立推理完成後評分，不能包含在 LLM 輸入或診斷包中。

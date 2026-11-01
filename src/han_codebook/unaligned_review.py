@@ -19,6 +19,9 @@ from .core import CaseError, validate_case
 
 MAX_PLAINTEXT = 500
 MAX_EXPANSIONS = 2_000_000
+# Per-case aggregate cap: many individually bounded telegrams cannot amplify
+# the synchronous loopback preview into unbounded cumulative search work.
+MAX_CASE_EXPANSIONS = MAX_EXPANSIONS
 
 
 def _verified_and_vocabulary(case: dict[str, Any]) -> tuple[dict[str, str], set[str]]:
@@ -58,7 +61,8 @@ def _segment_score(term: str, vocabulary: set[str]) -> float:
 
 def suggest_alignments(plaintext: str, codes: list[str],
                        vocabulary: set[str], trusted: dict[str, str], *,
-                       top_n: int = 8, beam_width: int = 96) -> dict[str, Any]:
+                       top_n: int = 8, beam_width: int = 96,
+                       max_expansions: int = MAX_EXPANSIONS) -> dict[str, Any]:
     """Finite bounded-beam search with code repetition and immutable anchors.
 
     Beam pruning can miss a plausible alignment: even the top-ranked candidate
@@ -73,6 +77,8 @@ def suggest_alignments(plaintext: str, codes: list[str],
         raise CaseError("top_n must be an integer from 1 to 12")
     if type(beam_width) is not int or not 8 <= beam_width <= 256:
         raise CaseError("beam_width must be an integer from 8 to 256")
+    if (type(max_expansions) is not int or not 1 <= max_expansions <= MAX_EXPANSIONS):
+        raise CaseError("max_expansions must be an integer between 1 and the fixed search cap")
     if not isinstance(vocabulary, set) or not all(
             isinstance(v, str) and v for v in vocabulary):
         raise CaseError("vocabulary must be a set of nonempty phrases")
@@ -136,7 +142,7 @@ def suggest_alignments(plaintext: str, codes: list[str],
                     # before ranking/pruning; a partial suffix is not a solution.
                     continue
                 expansions += 1
-                if expansions > MAX_EXPANSIONS:
+                if expansions > max_expansions:
                     raise CaseError("alignment search budget exceeded; provide confirmed segments or fewer codes")
                 term = plaintext[offset:end]
                 if not term:
@@ -203,14 +209,25 @@ def review_unsegmented(case: dict[str, Any], *, top_n: int = 8,
         normalize_bold_hypotheses(case, trusted)
     by_id = {m["id"]: m["codes"] for m in case["messages"]}
     rows = []
+    expanded_total = 0
     for record_index, pair in enumerate(case.get("known_pairs", [])):
         if "segments" in pair:
             continue
         mid = pair["message_id"]
-        result = suggest_alignments(
-            pair["plaintext"], by_id[mid], vocab, trusted,
-            top_n=top_n, beam_width=beam_width
-        )
+        remaining = MAX_CASE_EXPANSIONS - expanded_total
+        if remaining <= 0:
+            raise CaseError("alignment case-wide search budget exhausted; review fewer messages or supply independently confirmed segments")
+        try:
+            result = suggest_alignments(
+                pair["plaintext"], by_id[mid], vocab, trusted,
+                top_n=top_n, beam_width=beam_width,
+                max_expansions=min(remaining, MAX_EXPANSIONS)
+            )
+        except CaseError as exc:
+            if "alignment search budget exceeded" in str(exc):
+                raise CaseError("alignment case-wide search budget exceeded; review fewer messages or supply independently confirmed segments") from exc
+            raise
+        expanded_total += result["expanded_states"]
         rows.append({
             "known_pair_index": record_index,
             "message_id": mid,
@@ -230,10 +247,13 @@ def review_unsegmented(case: dict[str, Any], *, top_n: int = 8,
         "beam_width": beam_width,
         "trusted_anchor_count_unchanged": len(trusted),
         "unaligned_pair_count": len(rows),
+        "expanded_states_total": expanded_total,
+        "expansion_budget_per_case": MAX_CASE_EXPANSIONS,
         "reviews": rows,
         "limitations": [
             "Top candidates are heuristics, not probabilities or verified alignments.",
             "Beam pruning may omit a valid segmentation, even if no candidates remain.",
+            "All unsegmented pairs share a fixed case-wide search expansion budget; exceeding it fails the whole review closed.",
             "Suggestions never change known_pairs or promote inferred words to trusted anchors.",
             "Only independently segmented known pairs constrain codes; neither gold nor LLM is used.",
             "The report contains user-supplied plaintext and must be treated as sensitive research data.",

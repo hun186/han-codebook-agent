@@ -145,6 +145,55 @@ class UnalignedReviewTests(unittest.TestCase):
                             for x in r["reviews"][0]["candidates"]))
         self.assertEqual(anchors_and_review(case)[0], {})
 
+    def test_multiple_unsegmented_pairs_share_one_bounded_case_budget(self):
+        case = sample()
+        # Additional, different unsegmented known plaintext: running two
+        # individually legal reviews must account for their COMBINED work.
+        case["messages"].append({
+            "id": "target2", "codes": ["101", "104", "105"],
+        })
+        case["known_pairs"].append({
+            "message_id": "target2", "plaintext": "補給車隊出發",
+        })
+        original = deepcopy(case)
+        full = review_unsegmented(case, top_n=3, beam_width=8)
+        self.assertEqual(len(full["reviews"]), 2)
+        total = sum(row["expanded_states"] for row in full["reviews"])
+        self.assertGreater(total, max(
+            row["expanded_states"] for row in full["reviews"]
+        ))
+        self.assertEqual(full["expanded_states_total"], total)
+        self.assertEqual(case, original)
+        with patch("han_codebook.unaligned_review.MAX_CASE_EXPANSIONS",
+                   total):
+            same = review_unsegmented(case, top_n=3, beam_width=8)
+            self.assertEqual(same["expanded_states_total"], total)
+            self.assertEqual(
+                [x["candidates"] for x in same["reviews"]],
+                [x["candidates"] for x in full["reviews"]],
+            )
+        with patch("han_codebook.unaligned_review.MAX_CASE_EXPANSIONS",
+                   total - 1):
+            with self.assertRaisesRegex(CaseError, "case-wide search budget"):
+                review_unsegmented(case, top_n=3, beam_width=8)
+        self.assertEqual(case, original)
+
+    def test_expansion_budget_is_hard_limited_and_cannot_be_bypassed(self):
+        for budget in (0, -1, True, 2_000_001, "100"):
+            with self.subTest(budget=budget), self.assertRaises(CaseError):
+                suggest_alignments("補給車隊出發", ["101", "102", "103"],
+                                   {"補給", "車隊", "出發"}, {},
+                                   max_expansions=budget)
+        with self.assertRaisesRegex(CaseError, "alignment search budget exceeded"):
+            suggest_alignments("補給車隊出發", ["101", "102", "103"],
+                               {"補給", "車隊", "出發"}, {},
+                               max_expansions=1)
+        # The ordinary single-message public path keeps prior behavior.
+        old = review_unsegmented(sample())
+        self.assertEqual(old["unaligned_pair_count"], 1)
+        self.assertEqual(old["expanded_states_total"],
+                         old["reviews"][0]["expanded_states"])
+
     def test_long_text_many_codes_stays_bounded(self):
         text = "兵力" * 75
         tokens = [f"{i:03}" for i in range(75)]

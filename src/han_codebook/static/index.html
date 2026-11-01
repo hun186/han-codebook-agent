@@ -614,6 +614,7 @@ async function exportRunDiagnostics(jobId,mode,button){
 }
 function renderDiagnosticButtons(job){
  const area=el('diagnosticLink');
+ if(globalThis.HanMockDemo){area.textContent='PUBLIC MOCK：不提供真實研究診斷 ZIP；請使用本機工作台';return;}
  if(!job||job.type!=='analysis'||!['completed','failed'].includes(job.status)){
   area.replaceChildren();return;
  }

@@ -310,3 +310,15 @@ Codex Review 防止跨案例污染的兩項 P2 已實作：
 - 「**先驗權重**」是研究員提供給詞彙的初始偏好，不是實測頻率、校準機率或已驗證錨點；GUI 現已內建定義與數值例子。
 - 逐碼閱讀畫面標色：**綠色**＝可信逐碼已知明文、**藍色**＝未驗證候選、**紫紅色**＝研究員明知與可靠錨點不同、仍經顯式確認提出的**大膽反對假說**。操作錯誤有顯眼固定提示。反對假說存在獨立的 `bold_hypotheses` 資料結構，不能寫入 `known_pairs`／`hypothesis_marks` 的 verified anchors，報告也會雙欄並列「已驗證原詞」與「反對假說」。**大膽指定僅改變研究顯示與報告，不會偷偷將未驗證詞組送入求解器當作真實錨點**；真正的反事實求解模式仍屬後續研究。
 - `python-docx>=1.1,<2` 是新的 Word 匯出安裝依賴。部署時更新 Python 套件，請勿只將新的 HTML 複製到舊程式。研究資料與完整模型輸出仍僅在本機；Vercel 靜態 Mock PoC 不具備此後端功能。
+
+## 2026-11-01 — 離線一鍵人工切段整合驗收
+
+Windows **雙擊 `check_alignment_workbench_windows.bat`**，Linux/macOS 執行 `sh check_alignment_workbench.sh`。預先安裝專案依賴（Windows 透過 `setup_windows.bat`），無須啟動既有研究伺服器、沒有 LLM Key 或 Ollama，也不需對外網連線。
+
+- 由全新臨時資料夾及 loopback 隨機埠，驗證「開啟工作台 → 候選預覽 → 明確人工確認 → 保留錨點與 Undo 歷史 → 單獨另存 → 同名不可覆寫」，另含拒絕過期案例、標註衝突、金標欄位與跨來源請求。
+- **17 個完整檢查全通過才回傳 PASS**。僅用內建虛構測資，絕不讀取使用者案例、`config.yaml` 或憑證，也不打模型服務。這是**流程驗收**，不代表真實 LLM、真實歷史破譯、使用者本機 UI 點擊實測已完成。
+- 脫敏結果固定保存在專案根目錄 `artifacts/diagnostics/alignment_smoke_latest.json`，不含明文、候選片段、可信碼組對照或 gold。可將此檔交給開發者診斷。若失敗，退出碼非零；不會清空、覆寫或修復任何正式研究檔案。
+
+直接 CLI：`python scripts/check_manual_alignment_workbench.py --output artifacts/diagnostics/alignment_smoke_latest.json`。
+
+**離線 Proxy 與報告狀態保護：** 診斷工具的 HTTP 客戶端明確忽略系統 HTTP(S) Proxy、只連臨時的 `127.0.0.1`。每次執行會先讓舊 PASS 診斷失效；即使因埠口或系統錯誤失敗，也會盡可能寫入新一輪脫敏 FAIL JSON，絕不把上次 PASS 當作本次成功。若磁碟本身無法寫檔，會顯示失敗且不保留舊報告。

@@ -47,3 +47,11 @@ python -m han_codebook.benchmark --config benchmarks/config.yaml --variants both
 ## 尚未完成
 
 目前還不是通用密碼破解引擎：未支援未知分隔的詞組碼、加數再加密、外部歷史語料微調、可校準的概率信心、人工確認工作流與多人協作。本地 UI 已可保存案例及展示結果；真正擴充解密能力仍須以跨題庫實驗和更嚴格的金標驗證為先。
+
+## 一鍵離線端到端診斷（合成案例，非真實破譯）
+
+在專案根目錄執行 Windows `check_alignment_workbench_windows.bat`（雙擊）或 Linux/macOS `sh check_alignment_workbench.sh`；預設將 **17 項**仿真整合驗證結果存放在 `artifacts/diagnostics/alignment_smoke_latest.json`。工具自動在臨時資料夾啟動 loopback HTTP 伺服器，執行預覽、人工確認 API、拒絕未確認／不一致／過期案例、跨來源／gold 阻擋、原有可信錨點及 Undo 歷史保護，最後明確另存且禁止覆寫同名檔。
+
+全程使用內建**虛構**對照與已知分段作自動化測試，不讀研究資料、設定檔、金鑰，不啟動真實推理或對外連線，不會把合成明文寫入診斷 JSON。**測試內預先設定的人工確認僅模擬按鍵流程，不能當成真實研究員做出確認。** 報告 PASS 僅代表該環境的本機合成 API/E2E 檢查通過；尚需在實際使用者電腦針對真實操作、資料量與 Ollama 配置另行驗收。測試不改動使用者既有案例，且暫存資料在執行後清除。
+
+**Proxy／過期報告注意：** 診斷直接使用無 Proxy 的 loopback HTTP 連線，與電腦既有 HTTP_PROXY／HTTPS_PROXY 設定無關。重新執行會先清除舊 PASS；本輪執行若發生例外仍產生不含原始例外訊息與研究內容的 FAIL 紀錄，寫入失敗則以非零退出碼表示。不要從舊執行截圖推論新的驗收結果。

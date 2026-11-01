@@ -5,14 +5,14 @@ const vm=require('vm');
 const html=fs.readFileSync(process.argv[2],'utf8');
 const script=html.split('<script>')[1].split('</script>')[0];
 const grab=(a,b)=>{let i=script.indexOf(a),j=script.indexOf(b);assert(i>=0&&j>i,'function not found '+a);return script.slice(i,j)};
-const elData={knownEdit:{value:''}};
+const elData={knownEdit:{value:''},knownPairs:{innerHTML:'',querySelectorAll:()=>[]},knownRowEditor:{hidden:true},knownRowVerified:{checked:false},alignmentCandidates:{textContent:''},alignmentTyped:{value:''}};
 const research={messages:[{id:'a',codes:['001','002']}],known_pairs:[],hypothesis_marks:{'001':{preferred:'甲',pinned:true,excluded:[],note:'trial'}}};
 const notices=[];
 const ctx={research,el:(id)=>elData[id]||(elData[id]={}),notice:(s,b)=>notices.push({s,b}),initializeMarks:()=>{},
   Blob,markSnapshots:[{'001':{preferred:'甲',pinned:true,excluded:[],note:'trial'}},{}],markActions:['original','cleared'],markCursor:1,copyMarks:(x)=>JSON.parse(JSON.stringify(x))};
 vm.createContext(ctx);
 vm.runInContext(grab('function persistMarkHistory()', 'function initializeMarks()'),ctx);
-vm.runInContext(grab('function applyKnown()', 'function saveProfile()'),ctx);
+vm.runInContext(grab('function renderKnownPairs(){', 'function saveProfile()'),ctx);
 elData.knownEdit.value=JSON.stringify([{message_id:'a',segments:['已知甲','已知乙']}]);
 ctx.applyKnown();
 assert.deepStrictEqual(research.known_pairs,[],'conflicting known plaintext partly applied');

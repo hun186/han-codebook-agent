@@ -102,7 +102,20 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
 <section id="evidence" class="page"><div class="panel"><h2>電文與第三方情報</h2><p class="muted">第三方觀察可以記錄目擊者、目的地、活動、狀態、可信度；它只用於語意與領域推測，不會自動升格為明文對照。</p><div class="row"><div><label>選擇電文</label><select id="messagePick"></select></div><div><label>密碼組（可用空白分隔編輯）</label><textarea id="cipherEdit" rows="2"></textarea></div></div><div class="gridfield"><div><label>發送者</label><input id="sender" type="text"></div><div><label>接收者</label><input id="recipient" type="text"></div><div><label>收報日期時間（ISO 格式）</label><input id="received_at" type="text" placeholder="1942-05-03T16:00:00"></div><div><label>備註</label><input id="notes" type="text"></div><div><label>指定領域（非必填）</label><input id="domain" type="text"></div></div><label>新增第三方觀察（可逐項填寫）</label>
 <div class="gridfield"><div><label>情報來源</label><input id="obsSource" type="text" placeholder="目擊者或觀察報告"></div><div><label>觀察日期時間（ISO 格式）</label><input id="obsWhen" type="text" placeholder="1942-05-03 或完整時間"></div><div><label>觀察行為</label><input id="obsActivity" type="text" placeholder="例如裝載物資"></div><div><label>目的地</label><input id="obsDest" type="text" placeholder="例如補給處"></div><div><label>狀態</label><input id="obsStatus" type="text" placeholder="例如車隊已離開"></div><div><label>可信度 0~1</label><input id="obsConfidence" type="number" min="0" max="1" step="0.05" value="0.6"></div><div><label>補充內容</label><input id="obsNote" type="text"></div></div>
 <button id="addObservation">新增觀察至列表</button><div id="obsCards"></div>
-<label>進階：觀察資料 JSON（直接修改後按套用）</label><textarea id="observations" rows="9" spellcheck="false" placeholder='[{"source":"偵察員甲","observed_at":"1942-05-03","activity":"裝載貨物","destination":"糧食倉庫","status":"途中","confidence":0.7,"note":"車隊向補給處方向行進"}]'></textarea><button id="applyEvidence" class="primary">套用此封情報</button><h3>可能相關電文：時序交叉線索</h3><p class="muted">顯示日期距離與目擊可信度，不等於已破譯；每則保留「可能完全無關」。先套用編輯，再按下方按鈕。</p><button id="checkEvents">分析目擊與密電時序</button><div id="eventLinks" class="compact"></div><h3>已知明密文對（參考，不會被 LLM 覆寫）</h3><div id="knownPairs"></div><label>對照資料 JSON（修改後按套用）</label><textarea id="knownEdit" rows="7" spellcheck="false"></textarea><button id="applyKnown">套用明密文對</button>
+<label>進階：觀察資料 JSON（直接修改後按套用）</label><textarea id="observations" rows="9" spellcheck="false" placeholder='[{"source":"偵察員甲","observed_at":"1942-05-03","activity":"裝載貨物","destination":"糧食倉庫","status":"途中","confidence":0.7,"note":"車隊向補給處方向行進"}]'></textarea><button id="applyEvidence" class="primary">套用此封情報</button><h3>可能相關電文：時序交叉線索</h3><p class="muted">顯示日期距離與目擊可信度，不等於已破譯；每則保留「可能完全無關」。先套用編輯，再按下方按鈕。</p><button id="checkEvents">分析目擊與密電時序</button><div id="eventLinks" class="compact"></div><h3>已知明密文對（研究員逐筆管理，不會被 LLM 覆寫）</h3>
+<p class="muted">逐筆新增、修改或刪除。只有明確勾選研究員逐碼核對並確認的切段才作為可信錨點；完整明文但尚未切段者仍待覆核。變更僅套用本頁，需另外「另存案例」才會寫入磁碟。</p>
+<div id="knownPairs" class="compact" aria-live="polite"></div>
+<div class="row"><button id="knownAdd" class="primary">＋ 新增明密文對</button></div>
+<div id="knownRowEditor" class="panel" hidden>
+ <h3 id="knownRowTitle">新增明密文對</h3>
+ <label for="knownRowMessage">對應電文（下方顯示此封數字碼組）</label><select id="knownRowMessage"></select>
+ <label for="knownRowPlaintext">已知完整明文（原始文字；未切段時只填這欄）</label><textarea id="knownRowPlaintext" rows="3" spellcheck="false"></textarea>
+ <p class="muted">如已獨立逐碼核對，請在下方為每個數字碼組填寫對應詞句；全部留白表示尚未切段，不會形成可信錨點。</p>
+ <div id="knownSegmentsGrid" class="gridfield"></div>
+ <label class="row"><input id="knownRowVerified" type="checkbox" style="flex:0 0 auto"> 我已獨立核對所有逐碼對照，理解這是研究員確認，不代表歷史真偽證明</label>
+ <div class="row"><button id="knownRowSave" class="primary">套用此筆（尚未存檔）</button><button id="knownRowCancel">取消編輯</button></div>
+</div>
+<details><summary>進階：直接修改整份對照資料 JSON</summary><label for="knownEdit">對照資料 JSON（修改後按套用，請先完成逐筆編輯）</label><textarea id="knownEdit" rows="7" spellcheck="false"></textarea><button id="applyKnown">套用明密文對 JSON</button></details>
 <div class="panel"><h3>已知明文候選切段 · 研究員人工覆核</h3>
 <p class="muted">候選只用於研究，分數不是可靠度。先套用上方明密文對，再產生候選；請逐碼核對並<strong>自行完整輸入</strong>確認切段。人工確認只套用目前頁面，不自動儲存到磁碟。</p>
 <div class="row"><button id="previewAlignment">產生離線候選切段</button></div>

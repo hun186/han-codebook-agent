@@ -58,7 +58,8 @@ def _sanitized_trace(events: list[dict]) -> list[dict]:
     return output
 
 def build_diagnostic_zip(target: Path, *, job_id: str, status: str,
-                         config: dict, private: bool = False) -> bytes:
+                         config: dict, private: bool = False,
+                         error_type: str | None = None) -> bytes:
     """Build one immutable snapshot of a TERMINAL job's artifacts.
 
     No arbitrary path is accepted from a browser; target is constructed by the
@@ -82,8 +83,26 @@ def build_diagnostic_zip(target: Path, *, job_id: str, status: str,
         if snapshot.is_symlink() or snapshot.stat().st_size > MAX_SINGLE_FILE:
             raise ValueError("Input snapshot unavailable or oversized")
         case_digest = sha256(snapshot.read_bytes()).hexdigest()
+    trace = _sanitized_trace(events)
+    stages: dict[str, int] = {}
+    for e in trace:
+        stage = e.get("stage")
+        # Stage names are code-defined; reject arbitrary raw audit text in
+        # the sanitized share-safe report.
+        if type(stage) is str and re.fullmatch(r"[a-z_]{1,72}", stage):
+            stages[stage] = stages.get(stage, 0) + 1
+    last_round = max((e["round"] for e in trace if type(e.get("round")) is int), default=0)
+    failure_category = error_type if (type(error_type) is str and
+        re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,79}", error_type)) else None
     files: dict[str, bytes] = {
-        "round_trace.jsonl": _jsonl(_sanitized_trace(events)),
+        "round_trace.jsonl": _jsonl(trace),
+        "diagnostics.json": _json({
+            "complete": status == "completed",
+            "status": status, "last_observed_round": last_round,
+            "stage_counts": stages,
+            "failure_category": failure_category if status == "failed" else None,
+            "note": "No raw exception text, private URL, prompt or model reply in share-safe export."
+        }),
         "evaluation.json": _json({
             "status": "not_performed",
             "note": "Gold/oracle is never loaded into the solver or diagnostic ZIP. "
@@ -96,8 +115,8 @@ def build_diagnostic_zip(target: Path, *, job_id: str, status: str,
         "run_status": status, "complete": status == "completed",
         "content_mode": "private_raw" if private else "share_safe",
         "case_sha256": case_digest, "event_count": len(events),
-        "settings": {k: config.get(k) for k in
-                     ("model", "rounds_requested", "metadata", "capture_llm_io", "candidate_mode")},
+        "settings": {k: (config.get(k) if (private or k != "model") else "redacted")
+                     for k in ("model", "rounds_requested", "metadata", "capture_llm_io", "candidate_mode")},
         "limitations": [
             "Candidate scores are not calibrated correctness probabilities.",
             "Historical authenticity is not established by a researcher or model hypothesis.",

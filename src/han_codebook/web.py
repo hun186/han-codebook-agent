@@ -204,7 +204,8 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                     target = root / "artifacts" / "web_runs" / export_id
                     blob = build_diagnostic_zip(target, job_id=export_id,
                         status=job["status"], config=cfg,
-                        private=data["mode"] == "private")
+                        private=data["mode"] == "private",
+                        error_type=str(job.get("error") or "").partition(":")[0])
                     self.send_response(200)
                     self.send_header("Content-Type", "application/zip")
                     self.send_header("Content-Disposition",

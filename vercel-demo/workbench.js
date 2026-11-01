@@ -324,8 +324,10 @@ function commitKnownPairs(pairs){
  if(!research||!Array.isArray(pairs))throw Error('對照資料需為陣列');
  const previous=trustedFromPairs(research.known_pairs||[]);
  const next=trustedFromPairs(pairs);
- const changed=[...previous].filter(([code,term])=>next.get(code)!==term).map(([code])=>code);
- if(changed.length&&!confirm('此操作會修改／移除 '+changed.length+' 個原有逐碼對照的可信錨點。確定已核對原始史料且要更新本頁嗎？'))
+ const contradicted=[...previous].filter(([code,term])=>next.has(code)&&next.get(code)!==term).map(([code])=>code);
+ if(contradicted.length)throw Error('不得直接以不同詞句覆寫原有可信錨點：'+contradicted.join('、')+'。若史料更正，請先撤回原逐碼對照，再以新資料獨立核對');
+ const removed=[...previous.keys()].filter(code=>!next.has(code));
+ if(removed.length&&!confirm('此操作會撤回 '+removed.length+' 個原有逐碼對照的可信錨點。確定已核對史料且要更新本頁嗎？'))
   return false;
  const conflicts=[...next.keys()].filter(code=>Object.hasOwn(research.hypothesis_marks||{},code));
  if(conflicts.length)throw Error('請先清除以下碼組的人工假說，再套用已知明文：'+conflicts.join('、'));

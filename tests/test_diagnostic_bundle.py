@@ -84,6 +84,37 @@ class DiagnosticFormatTests(unittest.TestCase):
                            status="completed", config=CONFIG, private=True))
             self.assertNotIn(b"MUST_NEVER_EXPORT_GOLD", b"".join(private2.values()))
 
+    def test_failed_preflight_export_without_any_sqlite_remains_partial(self):
+        with TemporaryDirectory() as tmp:
+            target=Path(tmp)
+            seed(target)
+            (target / "audit.sqlite").unlink()
+            contents=unzip(build_diagnostic_zip(target, job_id="1234567890abcdef",
+                           status="failed", config=CONFIG, private=True,
+                           error_type="CaseError"))
+            self.assertNotIn("audit.sqlite",contents)
+            self.assertNotIn("audit_events.jsonl",contents)
+            manifest=json.loads(contents["run_manifest.json"])
+            self.assertFalse(manifest["complete"])
+            self.assertEqual(sorted(manifest["missing_evidence"]),
+                             ["audit.sqlite","audit_events.jsonl"])
+            self.assertIn("input_case.json",contents)
+            # Completed runs must never claim success without a full audit.
+            with self.assertRaises(ValueError):
+                build_diagnostic_zip(target,job_id="1234567890abcdef",
+                                     status="completed",config=CONFIG,private=True)
+
+    def test_nested_oracles_rejected_even_for_preexisting_private_case(self):
+        with TemporaryDirectory() as tmp:
+            target=Path(tmp)
+            seed(target)
+            payload={"messages":[{"observations":[{"ground_truth":SENTINEL}]}]}
+            (target/"input_case.json").write_text(json.dumps(payload),encoding="utf-8")
+            for private in (False, True):
+                with self.subTest(private=private), self.assertRaisesRegex(ValueError,"oracle"):
+                    build_diagnostic_zip(target,job_id="1234567890abcdef",
+                                         status="failed",config=CONFIG,private=private)
+
     def test_partial_failure_status_and_no_raw_error_or_in_progress(self):
         with TemporaryDirectory() as tmp:
             target=Path(tmp)
@@ -138,6 +169,12 @@ class DiagnosticLoopbackHTTPTests(unittest.TestCase):
                     time.sleep(.05)
                 self.assertEqual(jobs[job]["status"],"completed",jobs[job].get("error"))
                 route="/api/jobs/"+job+"/diagnostics"
+                bad=json.loads(json.dumps(case))
+                bad["messages"][0]["observations"]=[{"source":"archival",
+                         "ground_truth":"SHOULD_NOT_REACH_MODEL"}]
+                with self.assertRaises(error.HTTPError) as ctx:
+                    post("/api/start",{"case":bad,"rounds":0,"use_metadata":True})
+                self.assertEqual(ctx.exception.code,400)
                 with self.assertRaises(error.HTTPError) as ctx:
                     post(route,{"mode":"private","confirmed":True},"http://untrusted.invalid")
                 self.assertEqual(ctx.exception.code,403)

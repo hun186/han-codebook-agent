@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-02 — Cross-telegram contextual contradiction prompt (PR pending)
+- Main verified at `854bfe42b248dd0679e70219a52889791b41ec71` (PR #40 merged), postmerge CI run #41412739291 SUCCESS. Historical PR #1/#7/#8 remain OPEN superseded, do not blindly merge.
+- User's FIVE Case08/Demo private LAN research ZIPs were analyzed in chat: new rotation/dedup/trajectory gate worked but did not establish accuracy gains. Do not commit private ZIP or endpoint. Next P1 is evidence-based candidate *mapping* instead of more vocabulary.
+- Branch `feat/code-context-contrast-20261102`: bounded per-selected-code cross-message neighbor windows with only numeric unknown codes and human-verified adjacent anchor terms; current Top-5 competing hypotheses explicitly unverified. Metadata is not copied by evidence helper. Model prompted to seek contradictions and optionally cite message IDs; references to non-containing or fictitious IDs are filtered and do NOT affect hint weights or anchor status.
+- Synthetic offline tests include multi-message windows, anchor-only text, metadata/oracle isolation, zero case mutation and source ID validation. Hosted CI, exact HEAD formal Codex Review and merge still PENDING at commit time. Separate next improvement: evidence/progress distinctions and optional stopping without oracle.
+
+
 ## 2026-11-02 — Auto vocabulary evidence-pointer gate (third P1 PR pending)
 - User's genuine private Case08 0/3/5-round experience showed automatic candidate expansion can add many non-matching Chinese phrases; no user's private diagnostic ZIP or endpoint is committed.
 - Branch `feat/auto-vocabulary-provenance-gate-20261102` changes automatic adoption only (human review remains explicit): a candidate must have nonempty reason and 1-3 unique valid `messages[].id` references, and at most 8 such novel words are adopted per round. Words already in profile example sentences/lexicons are not counted as discoveries. Unreferenced proposals remain available in private audit for review; references are pointers for auditing, not verified semantic evidence or trusted anchors.

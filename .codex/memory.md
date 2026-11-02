@@ -4,7 +4,7 @@
 - User's genuine private Case08 0/3/5-round experience showed automatic candidate expansion can add many non-matching Chinese phrases; no user's private diagnostic ZIP or endpoint is committed.
 - Branch `feat/auto-vocabulary-provenance-gate-20261102` changes automatic adoption only (human review remains explicit): a candidate must have nonempty reason and 1-3 unique valid `messages[].id` references, and at most 8 such novel words are adopted per round. Words already in profile example sentences/lexicons are not counted as discoveries. Unreferenced proposals remain available in private audit for review; references are pointers for auditing, not verified semantic evidence or trusted anchors.
 - Model vocabulary prompt requests these references. Synthetic tests cover forged/duplicate/absent IDs, invalid types, auto budget, missing reasons, human override, no case mutation. Existing fake-model vocabulary fixtures updated to include fictional source IDs for compatible expected automatic adoption.
-- This PR is stacked after #39; do NOT merge until #39 is actually merged and this branch is rebased to main, full latest-head CI and formal Codex Review pass. Only real user-workstation comparison can determine impact on Case08 accuracy.
+- PR #38 merged as `a406956886eba3e390903110b8c3db56f764a0e7` (postmerge main CI #41410329576 SUCCESS); PR #39 merged as `5cb0180729ed3b43144acc58ebaa2f7b5f34e6a7` (postmerge main CI #41411946908 SUCCESS). This PR is now independently based on #39 merged main. Its fresh exact-HEAD Hosted CI and formal Codex review are PENDING; only real user-workstation comparison can determine Case08 accuracy impact.
 
 
 ## 2026-11-02 — Private per-round candidate trajectories (stacked PR pending)
@@ -58,7 +58,7 @@
 
 
 ## Current Focus
-2026-11-02 third P1 step: quality-gate auto LLM vocabulary by bounded, traceable source message IDs plus rationale; explicit researcher review can override. Parent #39 round snapshot PR and #38 merged baseline must be verified; auto candidate references are NOT verified plaintext and gold is never a gate. Hosted CI and latest-head formal Codex review pending; private Case08 model repeat experiments should follow on user workstation.
+2026-11-02 authoritative main `5cb0180729ed3b43144acc58ebaa2f7b5f34e6a7`: PR #38/#39 both MERGED and main postmerge Hosted runs #41410329576 / #41411946908 SUCCESS. Current PR #40 is a separate main-based automatic vocabulary evidence gate, requiring exact-head Hosted CI, formal Codex review and no unresolved blockers before merge. Source references are not verified plaintext, and synthetic gold never enters inference. Private Case08 repeated model A/B comparisons remain user workstation follow-up.
 
 ## Recent Outcomes (2026-10-27)
 - Verified `matthewdgreen/decipher` public GitHub repo and README via connector; it has local Ollama agent mode and external context flags, but no dedicated Chinese phrase-codebook solver.

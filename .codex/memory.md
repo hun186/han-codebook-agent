@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-02 — Typed diagnostic configuration at safe ZIP boundary (in progress)
+- PR #33 merged to main as `14b022330d7c0ce316996b9523f5cc4fff2252fd` after exact-HEAD 8/8 Hosted tests, official Codex Completed/No Findings, zero unresolved findings. Postmerge main CI run #41389888455 was in progress when this work began.
+- Branch `fix/diagnostic-config-schema-20261102` adds independent ZIP-builder validation of configuration values: 0..20 integer rounds (excluding bool), real booleans for metadata/capture, candidate mode in static/automatic/human and optional string model. Previously only key names were checked; corrupt old job metadata could include arbitrary user text in the SHARE manifest.
+- Regression rejects malformed values with valid field names (including private sentinel strings, booleans as rounds, and out-of-range round counts), and confirms ordinary zero-round offline settings still export.
+- At commit time: implementation and synthetic regression committed; Hosted CI, exact HEAD official Codex Review and Auto-Merge gate **PENDING**. No real local LLM, historical corpus, commercial GPT or oracle scoring used.
+
+
 ## 2026-11-02 — Immutable private diagnostic input snapshot (in progress)
 - Confirmed PR #32 merged as `03296efa31e60cd718ab5c32d69e4fc0a3e7fe06`; exact HEAD Hosted CI 8/8 PASS, formal Codex Completed/No Findings. Post-merge main CI #41389515053 was in progress when branch started.
 - A previously verified private `input_case.json` was read a SECOND time when adding it to ZIP, permitting a local file replacement between oracle/size validation and exported bytes. On branch `fix/immutable-diagnostic-snapshot-20261102` the exporter reuses the single validated byte snapshot for case SHA and ZIP; missing-input partial run handling remains fail-closed.
@@ -15,7 +22,7 @@
 
 
 ## Current Focus
-2026-11-02 authoritative main `03296efa31e60cd718ab5c32d69e4fc0a3e7fe06`: PR #29 known-pair editor, #30 diagnostics ZIP, #31 0-LLM case08 ablation and #32 safe-audit metadata hardening are **MERGED**. Main postmerge CI #41389515053 pending when this branch started. Current branch improves private ZIP source snapshot consistency (not yet reviewed or merged). User currently cannot use any LLM: real case07 one-round and case08 three-round comparison remain deliberately deferred, with no workstation inference or commercial accuracy claim. Historical PR #1/#7/#8 remain open but overlap newer main.
+2026-11-02 authoritative main `14b022330d7c0ce316996b9523f5cc4fff2252fd`: PR #29-#33 merged, including safe audit metadata and immutable private case snapshot in diagnostic ZIP; PR #33 postmerge main CI #41389888455 pending at start of this branch. Current work validates diagnostic settings independently at ZIP export boundary. User's offline-only restriction persists; case07 live one-round and case08 live three-round metadata comparisons are deferred. Historical PR #1/#7/#8 remain open/superseded and must not be merged blindly.
 
 ## Recent Outcomes (2026-10-27)
 - Verified `matthewdgreen/decipher` public GitHub repo and README via connector; it has local Ollama agent mode and external context flags, but no dedicated Chinese phrase-codebook solver.

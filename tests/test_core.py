@@ -103,7 +103,7 @@ class CipherResearchTests(unittest.TestCase):
                 with sqlite3.connect(Path(tmp)/'audit.sqlite') as conn:
                     stages = [r[0] for r in conn.execute('select stage from events order by id')]
                 self.assertEqual(stages, ['run_started','preflight','statistical_baseline','round_hypothesis_snapshot',
-                    'round_code_selection,'llm_proposals_unverified',
+                    'round_code_selection','llm_proposals_unverified',
                     'round_progress_snapshot','round_hypothesis_snapshot','rescore'])
         finally:
             server.shutdown()

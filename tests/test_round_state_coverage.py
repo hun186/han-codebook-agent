@@ -109,7 +109,8 @@ class RoundStateCoverageTests(unittest.TestCase):
             return synthetic_solver(payload, **kwargs)
         def vocab(_url, _model, packet, **kwargs):
             return {"vocabulary": [{"term": "第" + str(packet["round"]) + "詞",
-                                    "reason": "unverified context"}]}
+                                    "reason": "unverified context",
+                                    "evidence_message_ids":[packet["messages"][0]["id"]]}]}
         def code(_url, _model, packet, **kwargs):
             return {"hypotheses": [{"code": "100", "candidates": ["甲"]}]}
         with TemporaryDirectory() as td:

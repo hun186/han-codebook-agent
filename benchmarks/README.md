@@ -50,6 +50,8 @@ python -m han_codebook.holdout_verification --case benchmarks/cases/01_known_and
 - 輸出每組 Top-1／Top-5 及原因分類（詞庫不含正解、Top-5 內排序錯誤、排名低於 Top-5），預設**不輸出已知明文內容**。沒有真正獨立可評的碼組時顯示 `null`，不虛構 100%。
 - 若已有未切詞的 `plaintext`，它無法充當確定的碼組對應，會標示為未納入這項逐碼評分。這個指令不連模型、不使用任何 `gold` 或 `ground_truth` 檔案。
 
+**正解詞彙先驗覆蓋稽核：** Holdout JSON 的每個 fold 及 summary 新增 `reference_phrase_prior_coverage`，僅在完成離線求解／明確失敗後，統計原始正解詞是否已由 `profile_lexicon`、`profile_sentences`、`other_retained_anchor_terms` 或 `remaining_researcher_hints` 明確提供。`in_any_explicit_prior` 是至少命中一種明確來源的測試碼數；`absent_from_explicit_priors` 是四種來源都沒有該詞的碼數。**各來源會重疊，不能相加作分母**；不輸出正解詞，也不能把這項稽核理解為真的未知詞盲解：自由文字、語意同義與其他模型先驗不在此量測範圍。所有數量都是 fold-code assessments，不代表跨回合唯一碼組數。
+
 **限制非常重要：** 原有的候選詞庫、人工先驗、範例句、密文字組與背景資料仍參與推理。因此這是「已知明文留出一致性測試」，**不是完全陌生詞庫的盲解，也不是歷史破譯成功率**。同一碼組出現在不同留出回合時會重複被計成不同 fold-code assessment，不能把它誤當獨立樣本數。
 
 - **無法求解的留出回合**：即使總詞庫不為空，其他仍未錨定的碼組也可能因先前的研究員 `excluded` 排除全部候選。此時不放寬排除條件、不補回留出的答案；該 fold 註記 `candidate_exclusions_blocked_inference`，並列出阻擋的碼組。保留先前已成功的 fold；此類 fold 不進 Top-1／Top-5 的實際評分分母。`independently_testable_fold_code_assessments` 是潛在可測量數，`scored_fold_code_assessments` 才是比率分母，`not_scored_due_to_candidate_exclusions` 則另行計數。若全部無法評分，比率應為 `null`，不可虛構命中率。

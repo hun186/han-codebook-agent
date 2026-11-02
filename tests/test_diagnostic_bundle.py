@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from http.server import ThreadingHTTPServer
 from io import BytesIO
+from hashlib import sha256
 import json
 from pathlib import Path
 import sqlite3
@@ -10,6 +11,7 @@ from tempfile import TemporaryDirectory
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from urllib import request, error
 from zipfile import ZipFile
 
@@ -83,6 +85,38 @@ class DiagnosticFormatTests(unittest.TestCase):
             private2 = unzip(build_diagnostic_zip(target, job_id=jobid,
                            status="completed", config=CONFIG, private=True))
             self.assertNotIn(b"MUST_NEVER_EXPORT_GOLD", b"".join(private2.values()))
+
+    def test_private_snapshot_bytes_cannot_change_after_oracle_validation(self):
+        with TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            seed(target)
+            snapshot = target / "input_case.json"
+            checked = snapshot.read_bytes()
+            poisoned = json.dumps({"ground_truth": SENTINEL}).encode("utf-8")
+            actual_read = Path.read_bytes
+            seen = []
+
+            def swap_after_read(path):
+                content = actual_read(path)
+                if path == snapshot:
+                    seen.append(content)
+                    if len(seen) == 1:
+                        # Simulate an external replacement AFTER validation read.
+                        snapshot.write_bytes(poisoned)
+                return content
+
+            with patch.object(Path, "read_bytes", autospec=True,
+                              side_effect=swap_after_read):
+                exported = unzip(build_diagnostic_zip(
+                    target, job_id="abcdef0123456789",
+                    status="completed", config=CONFIG, private=True))
+            self.assertEqual(snapshot.read_bytes(), poisoned)
+            self.assertEqual(seen, [checked], "snapshot must be read exactly once")
+            self.assertEqual(exported["input_case.json"], checked)
+            manifest = json.loads(exported["run_manifest.json"])
+            self.assertEqual(manifest["case_sha256"],
+                             sha256(exported["input_case.json"]).hexdigest())
+            self.assertNotIn(b"ground_truth", exported["input_case.json"])
 
     def test_untrusted_audit_metadata_cannot_escape_share_safe_redaction(self):
         with TemporaryDirectory() as tmp:

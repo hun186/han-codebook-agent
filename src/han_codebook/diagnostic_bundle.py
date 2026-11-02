@@ -111,6 +111,9 @@ def build_diagnostic_zip(target: Path, *, job_id: str, status: str,
     db = target / "audit.sqlite"
     events = read_audit_events(db)
     snapshot = target / "input_case.json"
+    # Use precisely the bytes that passed the oracle check for digesting AND
+    # packaging. A second read could include a file swapped after validation.
+    case_bytes = None
     case_digest = None
     if snapshot.is_file():
         if snapshot.is_symlink() or snapshot.stat().st_size > MAX_SINGLE_FILE:
@@ -162,8 +165,8 @@ def build_diagnostic_zip(target: Path, *, job_id: str, status: str,
     }
     if private:
         missing_evidence = []
-        if snapshot.is_file():
-            files["input_case.json"] = snapshot.read_bytes()
+        if case_bytes is not None:
+            files["input_case.json"] = case_bytes
         else:
             missing_evidence.append("input_case.json")
         if db.is_file():

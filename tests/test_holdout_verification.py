@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -288,6 +289,39 @@ class KnownPairHoldoutTests(unittest.TestCase):
         case["known_pairs"] = [{"message_id": "m1", "plaintext": "兵力車隊"}]
         with self.assertRaisesRegex(CaseError, "segmented known pair"):
             verify_known_pairs(case)
+
+    def test_report_cannot_overwrite_case_previous_report_or_symlink(self):
+        case = small_case()
+        with TemporaryDirectory() as td:
+            src = Path(td) / "research_case.json"
+            out = Path(td) / "holdout.json"
+            src.write_text(json.dumps(case, ensure_ascii=False), encoding="utf-8")
+            original = src.read_bytes()
+            opts = ["--case", str(src), "--out", str(out),
+                    "--iterations", "1", "--restarts", "1"]
+            with patch("han_codebook.agent.query_local_llm",
+                       side_effect=AssertionError("no LLM permitted")):
+                self.assertEqual(main(opts), 0)
+                report_bytes = out.read_bytes()
+                # A second invocation, even with valid input, must not replace
+                # previously generated evidence or write a truncated file.
+                self.assertEqual(main(opts), 2)
+                self.assertEqual(out.read_bytes(), report_bytes)
+                self.assertEqual(main(["--case", str(src), "--out", str(src),
+                                       "--iterations", "1", "--restarts", "1"]), 2)
+                self.assertEqual(src.read_bytes(), original)
+                link = Path(td) / "previous_report_link.json"
+                try:
+                    link.symlink_to(out)
+                except (OSError, NotImplementedError):
+                    pass  # Windows machines without symlink privilege
+                else:
+                    self.assertEqual(main(["--case", str(src), "--out", str(link),
+                                           "--iterations", "1", "--restarts", "1"]), 2)
+                    self.assertEqual(out.read_bytes(), report_bytes)
+            self.assertNotIn("兵力", report_bytes.decode("utf-8"))
+            if os.name == "posix":
+                self.assertEqual(out.stat().st_mode & 0o777, 0o600)
 
     def test_offline_cli_writes_report_without_plaintext_or_llm(self):
         case = small_case()

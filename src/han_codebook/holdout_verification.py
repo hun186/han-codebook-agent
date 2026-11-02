@@ -13,6 +13,7 @@ import argparse
 from collections import Counter
 from copy import deepcopy
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -247,14 +248,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-metadata", action="store_true")
     args = parser.parse_args(argv)
     try:
+        # Reports are evidentiary artifacts, not scratch files. No previous
+        # report, research input or symlink target may ever be overwritten.
+        if args.out.resolve() == args.case.resolve():
+            raise CaseError("output path must differ from the research case")
         case = json.loads(args.case.read_text(encoding="utf-8"))
         result = verify_known_pairs(case, max_folds=args.max_folds,
                                     iterations=args.iterations,
                                     restarts=args.restarts,
                                     use_metadata=not args.no_metadata)
+        encoded = (json.dumps(result, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        args.out.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n",
-                            encoding="utf-8")
+        fd = os.open(args.out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(encoded)
         summary = result["summary"]
         print(f"Offline hold-out: {result['evaluated_fold_count']}/{result['available_fold_count']} folds; "
               f"potential fold-codes {summary['independently_testable_fold_code_assessments']}; "

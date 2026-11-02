@@ -240,3 +240,10 @@ python -m han_codebook.paired_holdout --case benchmarks/cases/07_alias_mixed_len
 - 既有提示權重在新增候選詞的預先求解時不再被丟掉。同一 `(code, candidate)` 重複回覆只計入 `repeated_hint_pairs`，不再次提高加權；相同回覆中重複碼組被拒絕。
 - 新增 `round_code_selection`、`round_progress_snapshot` 稽核事件，及結果的 `round_progress_summary`（目標碼數、未研究數、首次提示數、重複提示數、第一順位變更數、停滯訊號）。所有映射維持**未驗證假說**，系統不會用合成 gold 或目標函數自動挑選最佳回合。原始稽核事件可能含私密資料，請用私人 ZIP 保存並審閱分享範圍。
 - 新功能已有純離線 mock 回歸測試；需在使用者私人工作站重新執行 0／3／5 回合，以及 Metadata ON／OFF、不同隨機種子的重複實驗，才能判斷是否真正提高合成案例或歷史研究表現。
+
+### 各回合候選軌跡與回退診斷（僅私人研究紀錄）
+
+- 每次執行保留 `round_research_snapshots`：離線初始和每次完成 LLM 重評分的碼組 Top-1、Top-5、未驗證狀態、候選詞庫大小、求解目標分數，最多保留排序後 500 個碼組（如截斷會標示）。完整私人稽核另記 `round_hypothesis_snapshot`。
+- 每份快照列出 `changed_since_previous_snapshot` 與 `returned_to_older_hypothesis`；回到舊候選只代表**搜索反轉**，不等於變差或變好。`round_progress_summary` 也新增回退碼數。
+- 原有 SHARE 診斷不應暴露這些中文候選、原始模型輸入或答案；要檢視完整軌跡須使用經使用者明確確認的私人 ZIP。此功能不自動挑選最佳回合、不把 LLM 猜測升格為可信明文。
+- 若詞庫擴充，跨回合目標分數並非可直接公平比較；是否推進必須用獨立保留證據做事後評估，而非用合成 gold 回饋正在執行的求解器。

@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-02 — Post-inference phrase prior coverage audit (in progress)
+- Verified authoritative main `e64e8242c63e5648786eda908d5855623c91804d`: PR #35 paired metadata holdout merged as `dbcd5f9ddb8cdd15e6ac4cd13ee9b3ce275de92d` with postmerge main CI #41400605109 SUCCESS; PR #36 create-only holdout report merged as `e64e8242c63e5648786eda908d5855623c91804d` with postmerge main CI #41400785441 SUCCESS.
+- Current branch `feat/holdout-prior-coverage-audit-20261102` adds an explicitly post-inference-only exact phrase coverage count for each independent held-out fold-code: prior lexicon, sentence, other retained anchor terms, surviving researcher hints and absent from all explicit sources. Outputs only aggregate counts, never held-out plaintext or guesses; overlapping source counts are not summed as distinct code numbers.
+- Synthetic offline regressions test profile lexicon/sentence exposure, absent-from-priors cases, cross-code retained anchor and remaining non-target researcher hint; check solver input withheld phrase isolation and report privacy. No real LLM, API, historical corpus, synthetic gold or user workstation use claimed.
+- This is a contamination/coverage diagnostic, NOT actual phrase-vocabulary-blind inference. Free-text metadata, semantically synonymous terms and latent model vocabulary are not measured. At commit time Hosted CI / formal exact HEAD Codex Review / Merge remain PENDING.
+
+
 ## 2026-11-02 — Paired metadata known-pair holdout (current PR / verification pending)
 - Verified authoritative main `af57a262e523b79c1f468d6b3d97e14f494d895a`: PR #34 merged; postmerge Hosted main CI #41390257843 completed SUCCESS. Historical #1/#7/#8 remain OPEN and superseded/overlapping, not safe to blindly merge.
 - Branch `feat/paired-metadata-holdout-20261102` introduces `python -m han_codebook.paired_holdout`, two separate leave-one-message-alignment-out experiments on same source case, same folds, iterations/restarts and Metadata ON/OFF. It compares only independently testable fold-code outcomes scored by BOTH conditions; unscorable fold codes are counted separately and not silently treated as errors. Report contains no reference plaintext or guessed phrases.
@@ -30,7 +37,7 @@
 
 
 ## Current Focus
-2026-11-02 main `af57a262e523b79c1f468d6b3d97e14f494d895a`, PR #34 postmerge Hosted CI #41390257843 SUCCESS. Current branch adds offline paired Metadata ON/OFF leave-one-message-out verification of known plaintext, preserving a fair both-scored denominator and excluding unscorable codes; Hosted CI and formal Codex review pending. Existing user decision remains: do not access real LAN LLM and do not fabricate case07/08 model experiments. The longer-term P0 need for independent dictionaries / blinded phrase vocabulary remains unsolved.
+2026-11-02 main `e64e8242c63e5648786eda908d5855623c91804d`, PR #35/#36 both merged with postmerge Hosted main CI PASS (runs #41400605109 / #41400785441). Current branch adds honest post-inference phrase-prior coverage diagnosis for held-out code assessments; await latest-head full CI and Codex Review before Auto-Merge. Larger P0 independent dictionary and genuinely blind phrase-vocabulary tests are still TODO. User-unavailable LAN LLM case07 and case08 live 3-round experiments remain explicitly deferred.
 
 ## Recent Outcomes (2026-10-27)
 - Verified `matthewdgreen/decipher` public GitHub repo and README via connector; it has local Ollama agent mode and external context flags, but no dedicated Chinese phrase-codebook solver.

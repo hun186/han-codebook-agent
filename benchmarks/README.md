@@ -212,3 +212,17 @@ Linux／macOS 使用 `sh check_case08_offline_ablation.sh`，也可以用 `pytho
 尚未切段的明文：只填「已知完整明文」，所有逐碼欄位保持空白，即以 `plaintext` 保存為**待人工切段**，不能當作已確認錨點。已獨立核對的明文：依每個數字碼組填寫詞句，完整拼接必須與原文一致，勾選「我已獨立核對」並再次確認，才建立 `segments`。同一數字碼組在各筆已知對照的詞句不得衝突；編輯來源或內容時會移除已不適用的 `alignment_provenance`。**禁止直接把既有可信錨點改成另一個詞句**；若原史料需校訂，必須先明確撤回原對照的逐碼驗證、重新審核後再建立新對照。撤回既有錨點、刪除對照均需明確確認，並防止在編輯期間以舊表單覆蓋較新的研究內容。請先套用進階 JSON 的草稿，才使用逐筆管理。
 
 表單只修改目前瀏覽器的研究案例；若要持久保存，請按工作台「另存案例」建立新的本機檔案，不會默默覆寫原案例。逐碼研究員核對屬可追溯研究資料，**不是 LLM 自動推測，也不等於已證明歷史真偽**。公開 Vercel Mock 只保留同版 GUI 和瀏覽器內的合成示範，不開放真實服務端的研究認證 API。
+
+
+## 配對式 Metadata ON/OFF 已知明密文 Holdout（完全離線）
+
+既有 `python -m han_codebook.holdout_verification` 可逐封移除逐碼明文並事後評分，但單次執行只測一個 Metadata 設定。若要在相同的 held-out 電文、相同求解預算下，比較 Metadata 是否幫助或誤導解碼，可使用：
+
+```sh
+python -m han_codebook.paired_holdout --case benchmarks/cases/07_alias_mixed_length.json --out artifacts/paired_holdout_new.json --max-folds 10 --iterations 3 --restarts 2
+```
+
+- 同一案例複製兩份，分別移除同一封電文的**全部**已知明密文對與該封重新失去驗證的碼組研究提示，再以 Metadata ON/OFF 執行完全離線分析；兩者使用相同 folds 與 deterministic solver budget。
+- 僅比較**兩邊都產生有效評分**的 `(fold, code)`，計數 Metadata helped／harmed／both correct／both wrong，Top-1 與 Top-5 分開計算。候選詞不足、研究人員排除條件導致無法求解者，另列 `not_comparable_code_assessments`，不得當作猜錯或納入分母。
+- 報告只含碼組 ID、每碼相對改善狀態、折數、分母、統計及限制；**不含原始已知明文、候選中文詞、原始電文、LLM 記錄或任何 gold**。報告採新增檔案（exclusive create）並在 POSIX 要求 0600 權限，禁止覆寫舊報告或來源案例。
+- **重要限制：**這仍不是詞庫盲測。提供給推論系統的 profile lexicon／sentences 仍可能含有正確詞，且相同 code 可在不同 folds 被評估多次，折－碼計數不能當作全局獨立碼數。配對實驗只能辨識此合成／研究案例對 Metadata 的敏感性，不能推論真實歷史密碼準確度，也沒有呼叫任何模型。

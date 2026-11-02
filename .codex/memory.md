@@ -1,5 +1,13 @@
 # Project memory
 
+## 2026-11-02 — Paired metadata known-pair holdout (current PR / verification pending)
+- Verified authoritative main `af57a262e523b79c1f468d6b3d97e14f494d895a`: PR #34 merged; postmerge Hosted main CI #41390257843 completed SUCCESS. Historical #1/#7/#8 remain OPEN and superseded/overlapping, not safe to blindly merge.
+- Branch `feat/paired-metadata-holdout-20261102` introduces `python -m han_codebook.paired_holdout`, two separate leave-one-message-alignment-out experiments on same source case, same folds, iterations/restarts and Metadata ON/OFF. It compares only independently testable fold-code outcomes scored by BOTH conditions; unscorable fold codes are counted separately and not silently treated as errors. Report contains no reference plaintext or guessed phrases.
+- CLI requires `--out` and creates a NEW output file (exclusive create, POSIX 0600) to preserve old research evidence. Tests cover help/harm/ties, blocked denominators, code-identity mismatch, offline mock guard, no original mutation, no oracle, and create-only output. `benchmarks/README.md` documents use and limits.
+- Scientific limitation: candidate lexicon/sentence priors are still provided; this is NOT blind phrase-vocabulary cryptanalysis or a real historical accuracy claim. Case07 live model 1-round and case08 live multi-round remain explicitly deferred due to user-unavailable LLM.
+- Status at branch commit: implementation and tests pushed; Hosted CI, formal latest-HEAD Codex Review, possible Findings and merge **PENDING**. Do not imply success before Hosted evidence.
+
+
 ## 2026-11-02 — Typed diagnostic configuration at safe ZIP boundary (in progress)
 - PR #33 merged to main as `14b022330d7c0ce316996b9523f5cc4fff2252fd` after exact-HEAD 8/8 Hosted tests, official Codex Completed/No Findings, zero unresolved findings. Postmerge main CI run #41389888455 was in progress when this work began.
 - Branch `fix/diagnostic-config-schema-20261102` adds independent ZIP-builder validation of configuration values: 0..20 integer rounds (excluding bool), real booleans for metadata/capture, candidate mode in static/automatic/human and optional string model. Previously only key names were checked; corrupt old job metadata could include arbitrary user text in the SHARE manifest.
@@ -22,7 +30,7 @@
 
 
 ## Current Focus
-2026-11-02 authoritative main `14b022330d7c0ce316996b9523f5cc4fff2252fd`: PR #29-#33 merged, including safe audit metadata and immutable private case snapshot in diagnostic ZIP; PR #33 postmerge main CI #41389888455 pending at start of this branch. Current work validates diagnostic settings independently at ZIP export boundary. User's offline-only restriction persists; case07 live one-round and case08 live three-round metadata comparisons are deferred. Historical PR #1/#7/#8 remain open/superseded and must not be merged blindly.
+2026-11-02 main `af57a262e523b79c1f468d6b3d97e14f494d895a`, PR #34 postmerge Hosted CI #41390257843 SUCCESS. Current branch adds offline paired Metadata ON/OFF leave-one-message-out verification of known plaintext, preserving a fair both-scored denominator and excluding unscorable codes; Hosted CI and formal Codex review pending. Existing user decision remains: do not access real LAN LLM and do not fabricate case07/08 model experiments. The longer-term P0 need for independent dictionaries / blinded phrase vocabulary remains unsolved.
 
 ## Recent Outcomes (2026-10-27)
 - Verified `matthewdgreen/decipher` public GitHub repo and README via connector; it has local Ollama agent mode and external context flags, but no dedicated Chinese phrase-codebook solver.

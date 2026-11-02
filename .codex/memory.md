@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-02 — Safe diagnostic audit metadata hardening (in progress)
+- Verified main at `a488dc9617c5572fe1148528029b9ca1b825bddc`: PR #29 (known-pair GUI), #30 (consented diagnostic bundles), #31 (zero-LLM case08 ablation) are merged; main GitHub Actions push run #41303368358 completed SUCCESS.
+- Branch `fix/safe-diagnostic-audit-metadata-20261102`: default SHARE/safe ZIP no longer copies free-form SQLite `at_utc`, `stage`, or negative/non-integer rounds into `round_trace.jsonl`. UTC timestamp and stage identifiers use strict bounded patterns; invalid data yields null / `unrecognized`. Non-finite or negative `llm_response.elapsed_ms` is omitted as null. No change to the consent-required PRIVATE export, raw audit, LLM or oracle boundaries.
+- Regression adds a poisoned historical SQLite audit row with private sentinel text in stage/time, a negative round, and NaN timing; asserts the safe ZIP never reveals private text or invalid JSON. This is synthetic local test data only, NOT proof of actual user LLM execution.
+- Status at commit time: implementation and test committed to branch, Hosted CI / formal latest-HEAD Codex Review / merge **PENDING**. Must inspect latest PR HEAD, checks, review and threads against Auto-Merge v2 before merging. Offline LAN LLM case07/08 validation remains explicitly deferred.
+
+
 ## Current Focus
 2026-11-01 authoritative main `0b6a59e1020886cd0f05e58a1c7c7df7fdc4629b` (PR #31 merged; postmerge main CI #41302563434 SUCCESS). Main includes PR #30 local one-click diagnostic ZIP and PR #31 zero-model paired case08 ablation. **User has no LLM currently**: case07 real model 1 round and case08 3-round metadata on/off remain explicitly deferred TODO. PR #29 per-row known-pair GUI original HEAD `329ffa02e2d9ed9c24e84d0f288ba80074cdce2e` passed 8/8 CI and formal exact-head Codex No Findings, but was NOT mergeable after newer main. Resolution merges GUI and latest main via a two-parent commit preserving latest diagnostics and offline study; NEW exact-HEAD CI / formal Codex review / merge pending. Historical PR #1/#7/#8 intentionally open.
 

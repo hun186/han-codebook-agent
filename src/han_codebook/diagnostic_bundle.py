@@ -106,6 +106,17 @@ def build_diagnostic_zip(target: Path, *, job_id: str, status: str,
         "model", "rounds_requested", "metadata", "capture_llm_io", "candidate_mode"
     }:
         raise ValueError("Unexpected diagnostic settings")
+    # A historical/corrupted in-memory job may bypass the HTTP start validator.
+    # Do not copy arbitrary strings from its settings into a share-safe ZIP.
+    if (type(config.get("rounds_requested")) is not int
+            or not 0 <= config["rounds_requested"] <= 20
+            or type(config.get("metadata")) is not bool
+            or type(config.get("capture_llm_io")) is not bool
+            or type(config.get("candidate_mode")) is not str
+            or config["candidate_mode"] not in ("static", "automatic", "human")
+            or (config.get("model") is not None
+                and type(config["model"]) is not str)):
+        raise ValueError("Invalid diagnostic setting values")
     if target.is_symlink() or not target.is_dir():
         raise ValueError("Invalid run directory")
     db = target / "audit.sqlite"

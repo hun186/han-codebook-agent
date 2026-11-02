@@ -155,6 +155,35 @@ class DiagnosticFormatTests(unittest.TestCase):
             self.assertNotIn("stage_" + SENTINEL, summary["stage_counts"])
             self.assertEqual(summary["last_observed_round"], 2)
 
+    def test_invalid_historical_job_settings_fail_closed_before_safe_export(self):
+        with TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            seed(target)
+            invalid_fields = (
+                ("candidate_mode", SENTINEL + " http://private.invalid"),
+                ("rounds_requested", SENTINEL),
+                ("rounds_requested", -1),
+                ("rounds_requested", 21),
+                ("rounds_requested", True),
+                ("metadata", SENTINEL),
+                ("capture_llm_io", 1),
+                ("model", ["unexpected", SENTINEL]),
+            )
+            for key, value in invalid_fields:
+                with self.subTest(field=key, value=value):
+                    with self.assertRaisesRegex(ValueError, "Invalid diagnostic setting"):
+                        build_diagnostic_zip(
+                            target, job_id="abcdef0123456789",
+                            status="completed", config={**CONFIG, key: value})
+            # Normal bounded settings, including offline 0 rounds, still work.
+            valid = {**CONFIG, "model": None, "rounds_requested": 0,
+                     "candidate_mode": "static", "capture_llm_io": False}
+            safe = unzip(build_diagnostic_zip(
+                target, job_id="abcdef0123456789", status="completed",
+                config=valid))
+            self.assertIn(b'"rounds_requested": 0', safe["run_manifest.json"])
+            self.assertIn(b'"candidate_mode": "static"', safe["run_manifest.json"])
+
     def test_failed_preflight_export_without_any_sqlite_remains_partial(self):
         with TemporaryDirectory() as tmp:
             target=Path(tmp)

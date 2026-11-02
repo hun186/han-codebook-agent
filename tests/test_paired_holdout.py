@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from han_codebook.core import CaseError
+from han_codebook.holdout_verification import verify_known_pairs
 from han_codebook.paired_holdout import main, paired_metadata_holdout
 
 
@@ -51,9 +52,7 @@ class PairedHoldoutTests(unittest.TestCase):
         with patch("han_codebook.agent.query_local_llm",
                    side_effect=AssertionError("No LLM calls in holdout")):
             with patch("han_codebook.paired_holdout.verify_known_pairs",
-                       wraps=__import__(
-                           "han_codebook.holdout_verification",
-                           fromlist=["verify_known_pairs"]).verify_known_pairs) as runner:
+                       wraps=verify_known_pairs) as runner:
                 result = paired_metadata_holdout(case, iterations=1, restarts=1)
         self.assertEqual(case, before)
         self.assertEqual(runner.call_count, 2)
@@ -109,7 +108,9 @@ class PairedHoldoutTests(unittest.TestCase):
         self.assertEqual(result["folds"][1]["paired_scored_code_assessments"], 0)
         self.assertEqual(result["folds"][1]["effects_without_plaintext"][0]["top1"],
                          "not_comparable")
-        self.assertNotIn("plaintext", json.dumps(result["folds"]))
+        self.assertTrue(all("term" not in effect and "phrase" not in effect
+                            for fold in result["folds"]
+                            for effect in fold["effects_without_plaintext"]))
 
     def test_mismatched_folds_and_code_set_fail_closed(self):
         on = report(example_fold("m1", [("101", "correct_top1")]))
@@ -166,9 +167,7 @@ class PairedHoldoutTests(unittest.TestCase):
             case["ground_truth"] = {"101": "補給"}
             source.write_text(json.dumps(case, ensure_ascii=False), encoding="utf-8")
             with patch("han_codebook.paired_holdout.verify_known_pairs",
-                       wraps=__import__(
-                           "han_codebook.holdout_verification",
-                           fromlist=["verify_known_pairs"]).verify_known_pairs):
+                       wraps=verify_known_pairs):
                 self.assertEqual(main(["--case", str(source), "--out", str(dest)]), 2)
             self.assertFalse(dest.exists())
 

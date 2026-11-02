@@ -5,6 +5,7 @@ The model never receives 'ground_truth' or credentials, and cannot alter verifie
 from __future__ import annotations
 
 import copy
+from collections import Counter
 import ipaddress
 import json
 import os
@@ -288,6 +289,12 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         log_event(conn, 0, "preflight", {"messages": len(case["messages"]), "known_anchors": len(anchors),
                                          "ambiguous_pairs": len(reviews), "domains": domains})
         hints: dict[str, dict[str, float]] = {}
+        # Code-level model proposals are *repeated opinions*, not independent
+        # observations. Do not count the same (code, word) twice.
+        seen_hint_pairs: set[tuple[str, str]] = set()
+        requested_codes: Counter[str] = Counter()
+        previous_llm: dict[str, dict[str, Any]] = {}
+        round_history: list[dict[str, Any]] = []
         if progress:
             progress("[analysis] Computing local statistical baseline ...")
         from .llm_evidence import safe_llm_message
@@ -340,6 +347,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                              "all remain unverified.")
                 # Expand the solver's candidate space before asking for code-level hints.
                 current = analyze(active_case, use_metadata=metadata,
+                                  llm_hints=hints,
                                   iterations=solver_iterations, restarts=solver_restarts)
                 if cancel_check:
                     cancel_check()  # Never send another LLM call after a canceled solve.
@@ -355,10 +363,33 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                     "candidate_count": len(vocab),
                     "round": num,
                 })
-            unresolved = {
+            all_unresolved = {
                 c: p for c, p in current["proposals"].items()
                 if p["status"] == "hypothesis_unverified"
             }
+            # Every unknown code should get a fair opportunity before a few
+            # high-frequency codes monopolize the provider's 15-code output.
+            frequency = Counter(code for message in case["messages"]
+                                for code in message["codes"])
+            selected = sorted(all_unresolved,
+                              key=lambda code: (requested_codes[code],
+                                                -frequency[code], code))[:15]
+            unresolved = {code: all_unresolved[code] for code in selected}
+            for code in selected:
+                requested_codes[code] += 1
+            pending_codes = sorted(set(all_unresolved) - set(selected))
+            prior = [
+                {"code": code, "candidates": previous_llm[code]["candidates"],
+                 "source_round": previous_llm[code]["round"],
+                 "status": "hypothesis_unverified"}
+                for code in selected if code in previous_llm
+            ]
+            log_event(conn, num, "round_code_selection", {
+                "target_codes": selected, "unasked_codes": sorted(
+                    code for code in all_unresolved if requested_codes[code] == 0),
+                "total_unknown_codes": len(all_unresolved),
+                "prior_attempts": {code: requested_codes[code] - 1 for code in selected},
+            })
             packet = {
                 "policy": "Propose dictionary-constrained hypotheses only; you have no decoding oracle.",
                 "verified_anchors": anchors,
@@ -370,6 +401,16 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                              for name, p in case["profiles"].items()},
                 "messages": [safe_llm_message(m, metadata=metadata) for m in case["messages"][:100]],
                 "unresolved": unresolved,
+                "round_context": {
+                    "round": num,
+                    "target_codes": selected,
+                    "unasked_code_count": sum(
+                        requested_codes[code] == 0 for code in all_unresolved),
+                    "prior_llm_hypotheses_unverified": prior,
+                    "instruction": ("Evaluate only target codes; challenge previous guesses "
+                                    "with ciphertext context. Repeating a guess without new "
+                                    "evidence does not increase its reliability."),
+                },
             }
             if progress:
                 progress(f"[agent] Round {num}/{rounds}: requesting {model} from {llm_url.rstrip('/')}/v1/chat/completions "
@@ -403,22 +444,41 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                          "validating candidate proposals ...")
             accepted = []
             rejected_count = 0
+            fresh_hint_count = 0
+            repeated_hint_count = 0
+            seen_reply_codes = set()
             for entry in reply["hypotheses"][:15]:
                 if not isinstance(entry, dict):
                     rejected_count += 1
                     continue
                 code, candidates = entry.get("code"), entry.get("candidates", [])
-                if code not in unresolved or not isinstance(candidates, list):
+                if (code not in unresolved or code in seen_reply_codes
+                        or not isinstance(candidates, list)):
                     rejected_count += 1
                     continue
-                allowed = [x for x in candidates[:5] if isinstance(x, str) and x in vocab]
+                seen_reply_codes.add(code)
+                allowed = list(dict.fromkeys(
+                    x for x in candidates[:5] if isinstance(x, str) and x in vocab))
                 if not allowed:
                     rejected_count += 1
                     continue
                 for rank, word in enumerate(allowed):
-                    hints.setdefault(code, {})[word] = min(0.6, hints.get(code, {}).get(word, 0.0) + 0.25 / (rank + 1))
+                    pair = (code, word)
+                    if pair in seen_hint_pairs:
+                        repeated_hint_count += 1
+                        continue
+                    seen_hint_pairs.add(pair)
+                    hints.setdefault(code, {})[word] = min(
+                        0.6, hints.get(code, {}).get(word, 0.0) + 0.25 / (rank + 1))
+                    fresh_hint_count += 1
+                previous_llm[code] = {"candidates": allowed[:5], "round": num}
                 accepted.append({"code": code, "candidates": allowed, "reason": str(entry.get("reason", ""))[:250]})
-            log_event(conn, num, "llm_proposals_unverified", {"accepted": accepted, "rejected_count": rejected_count, "returned_count": len(reply["hypotheses"])})
+            log_event(conn, num, "llm_proposals_unverified", {
+                "accepted": accepted, "rejected_count": rejected_count,
+                "returned_count": len(reply["hypotheses"]),
+                "fresh_hint_pairs": fresh_hint_count,
+                "repeated_hint_pairs": repeated_hint_count,
+            })
             if progress:
                 progress(f"[agent] Round {num}/{rounds}: accepted {len(accepted)} unverified code hypotheses; reranking ...")
             current = analyze(active_case, use_metadata=metadata, llm_hints=hints,
@@ -427,6 +487,17 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
             changes = {code: {"before": previous, "after": new_mapping[code]}
                        for code, previous in round_start_mapping.items()
                        if new_mapping[code] != previous}
+            snapshot = {
+                "round": num, "target_code_count": len(selected),
+                "unasked_code_count": sum(
+                    requested_codes[code] == 0 for code in all_unresolved),
+                "fresh_hint_pairs": fresh_hint_count,
+                "repeated_hint_pairs": repeated_hint_count,
+                "changed_code_count": len(changes),
+                "stagnant": not changes and fresh_hint_count == 0,
+            }
+            round_history.append(snapshot)
+            log_event(conn, num, "round_progress_snapshot", snapshot)
             log_event(conn, num, "rescore", {"score": current["objective_score"],
                                               "mapping": new_mapping, "changes": changes, "changed_count": len(changes)})
         if cancel_check:
@@ -436,6 +507,9 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         from .bold_hypotheses import normalize_bold_hypotheses
         current["bold_hypotheses"] = normalize_bold_hypotheses(case, current["verified_anchors"])
         current["agent_rounds_completed"] = rounds
+        # Diagnostic-only history; never choose a round using synthetic gold
+        # or automatically promote a guessed mapping into a trusted anchor.
+        current["round_progress_summary"] = round_history
         current["run_id"] = run_id
         current["audit_database"] = str(db_path)
         current["warning"] = "LLM suggestions influence ranking only; an AI guess never becomes a verified mapping."

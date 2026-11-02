@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-02 — Real Case08 follow-up: multi-round coverage / dedup (PR pending)
+- Verified authoritative main `e25001dcceaca72fad4075b1b16f4a79cbfde8a6`, postmerge main Hosted run #41401479773 SUCCESS. Historical #1/#7/#8 remain OPEN and superseded; do not blindly merge.
+- User has NOW executed genuine local Case08 experiments (one 5-round adaptive run plus three comparable zero/three-round bundles) with a private model; the diagnostics were evaluated in the chat only. Private diagnostic ZIPs, endpoints, and raw LLM requests MUST NOT be committed. Prior memory saying no LAN model is available is now outdated.
+- Branch `feat/round-state-coverage-dedup-20261102`: route up to 15 unresolved code groups per round, prioritizing codes with fewer previous request opportunities; include bounded previous model guesses and round identifier as UNVERIFIED context; after each round log target coverage, truly new (code,word) hints, duplicate hints, first-choice changes and stagnation. Deduplicate hints across rounds instead of treating repeat suggestions as independent evidence. Carry prior hints into adaptive vocabulary pre-rescore to avoid reset.
+- Synthetic offline mocked 27-code fairness, repeated suggestion weighting, previous-round packet and adaptive-state retention regressions. No real model called by GitHub tests and no synthetic gold inside solver. Stop before auto merge unless latest HEAD full Hosted CI, formal Codex Review and all gates pass. Further P1: rank-preserving round snapshots and new-vocabulary evidence gate, plus repeated workstation experiments.
+
+
 ## 2026-11-02 — Post-inference phrase prior coverage audit (in progress)
 - Verified authoritative main `e64e8242c63e5648786eda908d5855623c91804d`: PR #35 paired metadata holdout merged as `dbcd5f9ddb8cdd15e6ac4cd13ee9b3ce275de92d` with postmerge main CI #41400605109 SUCCESS; PR #36 create-only holdout report merged as `e64e8242c63e5648786eda908d5855623c91804d` with postmerge main CI #41400785441 SUCCESS.
 - Current branch `feat/holdout-prior-coverage-audit-20261102` adds an explicitly post-inference-only exact phrase coverage count for each independent held-out fold-code: prior lexicon, sentence, other retained anchor terms, surviving researcher hints and absent from all explicit sources. Outputs only aggregate counts, never held-out plaintext or guesses; overlapping source counts are not summed as distinct code numbers.
@@ -37,7 +44,7 @@
 
 
 ## Current Focus
-2026-11-02 main `e64e8242c63e5648786eda908d5855623c91804d`, PR #35/#36 both merged with postmerge Hosted main CI PASS (runs #41400605109 / #41400785441). Current branch adds honest post-inference phrase-prior coverage diagnosis for held-out code assessments; await latest-head full CI and Codex Review before Auto-Merge. Larger P0 independent dictionary and genuinely blind phrase-vocabulary tests are still TODO. User-unavailable LAN LLM case07 and case08 live 3-round experiments remain explicitly deferred.
+2026-11-02 main `e25001dcceaca72fad4075b1b16f4a79cbfde8a6` with main Hosted CI #41401479773 SUCCESS. User has completed real LAN Case08 5-round and 0/3/3-round experiments, superseding older 'LLM unavailable' memory. Current PR implements fair multi-round unknown-code coverage, previous-guess state and no duplicate evidence accumulation; exact-head Hosted CI and Codex Review pending. Later: round snapshots/quality-gated vocabulary plus user-workstation controlled repetition. Do NOT commit raw private ZIPs or use synthetic gold to choose inference output.
 
 ## Recent Outcomes (2026-10-27)
 - Verified `matthewdgreen/decipher` public GitHub repo and README via connector; it has local Ollama agent mode and external context flags, but no dedicated Chinese phrase-codebook solver.

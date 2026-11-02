@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from hashlib import sha256
 from io import BytesIO
 import json
+import math
 from pathlib import Path
 import re
 from typing import Any
@@ -22,6 +23,12 @@ MAX_BUNDLE_BYTES = 128 * 1024 * 1024
 TERMINAL = {"completed", "failed"}
 
 ORACLE_KEYS = frozenset(("gold", "ground_truth", "codebook"))
+# SQLite audit columns are ordinarily machine-produced, but older or manually
+# modified audit files must not smuggle free-form text into a share-safe ZIP.
+_SAFE_UTC = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:\+00:00|Z)\Z"
+)
+_SAFE_STAGE = re.compile(r"[a-z_]{1,72}\Z")
 
 
 def reject_oracle_fields(case: Any) -> None:
@@ -52,8 +59,14 @@ def _sanitized_trace(events: list[dict]) -> list[dict]:
         payload = event.get("payload") or {}
         if not isinstance(payload, dict):
             payload = {}
-        entry = {"at_utc": event.get("at"), "round": event.get("round"),
-                 "stage": event.get("stage")}
+        at = event.get("at")
+        stage = event.get("stage")
+        entry = {
+            "at_utc": at if type(at) is str and _SAFE_UTC.fullmatch(at) else None,
+            "round": _safe_count(event.get("round")),
+            "stage": stage if type(stage) is str and _SAFE_STAGE.fullmatch(stage)
+                     else "unrecognized",
+        }
         for key in ("changed_count", "rejected_count", "returned_count", "candidate_count",
                     "round", "known_anchors", "ambiguous_pairs", "messages"):
             if key in payload:
@@ -63,8 +76,12 @@ def _sanitized_trace(events: list[dict]) -> list[dict]:
         for key in ("accepted", "approved", "proposed"):
             if isinstance(payload.get(key), list):
                 entry[key + "_count"] = len(payload[key])
-        if event.get("stage") == "llm_response":
-            entry["elapsed_ms"] = payload.get("elapsed_ms") if type(payload.get("elapsed_ms")) in (int, float) else None
+        if entry["stage"] == "llm_response":
+            elapsed = payload.get("elapsed_ms")
+            entry["elapsed_ms"] = elapsed if (
+                (type(elapsed) is int and elapsed >= 0)
+                or (type(elapsed) is float and math.isfinite(elapsed) and elapsed >= 0)
+            ) else None
             usage = payload.get("usage")
             if isinstance(usage, dict):
                 entry["token_usage"] = {k: v for k, v in usage.items()
@@ -109,7 +126,7 @@ def build_diagnostic_zip(target: Path, *, job_id: str, status: str,
         stage = e.get("stage")
         # Stage names are code-defined; reject arbitrary raw audit text in
         # the sanitized share-safe report.
-        if type(stage) is str and re.fullmatch(r"[a-z_]{1,72}", stage):
+        if type(stage) is str and _SAFE_STAGE.fullmatch(stage):
             stages[stage] = stages.get(stage, 0) + 1
     last_round = max((e["round"] for e in trace if type(e.get("round")) is int), default=0)
     failure_category = error_type if (type(error_type) is str and

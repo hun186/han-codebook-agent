@@ -33,7 +33,8 @@ class AdaptiveRoundIntegrityTests(unittest.TestCase):
             calls.append(deepcopy(case["profiles"]))
             return mapping("原詞" if len(calls)==1 else "新增詞")
         def fake_vocab(url,model,packet,**kw):
-            return {"vocabulary":[{"term":"新增詞","reason":"依跨報背景提出"}]}
+            return {"vocabulary":[{"term":"新增詞","reason":"依跨報背景提出",
+                                  "evidence_message_ids":[packet["messages"][0]["id"]]}]}
         def fake_code(url,model,packet,**kw):
             self.assertIn("新增詞",packet["available_vocabulary"])
             return {"hypotheses":[]}
@@ -67,7 +68,8 @@ class AdaptiveRoundIntegrityTests(unittest.TestCase):
             if flags["steps"]==2:flags["cancelled"]=True
             return mapping("原詞" if flags["steps"]==1 else "新增詞")
         def fake_vocab(url,model,packet,**kw):
-            return {"vocabulary":[{"term":"新增詞","reason":"可疑活動"}]}
+            return {"vocabulary":[{"term":"新增詞","reason":"可疑活動",
+                                  "evidence_message_ids":[packet["messages"][0]["id"]]}]}
         def fake_code(url,model,packet,**kw):
             flags["code_calls"]+=1
             return {"hypotheses":[]}

@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-02 — Auto vocabulary evidence-pointer gate (third P1 PR pending)
+- User's genuine private Case08 0/3/5-round experience showed automatic candidate expansion can add many non-matching Chinese phrases; no user's private diagnostic ZIP or endpoint is committed.
+- Branch `feat/auto-vocabulary-provenance-gate-20261102` changes automatic adoption only (human review remains explicit): a candidate must have nonempty reason and 1-3 unique valid `messages[].id` references, and at most 8 such novel words are adopted per round. Words already in profile example sentences/lexicons are not counted as discoveries. Unreferenced proposals remain available in private audit for review; references are pointers for auditing, not verified semantic evidence or trusted anchors.
+- Model vocabulary prompt requests these references. Synthetic tests cover forged/duplicate/absent IDs, invalid types, auto budget, missing reasons, human override, no case mutation. Existing fake-model vocabulary fixtures updated to include fictional source IDs for compatible expected automatic adoption.
+- PR #38 merged as `a406956886eba3e390903110b8c3db56f764a0e7` (postmerge main CI #41410329576 SUCCESS); PR #39 merged as `5cb0180729ed3b43144acc58ebaa2f7b5f34e6a7` (postmerge main CI #41411946908 SUCCESS). This PR is now independently based on #39 merged main. Its fresh exact-HEAD Hosted CI and formal Codex review are PENDING; only real user-workstation comparison can determine Case08 accuracy impact.
+
+
 ## 2026-11-02 — Private per-round candidate trajectories (stacked PR pending)
 - Built on PR #38 latest commit `cd941d4ddc7c8065172addb4d286c2fe03e97e46` to preserve continuity; PR #38 exact-HEAD CI/Codex gate must complete before stacking into main. The latest head's official Codex initially found P1 stale stage assertion, fixed in #38; don't conflate stale review status with latest gate.
 - Branch `feat/round-hypothesis-trajectories-20261102` records a bounded, PRIVATE-only per-round Top-1/Top-5 hypothesis snapshot (baseline + each LLM rescore), vocabulary size, objective score and candidate status. Highlights codes whose guess changed or reverted to an older guess, without automatic best-round selection or any oracle use.
@@ -51,7 +58,7 @@
 
 
 ## Current Focus
-2026-11-02 stacked followup after PR #38: retain genuine prior round Top-1/Top-5 and detect reversion without oracle or automatic best-round choice; formal latest-HEAD CI and review pending. After this, candidate vocabulary auto-acceptance evidence gate and repeatable private Case08 0/3/5 metadata ON/OFF comparisons remain priorities. No private ZIPs/endpoint data committed.
+2026-11-02 authoritative main `5cb0180729ed3b43144acc58ebaa2f7b5f34e6a7`: PR #38/#39 both MERGED and main postmerge Hosted runs #41410329576 / #41411946908 SUCCESS. Current PR #40 is a separate main-based automatic vocabulary evidence gate, requiring exact-head Hosted CI, formal Codex review and no unresolved blockers before merge. Source references are not verified plaintext, and synthetic gold never enters inference. Private Case08 repeated model A/B comparisons remain user workstation follow-up.
 
 ## Recent Outcomes (2026-10-27)
 - Verified `matthewdgreen/decipher` public GitHub repo and README via connector; it has local Ollama agent mode and external context flags, but no dedicated Chinese phrase-codebook solver.

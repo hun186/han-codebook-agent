@@ -65,7 +65,8 @@ class AdaptiveVocabularyTest(unittest.TestCase):
             if kw.get("on_exchange"):
                 kw["on_exchange"]("llm_request",{"body":{"phase":"vocabulary", "round":round_number}})
                 kw["on_exchange"]("llm_response",{"response":"vocabulary round "+str(round_number)})
-            return {"vocabulary":[{"term":"第"+str(round_number)+"輪新詞","reason":"輔助情報＋暫時推論"}],
+            return {"vocabulary":[{"term":"第"+str(round_number)+"輪新詞","reason":"輔助情報＋暫時推論",
+                                   "evidence_message_ids":[payload["messages"][0]["id"]]}],
                     "patterns":[]}
         def code_query(url,model,payload,**kw):
             self.assertTrue(payload["available_vocabulary"])

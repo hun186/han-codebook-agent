@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-02 — Immutable private diagnostic input snapshot (in progress)
+- Confirmed PR #32 merged as `03296efa31e60cd718ab5c32d69e4fc0a3e7fe06`; exact HEAD Hosted CI 8/8 PASS, formal Codex Completed/No Findings. Post-merge main CI #41389515053 was in progress when branch started.
+- A previously verified private `input_case.json` was read a SECOND time when adding it to ZIP, permitting a local file replacement between oracle/size validation and exported bytes. On branch `fix/immutable-diagnostic-snapshot-20261102` the exporter reuses the single validated byte snapshot for case SHA and ZIP; missing-input partial run handling remains fail-closed.
+- Regression replaces the local test case on disk immediately after the first read with synthetic `ground_truth`, confirms the ZIP includes only the original oracle-checked bytes, and verifies manifest SHA matches packaged bytes. Zero LLM calls, real historical plaintext and public Vercel changes.
+- At commit time: branch changes committed; Hosted CI, formal latest-HEAD Codex Review and Auto-Merge gate **PENDING**. Live LAN model case07/08 work remains deferred.
+
+
 ## 2026-11-02 — Safe diagnostic audit metadata hardening (in progress)
 - Verified main at `a488dc9617c5572fe1148528029b9ca1b825bddc`: PR #29 (known-pair GUI), #30 (consented diagnostic bundles), #31 (zero-LLM case08 ablation) are merged; main GitHub Actions push run #41303368358 completed SUCCESS.
 - Branch `fix/safe-diagnostic-audit-metadata-20261102`: default SHARE/safe ZIP no longer copies free-form SQLite `at_utc`, `stage`, or negative/non-integer rounds into `round_trace.jsonl`. UTC timestamp and stage identifiers use strict bounded patterns; invalid data yields null / `unrecognized`. Non-finite or negative `llm_response.elapsed_ms` is omitted as null. No change to the consent-required PRIVATE export, raw audit, LLM or oracle boundaries.
@@ -8,7 +15,7 @@
 
 
 ## Current Focus
-2026-11-01 authoritative main `0b6a59e1020886cd0f05e58a1c7c7df7fdc4629b` (PR #31 merged; postmerge main CI #41302563434 SUCCESS). Main includes PR #30 local one-click diagnostic ZIP and PR #31 zero-model paired case08 ablation. **User has no LLM currently**: case07 real model 1 round and case08 3-round metadata on/off remain explicitly deferred TODO. PR #29 per-row known-pair GUI original HEAD `329ffa02e2d9ed9c24e84d0f288ba80074cdce2e` passed 8/8 CI and formal exact-head Codex No Findings, but was NOT mergeable after newer main. Resolution merges GUI and latest main via a two-parent commit preserving latest diagnostics and offline study; NEW exact-HEAD CI / formal Codex review / merge pending. Historical PR #1/#7/#8 intentionally open.
+2026-11-02 authoritative main `03296efa31e60cd718ab5c32d69e4fc0a3e7fe06`: PR #29 known-pair editor, #30 diagnostics ZIP, #31 0-LLM case08 ablation and #32 safe-audit metadata hardening are **MERGED**. Main postmerge CI #41389515053 pending when this branch started. Current branch improves private ZIP source snapshot consistency (not yet reviewed or merged). User currently cannot use any LLM: real case07 one-round and case08 three-round comparison remain deliberately deferred, with no workstation inference or commercial accuracy claim. Historical PR #1/#7/#8 remain open but overlap newer main.
 
 ## Recent Outcomes (2026-10-27)
 - Verified `matthewdgreen/decipher` public GitHub repo and README via connector; it has local Ollama agent mode and external context flags, but no dedicated Chinese phrase-codebook solver.

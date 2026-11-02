@@ -256,3 +256,11 @@ python -m han_codebook.paired_holdout --case benchmarks/cases/07_alias_mixed_len
 - 自動模式每回合最多採納 **8 筆**具有上述最低可追溯性的詞彙；其餘只保存在私人候選提議紀錄中供檢閱。原先詞庫與句子範例已含的詞也不重複算新發現。正式「人工審核」模式仍可由研究員明確採納沒有模型引用但有獨立證據的詞彙。
 - `vocabulary_candidates_unverified` 新增 `automatic_evidence_gate`、`untraceable_proposed_count`、`auto_per_round_limit` 記錄；所有自動候選都維持**未驗證**。若模型未按照新格式輸出引用，仍可保留候選供人工檢閱，但可能不會自動新增詞；請用私人診斷 ZIP 檢查來源和拒收原因。
 - 這是輸入證據**格式與可追溯性**門檻，不會檢查語義是否真的支持詞彙。不得當成 LLM 提出詞的正確性保證，也不會使用合成金標、私人 ZIP 或任意公開模型來決定是否採用。
+
+## 跨電文的碼組候選反證（不使用標準答案）
+
+- 每回合針對實際排程的最多 15 個未知碼，建立 `cross_message_context`：每碼最多選 6 個電文位置（優先不同電文），每次保留目標碼組前後各 2 個碼及其位置。
+- 鄰近碼組只有**已由人工對齊的可信錨點**才附上 `verified_term`；非錨點只提供密碼數字碼，不將統計推測冒充真實明文。
+- 每碼列出當前 Top-5 `candidate_comparison`（明確標示未驗證），引導 LLM 比較跨電文共同與衝突線索；回覆可選附上 `supporting_message_ids` / `counterexample_message_ids`，程式只保留確實包含該碼的電文 ID，拒絕虛構／其他碼組 ID。
+- Metadata OFF 不會在此證據窗格混入收發者、備註或觀察；Metadata ON 的原有欄位仍依既有控制傳送。無論引用存在與否，都不能證明詞義正確，不能加強權重或改寫可信錨點；私人稽核可以審查反證。
+- 合成 Mock 回歸只證明跨報脈絡、安全隔離與引用完整性；Case08 實機 Top-1 是否提升需要後續同設定的多次重複驗證。

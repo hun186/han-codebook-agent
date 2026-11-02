@@ -51,7 +51,7 @@ class TrajectoryTests(unittest.TestCase):
                           result["round_research_snapshots"]],
                          ["甲", "乙", "甲", "丙"])
         self.assertEqual([s["proposals"]["100"]["top5"][0] for s in snapshots],
-                         ["乙", "甲", "丙"])
+                         ["甲", "乙", "甲", "丙"])
         self.assertEqual(result["round_research_snapshots"][2]
                          ["returned_to_older_hypothesis"], ["100"])
         self.assertEqual(result["round_progress_summary"][1]

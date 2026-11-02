@@ -98,6 +98,10 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
             "請只回傳 JSON：{\"hypotheses\":[{\"code\":\"123\",\"candidates\":[\"糧秣\",\"補給\"],\"reason\":\"...\"}]}。"
             "每個 code 必須是 unresolved 物件中完全相同的一個鍵（例如 144），絕不能輸出 144-115、144 115 或多碼串接。"
             "每個 candidate 必須來自提供的合法詞彙列表；不得更動 verified_anchors；最多回傳 15 個碼組。"
+            "請比較 cross_message_context 中同一碼組的多封電文鄰居、可信錨點與 competing candidates，"
+            "優先尋找反證而非肯定目前第一名；對 hypotheses 可選擇輸出 supporting_message_ids 與 "
+            "counterexample_message_ids（只能引用該碼組確實出現的電文 ID），"
+            "並在 reason 中清楚註明尚未驗證。電文 ID 只代表可查線索，不代表詞義正確。"
             "只能回傳 JSON 物件，先輸出最終答案，不要在 content 裡寫思考過程。"
         )
     body = {
@@ -445,6 +449,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 "total_unknown_codes": len(all_unresolved),
                 "prior_attempts": {code: requested_codes[code] - 1 for code in selected},
             })
+            from .code_context import cross_message_context, check_evidence_refs
             packet = {
                 "policy": "Propose dictionary-constrained hypotheses only; you have no decoding oracle.",
                 "verified_anchors": anchors,
@@ -456,6 +461,9 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                              for name, p in case["profiles"].items()},
                 "messages": [safe_llm_message(m, metadata=metadata) for m in case["messages"][:100]],
                 "unresolved": unresolved,
+                "cross_message_context": cross_message_context(
+                    case, selected=selected, anchors=anchors,
+                    proposals=current["proposals"]),
                 "round_context": {
                     "round": num,
                     "target_codes": selected,
@@ -501,6 +509,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
             rejected_count = 0
             fresh_hint_count = 0
             repeated_hint_count = 0
+            evidence_reference_count = 0
+            counter_reference_count = 0
             seen_reply_codes = set()
             for entry in reply["hypotheses"][:15]:
                 if not isinstance(entry, dict):
@@ -527,12 +537,27 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                         0.6, hints.get(code, {}).get(word, 0.0) + 0.25 / (rank + 1))
                     fresh_hint_count += 1
                 previous_llm[code] = {"candidates": allowed[:5], "round": num}
-                accepted.append({"code": code, "candidates": allowed, "reason": str(entry.get("reason", ""))[:250]})
+                support = check_evidence_refs(
+                    code, entry.get("supporting_message_ids"), case["messages"])
+                counter = check_evidence_refs(
+                    code, entry.get("counterexample_message_ids"), case["messages"])
+                evidence_reference_count += len(support)
+                counter_reference_count += len(counter)
+                accepted.append({
+                    "code": code, "candidates": allowed,
+                    "reason": str(entry.get("reason", ""))[:250],
+                    "supporting_message_ids": support,
+                    "counterexample_message_ids": counter,
+                    "evidence_references_unverified": True,
+                })
             log_event(conn, num, "llm_proposals_unverified", {
                 "accepted": accepted, "rejected_count": rejected_count,
                 "returned_count": len(reply["hypotheses"]),
                 "fresh_hint_pairs": fresh_hint_count,
                 "repeated_hint_pairs": repeated_hint_count,
+                "supporting_message_references": evidence_reference_count,
+                "counterexample_message_references": counter_reference_count,
+                "references_are_not_verified": True,
             })
             if progress:
                 progress(f"[agent] Round {num}/{rounds}: accepted {len(accepted)} unverified code hypotheses; reranking ...")

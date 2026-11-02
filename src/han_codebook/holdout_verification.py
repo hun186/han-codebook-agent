@@ -52,6 +52,55 @@ def _fold_input(case: dict[str, Any], message_id: str,
     return folded
 
 
+
+def _reference_phrase_prior_coverage(
+    folded: dict[str, Any], truth: dict[str, str],
+    independent: list[str], retained: dict[str, str],
+) -> dict[str, int]:
+    """Post-inference-only count of exact reference phrases exposed by priors.
+
+    Never emit held-out words or copy them into a solver case. Multiple sources
+    may expose the same phrase; source counts are intentionally overlapping.
+    This cannot establish semantic leakage from free-text context.
+    """
+    lexicon = {
+        term for profile in folded["profiles"].values()
+        for term in profile.get("lexicon", {})
+    }
+    sentences = {
+        term for profile in folded["profiles"].values()
+        for sentence in profile.get("sentences", [])
+        for term in sentence
+    }
+    researcher = set(idea_vocabulary(folded))
+    for mark in (folded.get("hypothesis_marks") or {}).values():
+        if mark.get("preferred"):
+            researcher.add(mark["preferred"])
+    for mark in (folded.get("bold_hypotheses") or {}).values():
+        if mark.get("term"):
+            researcher.add(mark["term"])
+    retained_terms = set(retained.values())
+    stats = Counter()
+    for code in independent:
+        reference = truth[code]
+        sources = {
+            "profile_lexicon": reference in lexicon,
+            "profile_sentences": reference in sentences,
+            "other_retained_anchor_terms": reference in retained_terms,
+            "remaining_researcher_hints": reference in researcher,
+        }
+        for key, present in sources.items():
+            if present:
+                stats[key] += 1
+        stats["in_any_explicit_prior" if any(sources.values()) else
+              "absent_from_explicit_priors"] += 1
+    return {key: stats[key] for key in (
+        "profile_lexicon", "profile_sentences",
+        "other_retained_anchor_terms", "remaining_researcher_hints",
+        "in_any_explicit_prior", "absent_from_explicit_priors"
+    )}
+
+
 def verify_known_pairs(case: dict[str, Any], *, max_folds: int = 10,
                        iterations: int = 3, restarts: int = 2,
                        use_metadata: bool = True) -> dict[str, Any]:
@@ -165,8 +214,14 @@ def verify_known_pairs(case: dict[str, Any], *, max_folds: int = 10,
                     category = "candidate_ranked_below_top5"
                 failures[category] += 1
                 details.append({"code": code, "outcome": category})
+        # The true held-out phrases are inspected for diagnostic coverage
+        # only after the solver has finished (or legitimately abstained).
+        coverage = _reference_phrase_prior_coverage(
+            folded, truth, independent, retained
+        )
         fold = {
             "heldout_message_id": message_id,
+            "reference_phrase_prior_coverage": coverage,
             "withheld_record_count": len(paired) + sum(
                 p["message_id"] == message_id and "segments" not in p
                 for p in case.get("known_pairs", [])
@@ -195,6 +250,7 @@ def verify_known_pairs(case: dict[str, Any], *, max_folds: int = 10,
             "overlapping_anchored_codes_excluded": overlap,
         })
         totals.update(failures)
+        totals.update({"prior_" + key: val for key, val in coverage.items()})
 
     count = totals["fold_code_assessments"]
     scored = totals["scored_code_assessments"]
@@ -213,6 +269,13 @@ def verify_known_pairs(case: dict[str, Any], *, max_folds: int = 10,
             "top1_rate": round(totals["top1_hits"] / scored, 4) if scored else None,
             "top5_rate": round(totals["top5_hits"] / scored, 4) if scored else None,
             "overlapping_anchored_codes_excluded": totals["overlapping_anchored_codes_excluded"],
+            "reference_phrase_prior_coverage": {
+                key: totals["prior_" + key] for key in (
+                    "profile_lexicon", "profile_sentences",
+                    "other_retained_anchor_terms", "remaining_researcher_hints",
+                    "in_any_explicit_prior", "absent_from_explicit_priors"
+                )
+            },
             "failure_categories": {
                 key: totals[key] for key in (
                     "term_missing_from_candidate_vocabulary",
@@ -227,6 +290,8 @@ def verify_known_pairs(case: dict[str, Any], *, max_folds: int = 10,
             "Other known-pair anchors that reveal the same code are excluded from scoring.",
             "The same code may be assessed in multiple folds; denominators are fold-code assessments, not globally independent codes.",
             "Operator lexicons, sentence priors, ciphertext and contextual metadata can still contain strong hints; this is NOT blind decipherment.",
+            "Reference phrase prior coverage is counted AFTER inference and contains no plaintext; source counts overlap and assess exact terms only, not paraphrases or free-text notes.",
+            "Absent from explicit priors does not prove an independent phrase discovery or historical decipherment.",
             "Researcher candidate hints for newly unanchored held-out codes are removed; unrelated candidate hints remain.",
             "If remaining researcher exclusions exhaust another code's candidates, the entire fold is marked unscorable and excluded from Top-1/Top-5 rate denominators.",
             "The potential fold-code count includes unscorable folds; see scored_fold_code_assessments for the actual rate denominator.",

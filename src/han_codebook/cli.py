@@ -15,6 +15,8 @@ def main(argv=None) -> int:
     parser.add_argument("--check-llm", action="store_true", help="Check TCP and /v1/models without sending cipher data")
     parser.add_argument("--no-metadata", action="store_true", default=None, help="Ablation: ignore sender/recipient/domain")
     parser.add_argument("--rounds", type=int, default=None, help="LLM proposal rounds (0=offline)")
+    parser.add_argument("--progress-stop-patience", type=int, default=0,
+                        help="0=disabled; 2..20 consecutive stagnant rounds before early stop")
     parser.add_argument("--ollama-url", default=None, help="OpenAI-compatible base endpoint")
     parser.add_argument("--model", default=None, help="LLM model name")
     parser.add_argument("--out", default=None)
@@ -30,6 +32,8 @@ def main(argv=None) -> int:
         rounds = args.rounds if args.rounds is not None else analysis.get("rounds", 0)
         if not 0 <= rounds <= 20:
             parser.error("--rounds must be 0..20")
+        if args.progress_stop_patience != 0 and not 2 <= args.progress_stop_patience <= 20:
+            parser.error("--progress-stop-patience must be 0 or 2..20")
         timeout = llm.get("timeout_seconds", 90)
         metadata = not args.no_metadata if args.no_metadata is not None else analysis.get("use_metadata", True)
         evaluate = args.evaluate_demo if args.evaluate_demo is not None else analysis.get("evaluate_demo", False)
@@ -58,7 +62,8 @@ def main(argv=None) -> int:
                            progress=lambda message: print(message, flush=True),
                            capture_llm_io=llm.get("capture_io", False),
                            llm_reasoning_effort=llm.get("reasoning_effort"),
-                           llm_response_format=llm.get("response_format"))
+                           llm_response_format=llm.get("response_format"),
+                           progress_stop_patience=args.progress_stop_patience)
         if evaluate:
             result["evaluation"] = evaluate_demo(result, case)
         dest = Path(out)

@@ -264,3 +264,11 @@ python -m han_codebook.paired_holdout --case benchmarks/cases/07_alias_mixed_len
 - 每碼列出當前 Top-5 `candidate_comparison`（明確標示未驗證），引導 LLM 比較跨電文共同與衝突線索；回覆可選附上 `supporting_message_ids` / `counterexample_message_ids`，程式只保留確實包含該碼的電文 ID，拒絕虛構／其他碼組 ID。
 - Metadata OFF 不會在此證據窗格混入收發者、備註或觀察；Metadata ON 的原有欄位仍依既有控制傳送。無論引用存在與否，都不能證明詞義正確，不能加強權重或改寫可信錨點；私人稽核可以審查反證。
 - 合成 Mock 回歸只證明跨報脈絡、安全隔離與引用完整性；Case08 實機 Top-1 是否提升需要後續同設定的多次重複驗證。
+
+## 各回合有效變化與停滯監控（純推論，不使用金標）
+
+- `round_progress_summary` 現在區分 `first_choice_changes`、`top5_ranking_changes`、`new_research_coverage`、`new_model_suggestion_pairs`、`new_auto_vocabulary_terms`，以及「有新候選但 Top-5 完全沒改」的訊號。
+- 即使 Top-1 不變，只要 Top-5 重新排序，不能當成沒有研究變化；反之，新增提示但無排名改變，也**不能直接當成破譯有進步**。數值只描述搜尋行為；獨立正確率需在推論後評估。
+- 預設**不提前停止**；CLI 可指定 `--progress-stop-patience 2` 或 `3`（完整接受 2..20）；本機 GUI 可從選單開啟連續兩回合或三回合停滯自動停止。須已對所有未知碼提供過至少一次研究請求機會，且連續數回合沒有新增覆蓋、新模型配對、新採納詞彙或 Top-5 排名變化，才會提前停止。尚未證實的候選仍然可能正確，停滯不是錯誤證明。
+- 實際停止時寫入 `round_early_stop` 稽核事件；回傳 `agent_rounds_requested`、`agent_rounds_completed` 與 `early_stop_triggered`，清楚區分「請求回合數」與「實際完成回合數」。取消、無 LLM 模式及舊的禁用預設不變。
+- 合成 Mock 回歸涵蓋 27 碼公平覆蓋、Top-5 改變但 Top-1 固定、純新提示但排名未改、預設跑完、無 gold 自動停與錯誤參數拒絕。此功能仍需要同設定反覆私有模型實驗才能評估是否節省 Token 或影響 Case08 正確率。

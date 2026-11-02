@@ -51,6 +51,59 @@ class KnownPairHoldoutTests(unittest.TestCase):
         self.assertTrue(all(item["outcome"] != "verified_alignment"
                             for item in report["folds"][0]["outcomes_without_plaintext"]))
 
+    def test_reference_phrase_prior_coverage_uses_counts_never_plaintext(self):
+        case = small_case()
+        original = deepcopy(case)
+        report = verify_known_pairs(case, iterations=1, restarts=1)
+        self.assertEqual(case, original)
+        exposure = report["summary"]["reference_phrase_prior_coverage"]
+        self.assertEqual(exposure, {
+            "profile_lexicon": 2, "profile_sentences": 1,
+            "other_retained_anchor_terms": 0,
+            "remaining_researcher_hints": 0,
+            "in_any_explicit_prior": 2,
+            "absent_from_explicit_priors": 0,
+        })
+        self.assertEqual(sum(fold["reference_phrase_prior_coverage"]
+                             ["in_any_explicit_prior"] for fold in report["folds"]), 2)
+        exported = json.dumps(report, ensure_ascii=False)
+        for word in ("兵力", "車隊", "集結"):
+            self.assertNotIn(word, exported)
+
+    def test_out_of_vocabulary_phrase_is_counted_after_solver_not_added(self):
+        case = small_case()
+        case["profiles"] = {"neutral": {"lexicon": {"兵力": 2}, "sentences": []}}
+        with patch("han_codebook.holdout_verification.analyze", wraps=analyze) as solver:
+            report = verify_known_pairs(case, iterations=1, restarts=1)
+        self.assertEqual(solver.call_count, 2)
+        for call in solver.call_args_list:
+            payload = call.args[0]
+            self.assertEqual(payload["profiles"]["neutral"]["lexicon"],
+                             {"兵力": 2})
+            self.assertNotIn("車隊", json.dumps(payload, ensure_ascii=False))
+            self.assertNotIn("集結", json.dumps(payload, ensure_ascii=False))
+        c = report["summary"]["reference_phrase_prior_coverage"]
+        self.assertEqual(c["in_any_explicit_prior"], 0)
+        self.assertEqual(c["absent_from_explicit_priors"], 2)
+        self.assertNotIn("車隊", json.dumps(report, ensure_ascii=False))
+
+    def test_other_code_anchor_and_researcher_hint_expose_reference_word(self):
+        case = small_case()
+        case["known_pairs"][1]["segments"] = ["兵力", "車隊"]
+        case["profiles"] = {"neutral": {"lexicon": {"兵力": 2}, "sentences": []}}
+        case["candidate_ideas"] = {
+            "103": [{"term": "車隊", "source": "researcher", "status": "suggested"}],
+        }
+        report = verify_known_pairs(case, max_folds=1, iterations=1, restarts=1)
+        c = report["folds"][0]["reference_phrase_prior_coverage"]
+        self.assertEqual(c["profile_lexicon"], 0)
+        self.assertEqual(c["other_retained_anchor_terms"], 1)
+        self.assertEqual(c["remaining_researcher_hints"], 1)
+        # Source buckets may overlap, but only one heldout code is counted.
+        self.assertEqual(c["in_any_explicit_prior"], 1)
+        self.assertEqual(c["absent_from_explicit_priors"], 0)
+        self.assertNotIn("車隊", json.dumps(report, ensure_ascii=False))
+
     def test_overlapping_verified_codes_not_counted_as_independent(self):
         case = small_case()
         with patch("han_codebook.holdout_verification.analyze", wraps=analyze) as runner:

@@ -361,6 +361,10 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 vocab_size=len(vocab), earlier=hypothesis_snapshots))
             log_event(conn, 0, "statistical_baseline", {"score": current["objective_score"],
                 "mapping": {c: p["term"] for c, p in current["proposals"].items()}})
+            # Persist baseline *before* the first LLM call. Failed/cancelled
+            # runs must retain the complete starting Top-5 research trail.
+            log_event(conn, 0, "round_hypothesis_snapshot",
+                      hypothesis_snapshots[-1])
         for num in range(1, rounds + 1):
             if cancel_check:
                 cancel_check()

@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-02 — Private per-round candidate trajectories (stacked PR pending)
+- Built on PR #38 latest commit `cd941d4ddc7c8065172addb4d286c2fe03e97e46` to preserve continuity; PR #38 exact-HEAD CI/Codex gate must complete before stacking into main. The latest head's official Codex initially found P1 stale stage assertion, fixed in #38; don't conflate stale review status with latest gate.
+- Branch `feat/round-hypothesis-trajectories-20261102` records a bounded, PRIVATE-only per-round Top-1/Top-5 hypothesis snapshot (baseline + each LLM rescore), vocabulary size, objective score and candidate status. Highlights codes whose guess changed or reverted to an older guess, without automatic best-round selection or any oracle use.
+- New offline synthetic regression tests include A→B→A reversion, unchanged trusted status, private auditing, 500-code snapshot cap and 5-alternative cap. The previously exact audit-stage test is updated to include new private stage. Real LAN LLM has been used by user in independent Case08 experiments, but no new real run/accuracy evidence is claimed here.
+- At branch commit Hosted CI and latest-HEAD formal Codex Review **PENDING**; do not merge until parent PR #38 is merged and all gates pass.
+
+
 ## 2026-11-02 — Real Case08 follow-up: multi-round coverage / dedup (PR pending)
 - Verified authoritative main `e25001dcceaca72fad4075b1b16f4a79cbfde8a6`, postmerge main Hosted run #41401479773 SUCCESS. Historical #1/#7/#8 remain OPEN and superseded; do not blindly merge.
 - User has NOW executed genuine local Case08 experiments (one 5-round adaptive run plus three comparable zero/three-round bundles) with a private model; the diagnostics were evaluated in the chat only. Private diagnostic ZIPs, endpoints, and raw LLM requests MUST NOT be committed. Prior memory saying no LAN model is available is now outdated.
@@ -44,7 +51,7 @@
 
 
 ## Current Focus
-2026-11-02 main `e25001dcceaca72fad4075b1b16f4a79cbfde8a6` with main Hosted CI #41401479773 SUCCESS. User has completed real LAN Case08 5-round and 0/3/3-round experiments, superseding older 'LLM unavailable' memory. Current PR implements fair multi-round unknown-code coverage, previous-guess state and no duplicate evidence accumulation; exact-head Hosted CI and Codex Review pending. Later: round snapshots/quality-gated vocabulary plus user-workstation controlled repetition. Do NOT commit raw private ZIPs or use synthetic gold to choose inference output.
+2026-11-02 stacked followup after PR #38: retain genuine prior round Top-1/Top-5 and detect reversion without oracle or automatic best-round choice; formal latest-HEAD CI and review pending. After this, candidate vocabulary auto-acceptance evidence gate and repeatable private Case08 0/3/5 metadata ON/OFF comparisons remain priorities. No private ZIPs/endpoint data committed.
 
 ## Recent Outcomes (2026-10-27)
 - Verified `matthewdgreen/decipher` public GitHub repo and README via connector; it has local Ollama agent mode and external context flags, but no dedicated Chinese phrase-codebook solver.

@@ -244,6 +244,51 @@ def probe_llm_service(base_url: str, *, timeout: int = 6,
         return True
 
 
+
+def _hypothesis_snapshot(result: dict[str, Any], *, round_number: int,
+                         stage: str, vocab_size: int,
+                         earlier: list[dict[str, Any]]) -> dict[str, Any]:
+    """Bounded, private research trail; NEVER score against synthetic gold.
+
+    A reverted hypothesis is not necessarily a regression. Earlier rankings
+    are preserved for human audit; no branch selection or anchor promotion.
+    """
+    proposals = result.get("proposals", {})
+    codes = sorted(proposals)[:500]
+    entries = {
+        code: {
+            "term": proposals[code]["term"],
+            "status": proposals[code]["status"],
+            "top5": [entry["term"] for entry in proposals[code].get("alternatives", [])[:5]],
+        }
+        for code in codes
+    }
+    last = earlier[-1]["proposals"] if earlier else {}
+    previous_versions = earlier[:-1]
+    changed = sorted(
+        code for code in entries
+        if code in last and entries[code]["term"] != last[code]["term"]
+    )
+    reverted = sorted(
+        code for code in changed
+        if any(code in older["proposals"]
+               and older["proposals"][code]["term"] == entries[code]["term"]
+               for older in previous_versions)
+    )
+    return {
+        "round": round_number, "stage": stage,
+        "label": "unverified_hypothesis_trajectory_not_accuracy",
+        "vocabulary_size": vocab_size,
+        "objective_score": result.get("objective_score"),
+        "available_code_count": len(proposals),
+        "snapshot_code_count": len(entries),
+        "truncated": len(proposals) > len(entries),
+        "changed_since_previous_snapshot": changed,
+        "returned_to_older_hypothesis": reverted,
+        "proposals": entries,
+    }
+
+
 def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://127.0.0.1:11434/v1",
               model: str = "qwen3:14b", db_path: str = "artifacts/audit.sqlite",
               metadata: bool = True, llm_timeout: int = 90,
@@ -295,6 +340,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         requested_codes: Counter[str] = Counter()
         previous_llm: dict[str, dict[str, Any]] = {}
         round_history: list[dict[str, Any]] = []
+        hypothesis_snapshots: list[dict[str, Any]] = []
         if progress:
             progress("[analysis] Computing local statistical baseline ...")
         from .llm_evidence import safe_llm_message
@@ -310,8 +356,15 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
             log_event(conn, 0, "vocabulary_bootstrap_required",
                       {"reason": "empty candidate vocabulary, awaiting first private LLM call"})
         if current is not None:
+            hypothesis_snapshots.append(_hypothesis_snapshot(
+                current, round_number=0, stage="statistical_baseline",
+                vocab_size=len(vocab), earlier=hypothesis_snapshots))
             log_event(conn, 0, "statistical_baseline", {"score": current["objective_score"],
                 "mapping": {c: p["term"] for c, p in current["proposals"].items()}})
+            # Persist baseline *before* the first LLM call. Failed/cancelled
+            # runs must retain the complete starting Top-5 research trail.
+            log_event(conn, 0, "round_hypothesis_snapshot",
+                      hypothesis_snapshots[-1])
         for num in range(1, rounds + 1):
             if cancel_check:
                 cancel_check()
@@ -496,8 +549,17 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 "changed_code_count": len(changes),
                 "stagnant": not changes and fresh_hint_count == 0,
             }
+            hypothesis_snapshots.append(_hypothesis_snapshot(
+                current, round_number=num, stage="post_llm_rescore",
+                vocab_size=len(vocab), earlier=hypothesis_snapshots))
+            snapshot["returned_to_older_hypothesis_count"] = len(
+                hypothesis_snapshots[-1]["returned_to_older_hypothesis"])
             round_history.append(snapshot)
             log_event(conn, num, "round_progress_snapshot", snapshot)
+            # Private audit contains full candidate history. SHARE diagnostics
+            # expose only stage counts and bounded numeric progress.
+            log_event(conn, num, "round_hypothesis_snapshot",
+                      hypothesis_snapshots[-1])
             log_event(conn, num, "rescore", {"score": current["objective_score"],
                                               "mapping": new_mapping, "changes": changes, "changed_count": len(changes)})
         if cancel_check:
@@ -510,6 +572,10 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         # Diagnostic-only history; never choose a round using synthetic gold
         # or automatically promote a guessed mapping into a trusted anchor.
         current["round_progress_summary"] = round_history
+        current["round_research_snapshots"] = hypothesis_snapshots
+        current["round_research_selection_policy"] = (
+            "all_rounds_are_unverified; no gold or objective-only automatic best-round selection"
+        )
         current["run_id"] = run_id
         current["audit_database"] = str(db_path)
         current["warning"] = "LLM suggestions influence ranking only; an AI guess never becomes a verified mapping."

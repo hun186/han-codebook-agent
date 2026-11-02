@@ -97,7 +97,9 @@ def check_evidence_refs(code: str, items: Any,
         return []
     containing = {m["id"] for m in messages if code in m["codes"]}
     out = []
-    for item in items[:6]:
+    for item in items:
         if isinstance(item, str) and item in containing and item not in out:
             out.append(item)
+            if len(out) >= 6:
+                break
     return out

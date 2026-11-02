@@ -76,12 +76,13 @@ class KnownPairHoldoutTests(unittest.TestCase):
         with patch("han_codebook.holdout_verification.analyze", wraps=analyze) as solver:
             report = verify_known_pairs(case, iterations=1, restarts=1)
         self.assertEqual(solver.call_count, 2)
-        for call in solver.call_args_list:
+        for call, withheld_term in zip(solver.call_args_list, ("車隊", "集結")):
             payload = call.args[0]
             self.assertEqual(payload["profiles"]["neutral"]["lexicon"],
                              {"兵力": 2})
-            self.assertNotIn("車隊", json.dumps(payload, ensure_ascii=False))
-            self.assertNotIn("集結", json.dumps(payload, ensure_ascii=False))
+            # The other message's genuine retained anchors may remain, but
+            # the held-out reference phrase must not be fed back to inference.
+            self.assertNotIn(withheld_term, json.dumps(payload, ensure_ascii=False))
         c = report["summary"]["reference_phrase_prior_coverage"]
         self.assertEqual(c["in_any_explicit_prior"], 0)
         self.assertEqual(c["absent_from_explicit_priors"], 2)

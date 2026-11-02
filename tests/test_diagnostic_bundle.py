@@ -84,6 +84,43 @@ class DiagnosticFormatTests(unittest.TestCase):
                            status="completed", config=CONFIG, private=True))
             self.assertNotIn(b"MUST_NEVER_EXPORT_GOLD", b"".join(private2.values()))
 
+    def test_untrusted_audit_metadata_cannot_escape_share_safe_redaction(self):
+        with TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            seed(target)
+            with sqlite3.connect(target / "audit.sqlite") as db:
+                db.execute(
+                    "UPDATE events SET at_utc=?, round=?, stage=? WHERE id=1",
+                    (SENTINEL + " https://private.invalid/secret",
+                     -10, "stage_" + SENTINEL)
+                )
+                db.execute(
+                    "INSERT INTO events (at_utc, round, stage, payload_json)"
+                    " VALUES (?, ?, ?, ?)",
+                    ("2026-11-02T01:02:03+00:00", 2, "llm_response",
+                     json.dumps({"elapsed_ms": float("nan"),
+                                 "usage": {"prompt_tokens": 13,
+                                           "completion_tokens": True}}))
+                )
+            safe = unzip(build_diagnostic_zip(target, job_id="abcdef0123456789",
+                            status="completed", config=CONFIG))
+            combined = b"".join(safe.values()).decode("utf-8")
+            self.assertNotIn(SENTINEL, combined)
+            self.assertNotIn("private.invalid", combined)
+            self.assertNotIn("NaN", combined)
+            trace = [json.loads(line) for line in
+                     safe["round_trace.jsonl"].decode("utf-8").splitlines()]
+            self.assertIsNone(trace[0]["at_utc"])
+            self.assertIsNone(trace[0]["round"])
+            self.assertEqual(trace[0]["stage"], "unrecognized")
+            self.assertIsNotNone(trace[1]["at_utc"])
+            self.assertEqual(trace[-1]["stage"], "llm_response")
+            self.assertIsNone(trace[-1]["elapsed_ms"])
+            self.assertEqual(trace[-1]["token_usage"], {"prompt_tokens": 13})
+            summary = json.loads(safe["diagnostics.json"])
+            self.assertNotIn("stage_" + SENTINEL, summary["stage_counts"])
+            self.assertEqual(summary["last_observed_round"], 2)
+
     def test_failed_preflight_export_without_any_sqlite_remains_partial(self):
         with TemporaryDirectory() as tmp:
             target=Path(tmp)

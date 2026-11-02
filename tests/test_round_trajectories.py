@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from han_codebook.agent import _hypothesis_snapshot, run_agent
+from han_codebook.core import CaseError
 
 
 def case():
@@ -61,6 +62,28 @@ class TrajectoryTests(unittest.TestCase):
         self.assertTrue(all(s["proposals"]["100"]["status"] ==
                             "hypothesis_unverified"
                             for s in result["round_research_snapshots"]))
+
+    def test_first_model_call_failure_retains_complete_private_baseline(self):
+        research = case()
+        with TemporaryDirectory() as td:
+            path = Path(td) / "audit.sqlite"
+            with patch("han_codebook.agent.analyze",
+                       return_value=make_mapping("甲")), \
+                 patch("han_codebook.agent.query_local_llm",
+                       side_effect=CaseError("synthetic provider unavailable")):
+                with self.assertRaisesRegex(CaseError, "provider unavailable"):
+                    run_agent(research, rounds=2, db_path=str(path))
+            with sqlite3.connect(path) as db:
+                preserved = list(db.execute(
+                    "SELECT round,stage,payload_json FROM events"
+                    " WHERE stage='round_hypothesis_snapshot' ORDER BY id"))
+        self.assertEqual(len(preserved), 1)
+        self.assertEqual(preserved[0][:2], (0, "round_hypothesis_snapshot"))
+        evidence = json.loads(preserved[0][2])
+        self.assertEqual(evidence["stage"], "statistical_baseline")
+        self.assertEqual(evidence["proposals"]["100"]["top5"], ["甲", "乙"])
+        self.assertEqual(evidence["proposals"]["100"]["status"],
+                         "hypothesis_unverified")
 
     def test_large_snapshot_is_bounded_and_labeled_not_accuracy(self):
         output = {"proposals": {

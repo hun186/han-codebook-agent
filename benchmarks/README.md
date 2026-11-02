@@ -42,6 +42,8 @@ python -m han_codebook.holdout_verification --case benchmarks/cases/01_known_and
 
 在 Windows 已安裝的環境也可執行 `.venv\\Scripts\\python.exe -m han_codebook.holdout_verification ...`。
 
+**報告檔案採證據保全模式：**每次請指定**新的** `--out` 檔名，例如 `known_pair_holdout_20261102_run02.json`。程式以 exclusive create 寫出，既有報告、符號連結和 `--case` 來源檔皆不可覆寫；在 POSIX 系統上要求 `0600` 權限。預設名稱若已存在也會拒絕執行，請自行另取名稱，而非先刪除既有研究證據。
+
 - 每次拿掉同一封電文的**所有**已知明文紀錄，再以未改動的密文字組重新進行離線統計推理，之後才拿原本可靠的逐碼明文作分數比較。
 - 保留的其他電文若已錨定同一數字碼組，該碼組**不得列入獨立驗證成績**，另外列出 overlap 數。只計算真正因扣掉已知對照而失去可靠錨點的碼組。
 - 對這些待測碼組，移除原本針對它們的 `candidate_ideas`、`hypothesis_marks`、`bold_hypotheses`；不把 Undo/Redo 歷史交給求解器。完整案例不會被修改。

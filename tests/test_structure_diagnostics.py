@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from han_codebook.core import CaseError
 from han_codebook.structure_diagnostics import main, structure_report
@@ -104,6 +105,59 @@ class StructuralLOMOTests(unittest.TestCase):
         self.assertEqual(report["summary"]["heldout_message_code_assessments"], 1)
         self.assertEqual(report["summary"]["heldout_with_same_sided_neighbor"], 0)
         self.assertEqual(report["repeated_cipher_patterns"], [])
+
+
+    def test_unsegmented_plaintext_cannot_trigger_semantic_heuristics(self):
+        case = case_fixture()
+        case["profiles"] = {"neutral": {"lexicon": "unused-bad-analysis-data"}}
+        case["known_pairs"].append({"message_id": "B", "plaintext": "未對齊明文" * 800})
+        case["hypothesis_marks"] = {"100": {"untrusted": "never normalized"}}
+        snapshot = deepcopy(case)
+        with patch("han_codebook.core.segmentation_candidates",
+                   side_effect=AssertionError("must not cut plaintext")), \
+             patch("han_codebook.core.validate_case",
+                   side_effect=AssertionError("must not validate semantic priors")), \
+             patch("han_codebook.core.anchors_and_review",
+                   side_effect=AssertionError("must not infer semantic anchors")):
+            report = structure_report(case)
+        self.assertEqual(report["summary"]["verified_code_count_excluded"], 1)
+        self.assertEqual(case, snapshot)
+        self.assertNotIn("未對齊明文", json.dumps(report, ensure_ascii=False))
+        self.assertNotIn("unused-bad", json.dumps(report, ensure_ascii=False))
+
+    def test_known_pair_conflicts_still_fail_without_exposing_reference_terms(self):
+        case = case_fixture()
+        case["known_pairs"].append({
+            "message_id": "B", "segments": ["甲", "乙", "丙"]
+        })
+        with self.assertRaises(CaseError):
+            structure_report(case)
+        case["known_pairs"].pop()
+        case["known_pairs"][0]["plaintext"] = "錯誤明文"
+        with self.assertRaises(CaseError):
+            structure_report(case)
+        case["known_pairs"][0].pop("plaintext")
+        case["known_pairs"][0]["segments"] = ["a", "b"]
+        with self.assertRaises(CaseError):
+            structure_report(case)
+
+    def test_bounded_cipher_ids_and_invalid_known_pair_references(self):
+        case = case_fixture()
+        case["known_pairs"].append({"message_id": "missing", "plaintext": "未知"})
+        with self.assertRaises(CaseError):
+            structure_report(case)
+        case["known_pairs"].pop()
+        case["messages"][1]["codes"][0] = "0" * 65
+        with self.assertRaises(CaseError):
+            structure_report(case)
+        case["messages"][1]["codes"][0] = "100"
+        case["messages"].append({"id": "A", "codes": ["123"]})
+        with self.assertRaises(CaseError):
+            structure_report(case)
+        case["messages"].pop()
+        case["known_pairs"][0]["gold"] = {"secret": "unused"}
+        with self.assertRaises(CaseError):
+            structure_report(case)
 
 
 if __name__ == "__main__":

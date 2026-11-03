@@ -1,5 +1,11 @@
 # Project memory
 
+## 2026-11-03 — Cipher-only structural LOMO PR in progress
+- PR #45 actually MERGED at squash commit 1aa9fdc9fcc9c277b6dcc719277d9d89e6d03083; final head 4e35f48bd86b6a5db4a8805305d461ba6e46bd38 had exact-head eight Hosted CI PASS and official Codex Completed/No Findings. Two earlier P2 review threads resolved. Vercel optional status failed due build-rate limit; main is unprotected, no active rulesets. Verify postmerge main CI separately.
+- Branch feat/offline-code-structure-lomo-20261103 adds read-only cross-message immediate code-neighbor LOMO signals and repeated cipher 2/3-grams. Independent message count excludes self-repetition. No LLM, metadata, model hypotheses, historical plaintext words or gold in output. Creates only new private JSON, never overwrites evidence.
+- Synthetic tests cover trusted neighbor structural support, same-message repetitions, nested oracle rejection, zero support, source protection and private file mode. Status: code PR Hosted CI/formal exact-head Codex Review/Merge pending. Results are descriptive structural recurrence, not proof of phrase correctness or improved real Case08 accuracy.
+
+
 ## 2026-11-03 — Zero-yield auto vocab pause / truthful output schema (second PR pending)
 - First PR #44 `feat/round-checkpoint-risk-holdout-20261103` merged as `5f0b1beabe8f5c360bfc812e7c4a50c767530255` after current-head full Hosted CI, formal Codex Review Completed/No Findings, and all gates. Protect exact-head parent when rebase.
 - Branch `feat/automatic-vocab-skip-after-zero-20261103`: automatic vocabulary mode defaults to `vocab_zero_patience=2` (0 disables) to skip later vocabulary LLM calls after 2 consecutive empty/adoption-zero rounds, while still running code-hypothesis LLM rounds. Human review is never auto-skipped; adoption resets streak. GUI/CLI and Vercel safe public Mock synchronized. CLI explicitly requires `--adaptive-vocabulary` or YAML `analysis.adaptive_vocabulary: true`; default static CLI stays unchanged. Regression covers flag, config and zero-round rejection.

@@ -353,3 +353,15 @@ not loosen any validation performed by the normal solver. The structural
 validator still rejects contradictory aligned anchors, invalid references,
 oversized cipher inputs and oracle fields at case/message/known-pair level.
 No trusted phrase wording is exported and no real language inference occurs.
+
+
+**Memory-safe randomized controls:** the shuffled-order baseline now builds
+per-trial inputs using only cipher message IDs, numeric code sequences and
+the explicit aligned known-pair segments needed to preserve trusted anchors.
+It never deep-copies free-form case names, profiles, sender/recipient notes,
+uncut known-pair plaintext, reviewer annotations, UI history or large private
+diagnostic fields into the repeated shuffled cases. The original case is
+validated once; all random shuffles and aggregate metric definitions are
+unchanged. Synthetic regressions compare the new outputs exactly with the
+former full-copy algorithm for a fixed random seed. This is a resource/privacy
+improvement, not additional proof of decipherment accuracy.

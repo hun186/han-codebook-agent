@@ -6,7 +6,6 @@ measure decipherment accuracy, probability, or semantic correctness.
 from __future__ import annotations
 
 import argparse
-from copy import deepcopy
 import json
 import os
 from pathlib import Path
@@ -46,11 +45,32 @@ def permutation_baseline(case: dict[str, Any], *,
     }
     if not shuffle_ids:
         raise CaseError("No independently permutable messages; null control is undefined")
+    # Copy ONLY the cipher structure, not potentially large private plaintext,
+    # metadata, hypothesis history, or candidate vocabularies at every trial.
+    # A tuple freezes each code sequence once; the randomizer only mutates a
+    # fresh per-trial list. Explicit trusted segments are copied once, solely
+    # so the structural validator can preserve its original anchor boundaries.
+    cipher_messages = [
+        (message["id"], tuple(message["codes"])) for message in case["messages"]
+    ]
+    structural_pairs = []
+    for pair in case.get("known_pairs", []):
+        item = {"message_id": pair["message_id"]}
+        if "segments" in pair:
+            item["segments"] = list(pair["segments"])
+        structural_pairs.append(item)
+
     rng = random.Random(seed)
     samples: list[dict[str, int]] = []
     changed_positions: list[int] = []
     for _ in range(trials):
-        shadow = deepcopy(case)
+        shadow = {
+            "messages": [
+                {"id": mid, "codes": list(codes)}
+                for mid, codes in cipher_messages
+            ],
+            "known_pairs": structural_pairs,
+        }
         changed = 0
         for message in shadow["messages"]:
             if message["id"] not in shuffle_ids:

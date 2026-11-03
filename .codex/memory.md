@@ -1,5 +1,11 @@
 # Project memory
 
+## 2026-11-03 — Structure-order shuffled null control (third item / PR pending)
+- PR #46 cipher-only cross-message structural LOMO MERGED after latest SHA 0281c31d944c5e3e5ebccf75a7dbe987d95dc9c5, eight Python/Windows/Docker Hosted CI PASS, formal latest-head Codex Completed/No Findings and no open threads, as squash e3b8d047d63cf86e03595004dfb08c39fa4fbbf2. Postmerge main Actions run 41613149448 was still in progress at last check; verify.
+- Branch feat/offline-structure-permutation-baseline-20261103: optional random order null controls shuffle unaligned messages while keeping per-message code counts/membership, preserving all messages referenced by known pairs. 1..32 deterministic seeded trials; aggregate metrics only, case IDs / reference text excluded, create-only 0600 JSON. Zero shufflable messages rejects rather than implying evidence.
+- Synthetic and bundled Case08 offline tests cover exact reproducibility, frozen known pairs, privacy, invalid options, input immutability, source protection and no separate gold read. This is not a significance test or accuracy improvement. At commit, Hosted CI/formal exact-head Codex Review/Merge are PENDING. No LAN-model calls.
+
+
 ## 2026-11-03 — Cipher-only structural LOMO PR in progress
 - PR #45 actually MERGED at squash commit 1aa9fdc9fcc9c277b6dcc719277d9d89e6d03083; final head 4e35f48bd86b6a5db4a8805305d461ba6e46bd38 had exact-head eight Hosted CI PASS and official Codex Completed/No Findings. Two earlier P2 review threads resolved. Vercel optional status failed due build-rate limit; main is unprotected, no active rulesets. Verify postmerge main CI separately.
 - Branch feat/offline-code-structure-lomo-20261103 adds read-only cross-message immediate code-neighbor LOMO signals and repeated cipher 2/3-grams. Independent message count excludes self-repetition. No LLM, metadata, model hypotheses, historical plaintext words or gold in output. Creates only new private JSON, never overwrites evidence.

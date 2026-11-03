@@ -40,6 +40,23 @@ def vocabulary_packet(case: dict, *, round_number: int, metadata: bool,
         for code, p in sorted(proposals.items())
         if p.get("status") == "verified_alignment"
     ][:80]
+    # Show a REAL current unverified code and an actual containing message.
+    # This is a structural response example, NEVER a newly trusted word.
+    example = None
+    if current is not None:
+        for hypothesis in unverified:
+            source_ids = [
+                message["id"] for message in case["messages"][:MAX_CONTEXT_MESSAGES]
+                if hypothesis["code"] in message["codes"]
+            ]
+            if source_ids:
+                example = {
+                    "target_code": hypothesis["code"],
+                    "contrasted_candidate": hypothesis["candidate"],
+                    "evidence_message_ids": source_ids[:2],
+                    "contrast_reason": "explain why that current candidate is inadequate",
+                }
+                break
     return {
         "task": "generate_vocabulary",
         "mode": "adaptive_round",
@@ -61,6 +78,18 @@ def vocabulary_packet(case: dict, *, round_number: int, metadata: bool,
         "current_vocabulary": sorted(vocabulary)[:MAX_DYNAMIC_TERMS * 2],
         "requested_max_terms": MAX_NEW_TERMS_PER_ROUND,
         "requested_max_patterns": 10,
+        "output_contract": {
+            "required_fields_for_automatic_adoption_with_prior_mapping": [
+                "term", "reason", "evidence_message_ids", "target_code",
+                "contrasted_candidate", "contrast_reason",
+            ],
+            "illustrative_existing_code_only": example,
+            "instruction": (
+                "Use the actual code and candidate from the current hypotheses. "
+                "Each evidence ID must contain the target cipher group; do not "
+                "treat model-generated justification as proof of plaintext."
+            ),
+        },
     }
 
 

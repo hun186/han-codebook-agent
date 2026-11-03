@@ -8,7 +8,8 @@ from .core import CaseError
 
 _SCHEMAS = {
     "project": {"case": str, "output": str, "audit_db": str},
-    "analysis": {"use_metadata": bool, "rounds": int, "evaluate_demo": bool},
+    "analysis": {"use_metadata": bool, "rounds": int, "evaluate_demo": bool,
+                 "adaptive_vocabulary": bool},
     "llm": {"base_url": str, "model": str, "timeout_seconds": int,
             "allow_private_network": bool, "allowed_hosts": list, "api_key_env": str,
             "capture_io": bool, "reasoning_effort": str, "response_format": str},

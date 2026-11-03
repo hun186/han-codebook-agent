@@ -107,14 +107,14 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
                    if isinstance(contract, dict) else None)
         if not isinstance(example, dict):
             system_prompt = (
-                "你是中文密電詞庫候選助手。未知詞彙均未驗證，不能宣稱任何碼組已解密。"
-                "這是空詞庫啟動或獨立詞彙蒐集，尚沒有先前候選碼組可供反證；"
-                "絕不可捏造 target_code 或 contrasted_candidate。"
-                "請只回傳 JSON：{\\"vocabulary\\":[{\\"term\\":\\"候選詞\\","
-                "\\"reason\\":\\"語境理由\\",\\"evidence_message_ids\\":[\\"實際電文ID\\"]}],"
-                "\\"patterns\\":[]}。沒有真實電文引用時，可只回覆空陣列；"
-                "絕不可把範例佔位文字當成有驗證的中文碼本對應。"
-                "除有效 JSON 外不可輸出其他內容。"
+                "你是中文密電候選詞庫助手。這是空詞庫啟動或獨立詞彙蒐集，"
+                "尚沒有現有碼組候選可供反證；不得捏造既有碼組或候選。"
+                "請只回傳 JSON 物件，包含 vocabulary 陣列和 patterns 陣列。"
+                "vocabulary 的每個項目需要 term、reason 與 evidence_message_ids；"
+                "後者只能引用輸入 messages 中實際存在的電文 ID，並須提供非空語境理由。"
+                "此模式不要求 target_code、contrasted_candidate 或 contrast_reason。"
+                "詞彙仍是未驗證假說，沒有足夠線索時可回傳空 vocabulary 陣列。"
+                "絕不可把自行猜測升格為可信明文；除有效 JSON 外不可輸出其他內容。"
             )
     else:
         system_prompt = (

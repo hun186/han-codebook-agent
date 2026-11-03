@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-03 — Round checkpoint conflicts + isolated postrun holdout (PR pending)
+- Latest confirmed main `0c3583d6d00c5e52d028ffbb85f57eb76415e593`, main Hosted CI #41558278096 SUCCESS, no new ordinary open PRs. Historic #1/#7/#8 superseded, do not merge.
+- User supplied five new private Case08 ZIPs. Their post-inference offline scoring found no final Top-1 improvement, but one 3-round metadata-OFF run attained 7/27 early before dropping to 4/27 by round 3. Gold must NEVER enter inference, PRs or shared raw ZIP.
+- Branch `feat/round-checkpoint-risk-holdout-20261103`: per-round flag previously stable candidate replaced, solver/LLM first-choice disagreement, preserve bounded review items and all historic snapshots, **no automatic winner**. Opt-in `postrun_holdout_folds` uses independent offline masked known-pair shadow folds AFTER all LLM rounds. Its score is NOT a score of the already unblinded LLM rounds and cannot choose the best round. Default OFF, GUI and CLI option, Vercel mock UI synchronized. New fictitious tests use code labels 142/143/144 but no gold terms or LAN endpoint.
+- Full newest-head Hosted CI and formal Codex Review remain PENDING; use Auto-Merge v2 gates. Next work items: code-neighbor structured non-oracle contradiction features; adaptive vocabulary fail-fast/skip and complete JSON schema to reduce wasted calls.
+
+
 ## 2026-11-02 — Context-linked vocabulary contrast requirement (third PR pending)
 - User's private Case08/Demo LLM experiments showed dynamic vocabulary can add words with no actual target-word hits. Existing auto-gate only checked message ID existence and reason length, not whether the target cipher code was in those messages or why the old hypothesis was inadequate.
 - Independent branch `feat/vocab-code-contrast-gate-20261102` (based on main after #41 merge): when offline mapping is available, auto-adopt only if proposed `target_code` is an unverified code, appears in every cited message, `contrasted_candidate` equals that code's current Top-1 and `contrast_reason` is nonblank. Explicit human approval unchanged; true empty-vocab bootstrap keeps source-only allowance. All references and comparisons remain unverified language hypotheses, never gold/verified anchors.

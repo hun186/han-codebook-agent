@@ -279,3 +279,11 @@ python -m han_codebook.paired_holdout --case benchmarks/cases/07_alias_mixed_len
 - `target_code` 必須是本次仍未驗證的碼組，確實出現在每一個引用的 `evidence_message_ids` 內；`contrasted_candidate` 必須等於該碼組現有 Top-1 未驗證候選；`contrast_reason` 必須為非空的差異／不足理由。格式不符合的詞只列入私人提議紀錄，**不自動採納**；人工審核者可明確選擇採納。
 - 若原始詞庫完全為空、尚無離線求解結果，保留已具有效電文來源的 bootstrap 詞彙機制。任何模型引用、理由或對比都**不構成語義正確性驗證**，且絕不可更動人工明文錨點。
 - 這個門檻旨在避免「大量無定位的新詞」擾動已存在正確詞彙的搜索空間；是否真正改善 Case08 正確率，需要更新後執行相同模型、多種種子與 Metadata ON/OFF 重複實驗。所有標準答案只能在推理結束後評分。
+
+## 候選映射退化風險與獨立留出驗證（2026-11-03）
+
+- 每個完成的 LLM 回合產生 `round_candidate_checkpoint`：記錄原始第一順位遭替換、模型第一候選與求解器第一順位不同、以及先前連續兩次快照一致但本回合改變的情形。最多儲存 50 個風險項目供私人檢閱，完整計數仍保留。候選標記為 `unverified`；**穩定、回退、模型一致或不同都不代表正確率**。
+- `result.json` 新增 `round_candidate_checkpoints` 及 `checkpoint_validation_policy`。輸出仍是最後一輪結果，早期候選保留在 `round_research_snapshots`；系統不會使用合成 gold 或尚未獨立確認的錨點自動挑選最佳回合。
+- 本機 GUI 可選「遮蔽 2／最多 5 組已對齊電文」；CLI 使用 `--postrun-holdout-folds 2`（0 代表預設關閉）。只在完整模型研究結束後，另以 `holdout_verification.verify_known_pairs` 於**每個遮蔽折內、推論之前**移除對齊明文及對應研究員提示；結果只記折數、沒有明文的成功／失敗統計。無可評估折時明確標記 unavailable。
+- **重要限制**：獨立留出測試評估的是另外執行的離線統計求解器，絕非同一個已看過錨點的 LLM 各回合正確率；該評分不會重新選擇最終候選、修改模型提示、解鎖已核定錨點或回流到任何 solver。Case08 142/143/144 跨回合變更測試使用虛構詞彙，不包含真實／合成金標答案。
+- 私人 ZIP 可包含候選、反證與明文錨點，分享前需仔細檢查；公開 Vercel Demo 仍只使用 Browser Mock。

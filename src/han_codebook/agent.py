@@ -314,10 +314,14 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
               vocabulary_reviewer: Callable[[int, list[dict]], list[str]] | None = None,
               vocabulary_query: Callable[..., dict] | None = None,
               cancel_check: Callable[[], None] | None = None,
-              progress_stop_patience: int = 0) -> dict[str, Any]:
+              progress_stop_patience: int = 0,
+              postrun_holdout_folds: int = 0) -> dict[str, Any]:
     if (type(progress_stop_patience) is not int or
             progress_stop_patience != 0 and not 2 <= progress_stop_patience <= 20):
         raise CaseError("progress_stop_patience must be 0 (off) or 2..20")
+    if (type(postrun_holdout_folds) is not int
+            or not 0 <= postrun_holdout_folds <= 10):
+        raise CaseError("postrun_holdout_folds must be an integer 0..10")
     if type(adaptive_vocabulary) is not bool:
         raise CaseError("adaptive_vocabulary must be boolean")
     if adaptive_vocabulary and not rounds:
@@ -355,6 +359,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         previous_llm: dict[str, dict[str, Any]] = {}
         round_history: list[dict[str, Any]] = []
         hypothesis_snapshots: list[dict[str, Any]] = []
+        checkpoint_reviews: list[dict[str, Any]] = []
         stalled_streak = 0
         early_stopped = False
         if progress:
@@ -613,6 +618,12 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                       hypothesis_snapshots[-1])
             log_event(conn, num, "rescore", {"score": current["objective_score"],
                                               "mapping": new_mapping, "changes": changes, "changed_count": len(changes)})
+            from .round_checkpoint import candidate_checkpoint
+            checkpoint = candidate_checkpoint(
+                before_round, current, hypothesis_snapshots[:-1], accepted,
+                round_number=num)
+            checkpoint_reviews.append(checkpoint)
+            log_event(conn, num, "round_candidate_checkpoint", checkpoint)
             # Never terminate early before every unresolved code has had at
             # least one request opportunity, even with repeated model replies.
             if (diagnosis["stop_recommended"]
@@ -644,8 +655,43 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         current["round_progress_summary"] = round_history
         current["round_research_snapshots"] = hypothesis_snapshots
         current["round_research_selection_policy"] = (
-            "all_rounds_are_unverified; no gold or objective-only automatic best-round selection"
+            "latest_round_is_exposed_unverified; earlier_rounds_and_conflicts_preserved; "
+            "no gold or objective-only automatic best-round selection"
         )
+        current["round_candidate_checkpoints"] = checkpoint_reviews
+        current["checkpoint_validation_policy"] = (
+            "model/solver disagreement or prior stability are NOT independent accuracy; "
+            "reviewers must independently confirm before promoting any mapping"
+        )
+        current["postrun_holdout_folds_requested"] = postrun_holdout_folds
+        if postrun_holdout_folds:
+            from .holdout_verification import verify_known_pairs
+            # A separate, offline shadow solve with plaintext held out BEFORE
+            # solving. Not a score of the LLM rounds, which already saw anchors.
+            try:
+                holdout = verify_known_pairs(
+                    case, max_folds=postrun_holdout_folds,
+                    iterations=min(solver_iterations, 3),
+                    restarts=min(solver_restarts, 2),
+                    use_metadata=metadata)
+            except CaseError:
+                holdout = {
+                    "status": "unavailable",
+                    "reason": "no scorable independent known-pair folds or invalid alignment",
+                }
+            current["postrun_independent_holdout"] = {
+                "status": "completed" if "summary" in holdout else "unavailable",
+                "method": "separate offline shadow folds withheld before solving; no LLM",
+                "evaluates_live_llm_rounds": False,
+                "no_automatic_round_selection": True,
+                "folds_requested": postrun_holdout_folds,
+                "summary": holdout.get("summary"),
+                "available_fold_count": holdout.get("available_fold_count", 0),
+                "evaluated_fold_count": holdout.get("evaluated_fold_count", 0),
+                "reason": holdout.get("reason"),
+            }
+            log_event(conn, len(round_history), "independent_postrun_holdout_summary",
+                      current["postrun_independent_holdout"])
         current["run_id"] = run_id
         current["audit_database"] = str(db_path)
         current["warning"] = "LLM suggestions influence ranking only; an AI guess never becomes a verified mapping."

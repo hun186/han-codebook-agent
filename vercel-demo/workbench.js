@@ -714,6 +714,8 @@ async function start(){
  const rounds=Number(el('rounds').value);
  if(!Number.isInteger(rounds)||rounds<0||rounds>20){notice('LLM 回合數必須是 0～20 整數；0 代表離線分析',true);return}
  const candidateMode=el('candidateMode').value;
+ const progressStopPatience=Number(el('progressStopPatience').value);
+ if(![0,2,3].includes(progressStopPatience)){notice('停滯提前停止選項無效',true);return}
  if(candidateMode!=='static'&&rounds===0){notice('逐回合動態候選至少需要 1 個 LLM 回合',true);return}
  if(rounds>0&&!confirm(`將電文與情報傳送到 config.yaml 指定的內網 LLM，共 ${rounds} 回合；候選模式：${candidateMode==='human'?'每輪人工確認':candidateMode==='automatic'?'自動擴充詞庫':'既有詞庫'}。確定執行？`))return;
  const serial=++analysisRequestSerial;
@@ -725,7 +727,7 @@ async function start(){
   delete inferenceCase.hypothesis_revision_history;
   const queued=await api('/api/start',{case:inferenceCase,rounds,
     use_metadata:el('metadata').value==='true',capture_llm_io:el('capture').checked,
-    candidate_mode:candidateMode});
+    candidate_mode:candidateMode,progress_stop_patience:progressStopPatience});
   const jobId=queued.job_id;
   if(!current()){
    if(candidateMode==='human'){

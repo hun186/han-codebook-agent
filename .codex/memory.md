@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-02 — Round progress/optional oracle-free stop (stacked PR pending)
+- Main verified `854bfe42b248dd0679e70219a52889791b41ec71` and main Hosted CI #41412739291 SUCCESS. Parent PR #41 cross-message contrast is under latest-HEAD CI and Codex review; this PR is stacked and must be rebased to main after #41 merge.
+- Separate Top-1 changes, Top-5 rank changes, new previously uncovered codes, novel (code,candidate) model pairs, adopted new vocab, and proposal repetitions. New proposals without ranking movement are NOT evidence of improved decipherment; independent accuracy remains unavailable inside inference.
+- Default stop OFF. Explicit `progress_stop_patience=2..20` (CLI --progress-stop-patience, GUI optional 2 or 3) stops only after all unknown codes have had at least one research request opportunity and N consecutive rounds have **no** new coverage, new hint pair, new vocabulary or Top-5 movement. Keep requested vs completed rounds and private `round_early_stop` audit, no gold.
+- Synthetic tests cover 27-code fairness, opt-in stop, default full run, rank change vs Top-1 and invalid options. Hosted full CI/formal exact-head Codex Review still PENDING, no real LAN LLM benchmark reproduced.
+
+
 ## 2026-11-02 — Cross-telegram contextual contradiction prompt (PR pending)
 - Main verified at `854bfe42b248dd0679e70219a52889791b41ec71` (PR #40 merged), postmerge CI run #41412739291 SUCCESS. Historical PR #1/#7/#8 remain OPEN superseded, do not blindly merge.
 - User's FIVE Case08/Demo private LAN research ZIPs were analyzed in chat: new rotation/dedup/trajectory gate worked but did not establish accuracy gains. Do not commit private ZIP or endpoint. Next P1 is evidence-based candidate *mapping* instead of more vocabulary.

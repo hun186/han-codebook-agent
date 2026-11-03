@@ -430,6 +430,12 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                         raise CaseError("candidate_mode must be static, automatic or human")
                     if candidate_mode != "static" and rounds == 0:
                         raise CaseError("Dynamic vocabulary requires at least one LLM round")
+                    progress_stop_patience = data.get("progress_stop_patience", 0)
+                    if (type(progress_stop_patience) is not int or
+                            progress_stop_patience != 0 and not 2 <= progress_stop_patience <= 20):
+                        raise CaseError("progress_stop_patience must be 0 or 2..20")
+                    if progress_stop_patience > 0 and rounds == 0:
+                        raise CaseError("Early stopping requires LLM rounds")
                     with jobs_lock:
                         if sum(j["status"] in ("queued", "running", "awaiting_review", "cancelling") for j in jobs.values()) >= 1:
                             return self._json(409, {"error": "An investigation is already running"})
@@ -526,7 +532,8 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                                 solver_iterations=3, solver_restarts=2,
                                 adaptive_vocabulary=candidate_mode != "static",
                                 vocabulary_reviewer=reviewer if candidate_mode == "human" else None,
-                                cancel_check=check_cancel if candidate_mode == "human" else None)
+                                cancel_check=check_cancel if candidate_mode == "human" else None,
+                                progress_stop_patience=progress_stop_patience)
                             (target / "result.json").write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
                             events = audit_timeline(target / "audit.sqlite")
                             from .report import investigation_report

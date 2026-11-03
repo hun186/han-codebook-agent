@@ -309,7 +309,11 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
               adaptive_vocabulary: bool = False,
               vocabulary_reviewer: Callable[[int, list[dict]], list[str]] | None = None,
               vocabulary_query: Callable[..., dict] | None = None,
-              cancel_check: Callable[[], None] | None = None) -> dict[str, Any]:
+              cancel_check: Callable[[], None] | None = None,
+              progress_stop_patience: int = 0) -> dict[str, Any]:
+    if (type(progress_stop_patience) is not int or
+            progress_stop_patience != 0 and not 2 <= progress_stop_patience <= 20):
+        raise CaseError("progress_stop_patience must be 0 (off) or 2..20")
     if type(adaptive_vocabulary) is not bool:
         raise CaseError("adaptive_vocabulary must be boolean")
     if adaptive_vocabulary and not rounds:
@@ -347,6 +351,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         previous_llm: dict[str, dict[str, Any]] = {}
         round_history: list[dict[str, Any]] = []
         hypothesis_snapshots: list[dict[str, Any]] = []
+        stalled_streak = 0
+        early_stopped = False
         if progress:
             progress("[analysis] Computing local statistical baseline ...")
         from .llm_evidence import safe_llm_message
@@ -372,6 +378,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
             log_event(conn, 0, "round_hypothesis_snapshot",
                       hypothesis_snapshots[-1])
         for num in range(1, rounds + 1):
+            before_round = current
+            accepted_vocab_this_round = 0
             if cancel_check:
                 cancel_check()
             # Preserve pre-round assignments, including changes made by
@@ -400,6 +408,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                     cancel_check()
                 log_event(conn, num, "vocabulary_candidates_unverified", record)
                 vocab.update(record["approved"])
+                accepted_vocab_this_round = len(record["approved"])
                 if progress:
                     progress(f"[vocab] Round {num}/{rounds}: {len(record['proposed'])} new proposed, "
                              f"{len(record['approved'])} accepted ({record['review_mode']}); "
@@ -434,6 +443,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                               key=lambda code: (requested_codes[code],
                                                 -frequency[code], code))[:15]
             unresolved = {code: all_unresolved[code] for code in selected}
+            new_coverage_count = sum(requested_codes[code] == 0 for code in selected)
             for code in selected:
                 requested_codes[code] += 1
             pending_codes = sorted(set(all_unresolved) - set(selected))
@@ -567,6 +577,15 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
             changes = {code: {"before": previous, "after": new_mapping[code]}
                        for code, previous in round_start_mapping.items()
                        if new_mapping[code] != previous}
+            from .round_progress import round_progress_diagnosis
+            diagnosis = round_progress_diagnosis(
+                before_round or {"proposals": {}}, current,
+                new_coverage_count=new_coverage_count,
+                fresh_hint_pairs=fresh_hint_count,
+                accepted_vocabulary_terms=accepted_vocab_this_round,
+                stale_rounds=stalled_streak,
+                stop_patience=progress_stop_patience)
+            stalled_streak = diagnosis["consecutive_stalled_rounds"]
             snapshot = {
                 "round": num, "target_code_count": len(selected),
                 "unasked_code_count": sum(
@@ -574,7 +593,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 "fresh_hint_pairs": fresh_hint_count,
                 "repeated_hint_pairs": repeated_hint_count,
                 "changed_code_count": len(changes),
-                "stagnant": not changes and fresh_hint_count == 0,
+                "stagnant": diagnosis["no_new_evidence_or_rank_movement"],
+                **diagnosis,
             }
             hypothesis_snapshots.append(_hypothesis_snapshot(
                 current, round_number=num, stage="post_llm_rescore",
@@ -589,13 +609,32 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                       hypothesis_snapshots[-1])
             log_event(conn, num, "rescore", {"score": current["objective_score"],
                                               "mapping": new_mapping, "changes": changes, "changed_count": len(changes)})
+            # Never terminate early before every unresolved code has had at
+            # least one request opportunity, even with repeated model replies.
+            if (diagnosis["stop_recommended"]
+                    and not any(requested_codes[code] == 0 for code in all_unresolved)):
+                early_stopped = True
+                log_event(conn, num, "round_early_stop", {
+                    "reason": "consecutive_no_new_evidence_or_rank_movement",
+                    "rounds_completed": num, "rounds_requested": rounds,
+                    "configured_patience": progress_stop_patience,
+                    "oracle_not_consulted": True,
+                })
+                if progress:
+                    progress(f"[agent] Early stop after {num}/{rounds}: "
+                             f"{stalled_streak} rounds without new evidence or "
+                             "Top-5 rank changes; this is NOT an accuracy claim.")
+                break
         if cancel_check:
             cancel_check()
         # Display/report-only counterfactuals; never enter the solver or LLM
         # as a verified anchor, and never replace immutable known plaintext.
         from .bold_hypotheses import normalize_bold_hypotheses
         current["bold_hypotheses"] = normalize_bold_hypotheses(case, current["verified_anchors"])
-        current["agent_rounds_completed"] = rounds
+        current["agent_rounds_completed"] = len(round_history)
+        current["agent_rounds_requested"] = rounds
+        current["progress_stop_patience"] = progress_stop_patience
+        current["early_stop_triggered"] = early_stopped
         # Diagnostic-only history; never choose a round using synthetic gold
         # or automatically promote a guessed mapping into a trusted anchor.
         current["round_progress_summary"] = round_history

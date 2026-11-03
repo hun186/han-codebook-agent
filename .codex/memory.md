@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-03 — Zero-yield auto vocab pause / truthful output schema (second PR pending)
+- First PR #44 `feat/round-checkpoint-risk-holdout-20261103` merged as `5f0b1beabe8f5c360bfc812e7c4a50c767530255` after current-head full Hosted CI, formal Codex Review Completed/No Findings, and all gates. Protect exact-head parent when rebase.
+- Branch `feat/automatic-vocab-skip-after-zero-20261103`: automatic vocabulary mode defaults to `vocab_zero_patience=2` (0 disables) to skip later vocabulary LLM calls after 2 consecutive empty/adoption-zero rounds, while still running code-hypothesis LLM rounds. Human review is never auto-skipped; adoption resets streak. GUI/CLI and Vercel safe public Mock synchronized.
+- `vocabulary_packet.output_contract` now supplies actual unverified code, current candidate and containing message ID rather than misleading example missing required fields; system JSON schema example includes six required contrast fields. Structural references still do not verify Chinese word semantics. Synthetic tests cover skip, reset, human exemption, real packet and invalid options.
+- Private user five ZIP diagnostics were analyzed in chat; NOT committed. Full Hosted CI/formal exact-head Codex Review/merge of this second PR still PENDING. Third item: cross-message structure-consistency diagnostic/ablation.
+
+
 ## 2026-11-03 — Round checkpoint conflicts + isolated postrun holdout (PR pending)
 - Latest confirmed main `0c3583d6d00c5e52d028ffbb85f57eb76415e593`, main Hosted CI #41558278096 SUCCESS, no new ordinary open PRs. Historic #1/#7/#8 superseded, do not merge.
 - User supplied five new private Case08 ZIPs. Their post-inference offline scoring found no final Top-1 improvement, but one 3-round metadata-OFF run attained 7/27 early before dropping to 4/27 by round 3. Gold must NEVER enter inference, PRs or shared raw ZIP.

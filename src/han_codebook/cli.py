@@ -15,6 +15,8 @@ def main(argv=None) -> int:
     parser.add_argument("--check-llm", action="store_true", help="Check TCP and /v1/models without sending cipher data")
     parser.add_argument("--no-metadata", action="store_true", default=None, help="Ablation: ignore sender/recipient/domain")
     parser.add_argument("--rounds", type=int, default=None, help="LLM proposal rounds (0=offline)")
+    parser.add_argument("--vocab-zero-patience", type=int, default=2,
+                        help="0=off; 1..20 zero-adoption automatic vocabulary rounds before skip")
     parser.add_argument("--postrun-holdout-folds", type=int, default=0,
                         help="0=disabled; 1..10 separate masked known-pair shadow folds after inference")
     parser.add_argument("--progress-stop-patience", type=int, default=0,
@@ -36,6 +38,8 @@ def main(argv=None) -> int:
             parser.error("--rounds must be 0..20")
         if args.progress_stop_patience != 0 and not 2 <= args.progress_stop_patience <= 20:
             parser.error("--progress-stop-patience must be 0 or 2..20")
+        if not 0 <= args.vocab_zero_patience <= 20:
+            parser.error("--vocab-zero-patience must be 0..20")
         if not 0 <= args.postrun_holdout_folds <= 10:
             parser.error("--postrun-holdout-folds must be 0..10")
         timeout = llm.get("timeout_seconds", 90)
@@ -68,7 +72,8 @@ def main(argv=None) -> int:
                            llm_reasoning_effort=llm.get("reasoning_effort"),
                            llm_response_format=llm.get("response_format"),
                            progress_stop_patience=args.progress_stop_patience,
-                           postrun_holdout_folds=args.postrun_holdout_folds)
+                           postrun_holdout_folds=args.postrun_holdout_folds,
+                           vocab_zero_patience=args.vocab_zero_patience)
         if evaluate:
             result["evaluation"] = evaluate_demo(result, case)
         dest = Path(out)

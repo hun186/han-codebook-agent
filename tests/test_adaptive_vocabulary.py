@@ -66,7 +66,12 @@ class AdaptiveVocabularyTest(unittest.TestCase):
                 kw["on_exchange"]("llm_request",{"body":{"phase":"vocabulary", "round":round_number}})
                 kw["on_exchange"]("llm_response",{"response":"vocabulary round "+str(round_number)})
             return {"vocabulary":[{"term":"第"+str(round_number)+"輪新詞","reason":"輔助情報＋暫時推論",
-                                   "evidence_message_ids":[payload["messages"][0]["id"]]}],
+                                   "evidence_message_ids":["X-new"],
+                                   "target_code":"999",
+                                   "contrasted_candidate":next(
+                                       x["candidate"] for x in payload["current_hypotheses_unverified"]
+                                       if x["code"] == "999"),
+                                   "contrast_reason":"現有候選不能解釋重複碼組"}],
                     "patterns":[]}
         def code_query(url,model,payload,**kw):
             self.assertTrue(payload["available_vocabulary"])

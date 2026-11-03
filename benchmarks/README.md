@@ -272,3 +272,10 @@ python -m han_codebook.paired_holdout --case benchmarks/cases/07_alias_mixed_len
 - 預設**不提前停止**；CLI 可指定 `--progress-stop-patience 2` 或 `3`（完整接受 2..20）；本機 GUI 可從選單開啟連續兩回合或三回合停滯自動停止。須已對所有未知碼提供過至少一次研究請求機會，且連續數回合沒有新增覆蓋、新模型配對、新採納詞彙或 Top-5 排名變化，才會提前停止。尚未證實的候選仍然可能正確，停滯不是錯誤證明。
 - 實際停止時寫入 `round_early_stop` 稽核事件；回傳 `agent_rounds_requested`、`agent_rounds_completed` 與 `early_stop_triggered`，清楚區分「請求回合數」與「實際完成回合數」。取消、無 LLM 模式及舊的禁用預設不變。
 - 合成 Mock 回歸涵蓋 27 碼公平覆蓋、Top-5 改變但 Top-1 固定、純新提示但排名未改、預設跑完、無 gold 自動停與錯誤參數拒絕。此功能仍需要同設定反覆私有模型實驗才能評估是否節省 Token 或影響 Case08 正確率。
+
+## 動態新增詞：對照既有假說的可查核門檻
+
+- 原本 `evidence_message_ids` 只能確認來源電文 ID 存在，不能判斷新詞是否有助於特定數字碼組。現在在已有離線候選時，自動採納新詞還需要 `target_code`、`contrasted_candidate`、`contrast_reason`。
+- `target_code` 必須是本次仍未驗證的碼組，確實出現在每一個引用的 `evidence_message_ids` 內；`contrasted_candidate` 必須等於該碼組現有 Top-1 未驗證候選；`contrast_reason` 必須為非空的差異／不足理由。格式不符合的詞只列入私人提議紀錄，**不自動採納**；人工審核者可明確選擇採納。
+- 若原始詞庫完全為空、尚無離線求解結果，保留已具有效電文來源的 bootstrap 詞彙機制。任何模型引用、理由或對比都**不構成語義正確性驗證**，且絕不可更動人工明文錨點。
+- 這個門檻旨在避免「大量無定位的新詞」擾動已存在正確詞彙的搜索空間；是否真正改善 Case08 正確率，需要更新後執行相同模型、多種種子與 Metadata ON/OFF 重複實驗。所有標準答案只能在推理結束後評分。

@@ -88,6 +88,12 @@ def refresh_vocabulary(case: dict, *, round_number: int, metadata: bool,
         for sentence in p.get("sentences", []) for word in sentence
     )
     message_ids = {message["id"] for message in case["messages"]}
+    messages_by_id = {message["id"]: message for message in case["messages"]}
+    prior_hypotheses = {
+        code: proposal for code, proposal in (current or {}).get("proposals", {}).items()
+        if proposal.get("status") == "hypothesis_unverified"
+    }
+    is_empty_vocabulary_bootstrap = current is None
     dynamic_terms = set(case["profiles"].get("llm_dynamic_candidates", {}).get("lexicon", {}))
     packet = vocabulary_packet(case, round_number=round_number, metadata=metadata,
                                current=current, vocabulary=current_terms)
@@ -121,12 +127,34 @@ def refresh_vocabulary(case: dict, *, round_number: int, metadata: bool,
                      and len(set(str(x) for x in references)) == len(references)
                      and all(isinstance(mid, str) and mid in message_ids
                              for mid in references))
-        # The provider's reference is only an auditable *pointer*, not
-        # independent proof that its proposed Chinese phrase is correct.
-        candidates.append({"term": word, "reason": str(reason)[:250],
-                           "evidence_message_ids": references if traceable else [],
-                           "context_reference_traceable": bool(traceable),
-                           "status": "unverified", "source_round": round_number})
+        target = item.get("target_code") if isinstance(item, dict) else None
+        compared = item.get("contrasted_candidate") if isinstance(item, dict) else None
+        contrast_reason = item.get("contrast_reason", "") if isinstance(item, dict) else ""
+        # A contrast is *checkable* only if it refers to this run's current
+        # unverified mapping and the same cipher group in every cited message.
+        # This is not semantic verification of the model's reason.
+        valid_contrast = (
+            isinstance(target, str) and target in prior_hypotheses
+            and isinstance(compared, str)
+            and compared == prior_hypotheses[target].get("term")
+            and isinstance(contrast_reason, str) and bool(contrast_reason.strip())
+            and traceable
+            and all(target in messages_by_id[mid]["codes"] for mid in references)
+        )
+        eligible = traceable and (
+            valid_contrast if current is not None else is_empty_vocabulary_bootstrap
+        )
+        candidates.append({
+            "term": word, "reason": str(reason)[:250],
+            "evidence_message_ids": references if traceable else [],
+            "context_reference_traceable": bool(traceable),
+            "target_code": target if isinstance(target, str) and target in prior_hypotheses else None,
+            "contrasted_candidate": compared if valid_contrast else None,
+            "contrast_reason": contrast_reason[:250] if valid_contrast else "",
+            "existing_candidate_contrast_traceable": bool(valid_contrast),
+            "automatic_adoption_eligible": bool(eligible),
+            "status": "unverified", "source_round": round_number,
+        })
         if len(candidates) >= MAX_NEW_TERMS_PER_ROUND:
             break
 
@@ -160,7 +188,7 @@ def refresh_vocabulary(case: dict, *, round_number: int, metadata: bool,
         # referentially valid source messages. Unsupported words remain in
         # the audit as proposals, not in the solver's adopted vocabulary.
         selection = [
-            x["term"] for x in candidates if x["context_reference_traceable"]
+            x["term"] for x in candidates if x["automatic_adoption_eligible"]
         ][:MAX_AUTO_ADOPT_WITH_CONTEXT_PER_ROUND]
 
     remaining = max(0, MAX_DYNAMIC_TERMS - len(dynamic_terms))
@@ -186,6 +214,10 @@ def refresh_vocabulary(case: dict, *, round_number: int, metadata: bool,
         "automatic_evidence_gate": review is None,
         "untraceable_proposed_count": sum(
             not item["context_reference_traceable"] for item in candidates),
+        "missing_existing_candidate_contrast_count": sum(
+            item["context_reference_traceable"] and
+            not item["automatic_adoption_eligible"] for item in candidates),
+        "contrast_required_when_prior_mapping_exists": current is not None,
         "auto_per_round_limit": MAX_AUTO_ADOPT_WITH_CONTEXT_PER_ROUND,
         "total_dynamic_terms": len(dynamic_terms) + len(approved),
         "metadata_used": metadata,

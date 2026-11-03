@@ -110,7 +110,10 @@ class RoundStateCoverageTests(unittest.TestCase):
         def vocab(_url, _model, packet, **kwargs):
             return {"vocabulary": [{"term": "第" + str(packet["round"]) + "詞",
                                     "reason": "unverified context",
-                                    "evidence_message_ids":[packet["messages"][0]["id"]]}]}
+                                    "evidence_message_ids":[packet["messages"][0]["id"]],
+                                    "target_code":"100",
+                                    "contrasted_candidate":packet["current_hypotheses_unverified"][0]["candidate"],
+                                    "contrast_reason":"此候選缺少跨電文解釋"}]}
         def code(_url, _model, packet, **kwargs):
             return {"hypotheses": [{"code": "100", "candidates": ["甲"]}]}
         with TemporaryDirectory() as td:

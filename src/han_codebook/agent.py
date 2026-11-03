@@ -100,6 +100,22 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
             "請盡量提出多樣、具體且彼此不同的候選；包含可能錯誤的候選是正常的。最多 128 個詞和 30 個例句模式。"
             "除有效 JSON 外不可輸出其他內容。"
         )
+        # Cold-start and independent vocabulary generation have no prior
+        # mapping to contrast. Do NOT require a fictitious target code.
+        contract = evidence.get("output_contract")
+        example = (contract.get("illustrative_existing_code_only")
+                   if isinstance(contract, dict) else None)
+        if not isinstance(example, dict):
+            system_prompt = (
+                "你是中文密電詞庫候選助手。未知詞彙均未驗證，不能宣稱任何碼組已解密。"
+                "這是空詞庫啟動或獨立詞彙蒐集，尚沒有先前候選碼組可供反證；"
+                "絕不可捏造 target_code 或 contrasted_candidate。"
+                "請只回傳 JSON：{\\"vocabulary\\":[{\\"term\\":\\"候選詞\\","
+                "\\"reason\\":\\"語境理由\\",\\"evidence_message_ids\\":[\\"實際電文ID\\"]}],"
+                "\\"patterns\\":[]}。沒有真實電文引用時，可只回覆空陣列；"
+                "絕不可把範例佔位文字當成有驗證的中文碼本對應。"
+                "除有效 JSON 外不可輸出其他內容。"
+            )
     else:
         system_prompt = (
             "你是歷史中文詞組電碼分析的研究助手。所有未知對應都是假設，絕不宣稱已破譯。"

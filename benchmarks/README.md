@@ -318,3 +318,25 @@ unverified target candidate. No matched neighborhood does not imply an error.
 These counts are NOT historical decipherment accuracy, a model confidence
 score, a semantic contradiction, or a basis for automatic anchor promotion.
 Keep cipher IDs and message IDs as private research information.
+
+
+## Shuffle-order null-control for cipher structure (offline)
+
+A separate optional structural control compares the original code-adjacency
+recurrence with order-shuffled versions of the same cipher messages:
+
+    python -m han_codebook.structure_null --case benchmarks/cases/08_long_dispatch_with_observations.json --out artifacts/structure_null_01.json --trials 16 --seed 0
+
+- Each trial preserves the code multiset, message membership and length.
+  **All messages referenced by known_pairs are frozen**, regardless of
+  whether their plaintext segments were already aligned.
+- Only unaligned, nonconstant messages can be shuffled. No possible shuffle
+  means the control fails explicitly instead of reporting meaningless zeros.
+- Number of trials is bounded to 1..32; fixed seed yields reproducible
+  count-only summaries. The output is create-only (POSIX 0600) and contains
+  only aggregate counts, not ciphertext sequences, model guesses, plaintext
+  words, observation text, metadata or case labels.
+- This is a descriptive null baseline for whether word-order structure appears
+  beyond a *specific randomized ordering*. It is not a p-value, historical
+  decipherment accuracy, semantic validation, or a criterion for automatically
+  choosing an LLM round or verified Chinese candidate.

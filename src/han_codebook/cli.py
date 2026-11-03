@@ -15,6 +15,8 @@ def main(argv=None) -> int:
     parser.add_argument("--check-llm", action="store_true", help="Check TCP and /v1/models without sending cipher data")
     parser.add_argument("--no-metadata", action="store_true", default=None, help="Ablation: ignore sender/recipient/domain")
     parser.add_argument("--rounds", type=int, default=None, help="LLM proposal rounds (0=offline)")
+    parser.add_argument("--adaptive-vocabulary", action="store_true",
+                        help="Opt in to automatic LLM vocabulary generation and evidence gate")
     parser.add_argument("--vocab-zero-patience", type=int, default=2,
                         help="0=off; 1..20 zero-adoption automatic vocabulary rounds before skip")
     parser.add_argument("--postrun-holdout-folds", type=int, default=0,
@@ -36,6 +38,9 @@ def main(argv=None) -> int:
         rounds = args.rounds if args.rounds is not None else analysis.get("rounds", 0)
         if not 0 <= rounds <= 20:
             parser.error("--rounds must be 0..20")
+        adaptive_vocab = args.adaptive_vocabulary or analysis.get("adaptive_vocabulary", False)
+        if adaptive_vocab and rounds == 0:
+            parser.error("--adaptive-vocabulary requires --rounds at least 1")
         if args.progress_stop_patience != 0 and not 2 <= args.progress_stop_patience <= 20:
             parser.error("--progress-stop-patience must be 0 or 2..20")
         if not 0 <= args.vocab_zero_patience <= 20:
@@ -73,7 +78,8 @@ def main(argv=None) -> int:
                            llm_response_format=llm.get("response_format"),
                            progress_stop_patience=args.progress_stop_patience,
                            postrun_holdout_folds=args.postrun_holdout_folds,
-                           vocab_zero_patience=args.vocab_zero_patience)
+                           vocab_zero_patience=args.vocab_zero_patience,
+                           adaptive_vocabulary=adaptive_vocab)
         if evaluate:
             result["evaluation"] = evaluate_demo(result, case)
         dest = Path(out)

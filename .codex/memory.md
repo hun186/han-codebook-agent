@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-03 — Null-control minimal cipher-only snapshots (PR pending)
+- PR #48 MERGED as 18f41cf013fa8cc77961042327a3150d58c866f3 after all eight exact-head Hosted CI checks and formal Codex Completed/No Findings, no outstanding thread. Main postmerge run #41620643127 was still running when the branch was created; verify separately.
+- Current branch perf/structure-null-minimal-shadows-20261103: shuffled-order null controls used to deep-copy the entire original case on every random trial, including large unsegmented private plaintext, free-form metadata and researcher annotations although only digit code order and explicit verified code IDs affect the statistic. Now snapshot only cipher message IDs/codes once and minimal aligned known-pair segment references, then clone code arrays per trial; full case remains read-only and is validated before this stage.
+- Synthetic tests include a private NoDeepCopy sentinel (throws on unwanted field copy), structural-only shadow inspection, direct equality to old full-deepcopy null distribution for the same seed, and retained bundled Case08/no oracle checks. No solver or model changes; Vercel preview remains disabled at project settings, and no PR-branch deployment is needed.
+- At authoring Hosted CI/formal latest-HEAD Codex Review/Merge pending. Structural recurrence is descriptive, not independent Chinese phrase correctness.
+
+
 ## 2026-11-03 — Cipher-only diagnostic no longer segments unaligned plaintext (PR pending)
 - Authoritative main = 30f27c6bcf7d8f1863090f9310050bc0e79f82c4; PRs #45/#46/#47 MERGED. Postmerge main Hosted runs #41613989882 and #41613149448 confirmed SUCCESS. Historic #1/#7/#8 OPEN but superseded; do not merge blindly.
 - User requested Vercel updates only on merge: authenticated Vercel project han-codebook-agent-poc was updated with previewDeploymentsDisabled=true; production deploy remains tied to main pushes (usually merges), not PR pushes. This cannot prevent deliberate direct pushes to main. Avoid turning preview back on. Keep GitHub CI and Codex Review independent.

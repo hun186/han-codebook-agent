@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 import os
+import random
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -132,6 +133,71 @@ class StructureNullTests(unittest.TestCase):
         for shadow in snapshots[1:]:
             self.assertEqual(shadow["messages"][1]["codes"], case["messages"][1]["codes"])
         self.assertNotIn("私人未切段", json.dumps(result, ensure_ascii=False))
+
+
+    def test_null_shadow_does_not_copy_unused_private_fields(self):
+        class NoDeepCopy:
+            def __deepcopy__(self, memo):
+                raise AssertionError("Private fields must not be copied into null controls")
+
+        case = case_fixture()
+        sentinel = NoDeepCopy()
+        case["case_id"] = sentinel
+        case["profiles"] = {"private": sentinel}
+        case["messages"][1]["notes"] = sentinel
+        case["known_pairs"][0]["private_note"] = sentinel
+        case["known_pairs"].append({"message_id": "B", "plaintext": sentinel})
+
+        calls = []
+        original_report = structure_report
+
+        def inspect(value):
+            if calls:
+                self.assertEqual(set(value), {"messages", "known_pairs"})
+                self.assertTrue(all(set(m) == {"id", "codes"} for m in value["messages"]))
+                self.assertTrue(all(set(p) <= {"message_id", "segments"}
+                                    for p in value["known_pairs"]))
+                self.assertNotIn("plaintext", str(value))
+            calls.append(1)
+            return original_report(value)
+
+        with patch("han_codebook.structure_null.structure_report", side_effect=inspect):
+            result = permutation_baseline(case, trials=4, seed=7)
+        self.assertEqual(len(calls), 5)
+        self.assertEqual(result["trials"], 4)
+        self.assertIs(case["messages"][1]["notes"], sentinel)
+        self.assertIs(case["known_pairs"][1]["plaintext"], sentinel)
+        self.assertNotIn("private", json.dumps(result, ensure_ascii=False).lower())
+
+    def test_null_distribution_exactly_matches_original_full_copy_algorithm(self):
+        case = case_fixture()
+        baseline = permutation_baseline(case, trials=8, seed=71)
+        rng = random.Random(71)
+        frozen = {p["message_id"] for p in case["known_pairs"]}
+        eligible = {m["id"] for m in case["messages"]
+                    if m["id"] not in frozen and len(m["codes"]) > 1
+                    and len(set(m["codes"])) > 1}
+        actual_samples = []
+        changed_positions = []
+        for _ in range(8):
+            shadow = deepcopy(case)
+            changed = 0
+            for message in shadow["messages"]:
+                if message["id"] in eligible:
+                    before = list(message["codes"])
+                    rng.shuffle(message["codes"])
+                    changed += sum(x != y for x, y in zip(before, message["codes"]))
+            changed_positions.append(changed)
+            actual_samples.append(structure_report(shadow)["summary"])
+        self.assertEqual(baseline["changed_code_positions_per_trial"], changed_positions)
+        for metric in ("heldout_with_same_sided_neighbor",
+                       "heldout_with_same_sided_verified_code_neighbor",
+                       "repeated_patterns"):
+            values = [row[metric] for row in actual_samples]
+            self.assertEqual(baseline["shuffled_order_null"][metric], {
+                "minimum": min(values), "maximum": max(values),
+                "mean": round(sum(values) / 8, 4),
+            })
 
 
 if __name__ == "__main__":

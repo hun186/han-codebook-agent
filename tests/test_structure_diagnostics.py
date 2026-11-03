@@ -31,6 +31,7 @@ def case_fixture():
 class StructuralLOMOTests(unittest.TestCase):
     def test_cross_message_support_not_within_message_or_plaintext(self):
         case = case_fixture()
+        case["case_id"] = "PRIVATE_CASE_LABEL_NEVER_EXPORT"
         original = deepcopy(case)
         report = structure_report(case)
         row = next(r for r in report["unknown_code_context"] if r["code"] == "100")
@@ -46,6 +47,7 @@ class StructuralLOMOTests(unittest.TestCase):
         self.assertEqual(repeat["sample_message_ids"], ["A", "B"])
         serialized = json.dumps(report, ensure_ascii=False)
         self.assertNotIn("PRIVATE_", serialized)
+        self.assertNotIn("PRIVATE_CASE_LABEL_NEVER_EXPORT", serialized)
         self.assertNotIn("可信", serialized)
         self.assertNotIn("ground_truth", serialized)
         self.assertEqual(original, case)
@@ -97,6 +99,7 @@ class StructuralLOMOTests(unittest.TestCase):
         case = case_fixture()
         case["messages"] = [{"id": "one", "codes": ["100"]}]
         case["known_pairs"] = []
+        del case["case_id"]  # case_id is optional, must not affect structure
         report = structure_report(case)
         self.assertEqual(report["summary"]["heldout_message_code_assessments"], 1)
         self.assertEqual(report["summary"]["heldout_with_same_sided_neighbor"], 0)

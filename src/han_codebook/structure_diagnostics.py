@@ -105,7 +105,6 @@ def structure_report(case: dict[str, Any]) -> dict[str, Any]:
     repeated.sort(key=lambda p: (-len(p[1]), -len(p[0]), p[0]))
     return {
         "schema": "han_cipher_structure_lomo_v1",
-        "case_id": case["case_id"],
         "scope": "same_sided_immediate_code_neighbors_in_distinct_messages",
         "privacy": "code_ids_only_no_metadata_words_candidates_or_oracle",
         "summary": {

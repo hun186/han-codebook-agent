@@ -292,6 +292,6 @@ python -m han_codebook.paired_holdout --case benchmarks/cases/07_alias_mixed_len
 
 - 適用於動態詞庫**自動採納**模式；`vocab_zero_patience=2` 預設在連續兩輪沒有採納任何新詞後，暫停後續詞庫 LLM 呼叫。之後各輪**碼組 LLM 推理與統計求解仍完整執行**，不會少研究未知碼。可透過 GUI 選擇 0（停用）、2 或 3；CLI **須先以 `--adaptive-vocabulary`（或 YAML `analysis.adaptive_vocabulary: true`）開啟自動詞庫模式**，再使用 `--vocab-zero-patience 0..20`。
 - `vocabulary_generation_skipped` SQLite 稽核事件列出跳過原因、連續零採納回合與允許的模型研究持續狀態；`vocabulary_generation_policy` 顯示實際詞庫 LLM 呼叫次數、跳過回合與保護策略。人工覆核模式**永遠不因這個規則跳過**，以免漏掉待人工審查的新詞。
-- 新詞 `vocabulary_packet.output_contract` 提供本次實際未驗證碼組、現有 Top-1 與相關電文 ID 的範例，並列出 `term, reason, evidence_message_ids, target_code, contrasted_candidate, contrast_reason` 六個欄位。系統 Prompt 的 JSON 示例也已同步更新。這只是正確的結構範本，不是對模型候選語義的核准；模型回覆不符合門檻仍會被拒收。
+- 新詞 `vocabulary_packet.output_contract` 提供本次實際未驗證碼組、現有 Top-1 與相關電文 ID 的範例，並列出 `term, reason, evidence_message_ids, target_code, contrasted_candidate, contrast_reason` 六個欄位。系統 Prompt 的 JSON 示例也已同步更新；**尚無既有候選的空詞庫啟動與獨立詞庫蒐集**改用只要求 term/reason/evidence_message_ids 的簡化格式，不要求捏造 target_code 或 contrasted_candidate。這只是正確的結構範本，不是對模型候選語義的核准；模型回覆不符合門檻仍會被拒收。
 - 同一輪被採納詞彙會重設零產出計數；對於暫停後的新情報，本次作業不會自動恢復詞庫生成，必須重新執行研究。當詞庫的真實正解已存在，這項策略可能節省詞庫呼叫；**沒有合成金標參與判斷，不能保證破譯精度一定不變**。
 - 完整 Hosted 測試及正式 Codex Review 須另行確認，不得將 GitHub 的合成 Mock PASS 說成私人 Qwen 實機效果。

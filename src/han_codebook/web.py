@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import os
 from pathlib import Path
 import secrets
@@ -436,6 +437,12 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                         raise CaseError("progress_stop_patience must be 0 or 2..20")
                     if progress_stop_patience > 0 and rounds == 0:
                         raise CaseError("Early stopping requires LLM rounds")
+                    anchor_span_weight = data.get("anchor_span_weight", 0)
+                    if (isinstance(anchor_span_weight, bool)
+                            or not isinstance(anchor_span_weight, (int, float))
+                            or not math.isfinite(anchor_span_weight)
+                            or not 0 <= anchor_span_weight <= 1):
+                        raise CaseError("anchor_span_weight must be finite 0..1")
                     vocab_zero_patience = data.get("vocab_zero_patience", 2)
                     if (type(vocab_zero_patience) is not int or
                             not 0 <= vocab_zero_patience <= 20):
@@ -543,7 +550,8 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                                 cancel_check=check_cancel if candidate_mode == "human" else None,
                                 progress_stop_patience=progress_stop_patience,
                                 postrun_holdout_folds=postrun_holdout_folds,
-                                vocab_zero_patience=vocab_zero_patience)
+                                vocab_zero_patience=vocab_zero_patience,
+                                anchor_span_weight=anchor_span_weight)
                             (target / "result.json").write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding="utf-8")
                             events = audit_timeline(target / "audit.sqlite")
                             from .report import investigation_report

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import argparse
+import math
 import json
 from pathlib import Path
 import sys
@@ -17,6 +18,8 @@ def main(argv=None) -> int:
     parser.add_argument("--rounds", type=int, default=None, help="LLM proposal rounds (0=offline)")
     parser.add_argument("--adaptive-vocabulary", action="store_true",
                         help="Opt in to automatic LLM vocabulary generation and evidence gate")
+    parser.add_argument("--anchor-span-weight", type=float, default=0.0,
+                        help="0=default OFF; 0.3 or 0.8 for two-hop verified-anchor ablation")
     parser.add_argument("--vocab-zero-patience", type=int, default=2,
                         help="0=off; 1..20 zero-adoption automatic vocabulary rounds before skip")
     parser.add_argument("--postrun-holdout-folds", type=int, default=0,
@@ -43,6 +46,8 @@ def main(argv=None) -> int:
             parser.error("--adaptive-vocabulary requires --rounds at least 1")
         if args.progress_stop_patience != 0 and not 2 <= args.progress_stop_patience <= 20:
             parser.error("--progress-stop-patience must be 0 or 2..20")
+        if not math.isfinite(args.anchor_span_weight) or not 0 <= args.anchor_span_weight <= 1:
+            parser.error("--anchor-span-weight must be finite 0..1")
         if not 0 <= args.vocab_zero_patience <= 20:
             parser.error("--vocab-zero-patience must be 0..20")
         if not 0 <= args.postrun_holdout_folds <= 10:
@@ -79,7 +84,8 @@ def main(argv=None) -> int:
                            progress_stop_patience=args.progress_stop_patience,
                            postrun_holdout_folds=args.postrun_holdout_folds,
                            vocab_zero_patience=args.vocab_zero_patience,
-                           adaptive_vocabulary=adaptive_vocab)
+                           adaptive_vocabulary=adaptive_vocab,
+                           anchor_span_weight=args.anchor_span_weight)
         if evaluate:
             result["evaluation"] = evaluate_demo(result, case)
         dest = Path(out)

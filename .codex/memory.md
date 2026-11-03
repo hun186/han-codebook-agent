@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-03 — Two-hop verified-anchor structural ablation (third PR pending)
+- Built after user private Case08 real evidence that code terms 142/143/144 temporarily improved then reverted. Existing bigram scoring is not a guarantee of correct codeword selection. No private ZIP, LAN endpoint or synthetic gold committed.
+- Branch `feat/anchor-span-structural-ablation-20261103`: optional `anchor_span_weight=0..1`, default ZERO. Constrain the weak added prior to verified anchor terms exactly two token positions away, cap at six different messages per target. Add identical fixed bonus to objective, coordinate `change_delta`, and initialization; no LLM self-claims or held-out words enter scoring. Fictitious regression tests for default-off, immutable anchors, validation, capped sources.
+- New `anchor_span_ablation.py` runs same case with weight 0 and 0.3 under identical offline seed/budget and writes O_EXCL private report with changed code IDs only; no model calls, no gold winner, no plaintext. CLI/GUI optional weights, browser-only Vercel demo parity updated.
+- Parent PR #45 latest current HEAD is 4e35f48bd86b6a5db4a8805305d461ba6e46bd38 (CLI and cold-start fixes included); this is STACKED and must be rebuilt on merged main before formal latest-head gate/merge. Do not claim real Case08 accuracy gains until user workstation reruns.
+
+
 ## 2026-11-03 — Zero-yield auto vocab pause / truthful output schema (second PR pending)
 - First PR #44 `feat/round-checkpoint-risk-holdout-20261103` merged as `5f0b1beabe8f5c360bfc812e7c4a50c767530255` after current-head full Hosted CI, formal Codex Review Completed/No Findings, and all gates. Protect exact-head parent when rebase.
 - Branch `feat/automatic-vocab-skip-after-zero-20261103`: automatic vocabulary mode defaults to `vocab_zero_patience=2` (0 disables) to skip later vocabulary LLM calls after 2 consecutive empty/adoption-zero rounds, while still running code-hypothesis LLM rounds. Human review is never auto-skipped; adoption resets streak. GUI/CLI and Vercel safe public Mock synchronized. CLI explicitly requires `--adaptive-vocabulary` or YAML `analysis.adaptive_vocabulary: true`; default static CLI stays unchanged. Regression covers flag, config and zero-round rejection.

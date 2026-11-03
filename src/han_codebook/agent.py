@@ -8,6 +8,7 @@ import copy
 from collections import Counter
 import ipaddress
 import json
+import math
 import os
 import sqlite3
 import socket
@@ -336,7 +337,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
               cancel_check: Callable[[], None] | None = None,
               progress_stop_patience: int = 0,
               postrun_holdout_folds: int = 0,
-              vocab_zero_patience: int = 2) -> dict[str, Any]:
+              vocab_zero_patience: int = 2,
+              anchor_span_weight: float = 0.0) -> dict[str, Any]:
     if (type(progress_stop_patience) is not int or
             progress_stop_patience != 0 and not 2 <= progress_stop_patience <= 20):
         raise CaseError("progress_stop_patience must be 0 (off) or 2..20")
@@ -346,6 +348,11 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
     if (type(vocab_zero_patience) is not int or
             not 0 <= vocab_zero_patience <= 20):
         raise CaseError("vocab_zero_patience must be an integer 0..20")
+    if (isinstance(anchor_span_weight, bool)
+            or not isinstance(anchor_span_weight, (int, float))
+            or not math.isfinite(anchor_span_weight)
+            or not 0 <= anchor_span_weight <= 1):
+        raise CaseError("anchor_span_weight must be finite numeric 0..1")
     if type(adaptive_vocabulary) is not bool:
         raise CaseError("adaptive_vocabulary must be boolean")
     if adaptive_vocabulary and not rounds:
@@ -396,7 +403,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         # the solver. Never fabricate a fallback candidate from synthetic gold.
         try:
             current = analyze(active_case, use_metadata=metadata,
-                              iterations=solver_iterations, restarts=solver_restarts)
+                              iterations=solver_iterations, restarts=solver_restarts,
+                              anchor_span_weight=anchor_span_weight)
         except CaseError as exc:
             if not adaptive_vocabulary or "empty vocabulary" not in str(exc):
                 raise
@@ -472,7 +480,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 # Expand the solver's candidate space before asking for code-level hints.
                 current = analyze(active_case, use_metadata=metadata,
                                   llm_hints=hints,
-                                  iterations=solver_iterations, restarts=solver_restarts)
+                                  iterations=solver_iterations, restarts=solver_restarts,
+                              anchor_span_weight=anchor_span_weight)
                 if cancel_check:
                     cancel_check()  # Never send another LLM call after a canceled solve.
                 after_vocab_mapping = {c: p["term"] for c, p in current["proposals"].items()}
@@ -628,7 +637,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
             if progress:
                 progress(f"[agent] Round {num}/{rounds}: accepted {len(accepted)} unverified code hypotheses; reranking ...")
             current = analyze(active_case, use_metadata=metadata, llm_hints=hints,
-                              iterations=solver_iterations, restarts=solver_restarts)
+                              iterations=solver_iterations, restarts=solver_restarts,
+                              anchor_span_weight=anchor_span_weight)
             new_mapping = {c: p["term"] for c, p in current["proposals"].items()}
             changes = {code: {"before": previous, "after": new_mapping[code]}
                        for code, previous in round_start_mapping.items()
@@ -710,6 +720,14 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
             "model/solver disagreement or prior stability are NOT independent accuracy; "
             "reviewers must independently confirm before promoting any mapping"
         )
+        current["anchor_span_ablation"] = {
+            "weight": anchor_span_weight,
+            "enabled": anchor_span_weight > 0,
+            "source": "verified two-hop anchor context and supplied language priors only",
+            "context_code_count": current.get("anchor_span_context_code_count", 0),
+            "context_records": current.get("anchor_span_context_records", 0),
+            "not_an_accuracy_estimate": True,
+        }
         current["vocabulary_generation_policy"] = {
             "automatic_zero_adoption_patience": vocab_zero_patience,
             "human_review_never_auto_skipped": vocabulary_reviewer is not None,

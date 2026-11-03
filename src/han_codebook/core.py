@@ -239,10 +239,16 @@ def build_models(case: dict[str, Any], anchors: dict[str, str], extra_vocabulary
 
 
 def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str, dict[str, float]] | None = None,
-            iterations: int = 8, restarts: int = 4, seed: int = 7, hint_scale: float = 1.0) -> dict[str, Any]:
+            iterations: int = 8, restarts: int = 4, seed: int = 7,
+            hint_scale: float = 1.0, anchor_span_weight: float = 0.0) -> dict[str, Any]:
     """Local coordinate-ascent codebook hypotheses, with immutable verified anchors."""
     if isinstance(hint_scale, bool) or not isinstance(hint_scale, (int, float)) or not math.isfinite(hint_scale) or not 0 <= hint_scale <= 4:
         raise CaseError("hint_scale must be a finite number between 0 and 4")
+    if (isinstance(anchor_span_weight, bool)
+            or not isinstance(anchor_span_weight, (int, float))
+            or not math.isfinite(anchor_span_weight)
+            or not 0 <= anchor_span_weight <= 1):
+        raise CaseError("anchor_span_weight must be finite numeric 0..1")
     validate_case(case)
     anchors, reviews, vocab = anchors_and_review(case)
     from .hypothesis_marks import normalize_marks
@@ -304,6 +310,27 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
             nxt = codes[pos + 1] if pos + 1 < len(codes) else "</S>"
             occurrences[code].append((domain, prev, nxt))
 
+    from .anchor_span import two_hop_anchor_context
+    span_context = (
+        two_hop_anchor_context(tagged, anchors, unknown_codes)
+        if anchor_span_weight > 0 else {}
+    )
+
+    @lru_cache(maxsize=None)
+    def span_bonus(code: str, candidate: str) -> float:
+        # All neighbors are independently verified code alignments.
+        # A two-hop bigram is only a language heuristic, not a true trigram;
+        # therefore it is bounded and OFF by default for fair ablation.
+        samples = span_context.get(code, ())
+        if not samples:
+            return 0.0
+        total = sum(
+            transition(domain, anchor_term, candidate)
+            if side == "left" else transition(domain, candidate, anchor_term)
+            for domain, side, anchor_term in samples
+        )
+        return anchor_span_weight * total / len(samples)
+
     def change_delta(code: str, candidate: str, assignment: dict[str, str], *,
                      distinct_counts: Counter[str] | None = None) -> float:
         """Exact change in local lexical and transition terms, without rescoring every message."""
@@ -327,6 +354,7 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
             preferred = marks.get(code, {}).get('preferred')
             if preferred:
                 delta += 2.0 * (int(candidate == preferred) - int(previous_word == preferred))
+        delta += span_bonus(code, candidate) - span_bonus(code, previous_word)
         if distinct and distinct_counts is not None:
             a, b = distinct_counts[previous_word], distinct_counts[candidate]
             # Distinct penalty is -7 for every repeated code->term mapping.
@@ -350,6 +378,7 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
         if distinct:
             counts = Counter(assignment.values())
             out -= 7.0 * sum(v - 1 for v in counts.values() if v > 1)
+        out += sum(span_bonus(code, assignment[code]) for code in unknown_codes)
         return out
 
     rng = random.Random(seed)
@@ -363,7 +392,8 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
             # Good initializations with occasional non-greedy starts for escaping local maxima.
             candidates = sorted(allowed_choices[code], key=lambda word: sum(
                 unigram(d, word) + hint(code, word)
-                for m, d in tagged if code in m["codes"]), reverse=True)
+                for m, d in tagged if code in m["codes"]) +
+                span_bonus(code, word), reverse=True)
             assignment[code] = candidates[0] if start == 0 else rng.choice(candidates[:min(8, len(candidates))])
         for sweep in range(iterations):
             change = False
@@ -433,6 +463,9 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
         "metadata_used": use_metadata,
         "observation_policy": case.get("observation_policy", "legacy"),
         "llm_hint_scale": hint_scale,
+        "anchor_span_weight": anchor_span_weight,
+        "anchor_span_context_code_count": len(span_context),
+        "anchor_span_context_records": sum(len(v) for v in span_context.values()),
         "distinct_phrases_assumed": distinct,
         "verified_anchors": anchors,
         "pair_review": reviews,

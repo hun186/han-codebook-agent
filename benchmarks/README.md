@@ -295,3 +295,11 @@ python -m han_codebook.paired_holdout --case benchmarks/cases/07_alias_mixed_len
 - 新詞 `vocabulary_packet.output_contract` 提供本次實際未驗證碼組、現有 Top-1 與相關電文 ID 的範例，並列出 `term, reason, evidence_message_ids, target_code, contrasted_candidate, contrast_reason` 六個欄位。系統 Prompt 的 JSON 示例也已同步更新；**尚無既有候選的空詞庫啟動與獨立詞庫蒐集**改用只要求 term/reason/evidence_message_ids 的簡化格式，不要求捏造 target_code 或 contrasted_candidate。這只是正確的結構範本，不是對模型候選語義的核准；模型回覆不符合門檻仍會被拒收。
 - 同一輪被採納詞彙會重設零產出計數；對於暫停後的新情報，本次作業不會自動恢復詞庫生成，必須重新執行研究。當詞庫的真實正解已存在，這項策略可能節省詞庫呼叫；**沒有合成金標參與判斷，不能保證破譯精度一定不變**。
 - 完整 Hosted 測試及正式 Codex Review 須另行確認，不得將 GitHub 的合成 Mock PASS 說成私人 Qwen 實機效果。
+
+## 兩格距離錨點先驗：安全的聯合求解消融（2026-11-03）
+
+- 原有 bigram 求解器已使用相鄰碼組候選；現在新增**預設關閉**的 `anchor_span_weight=0.0` 結構先驗，使用**距離恰為兩個碼位**的人工可信錨點做額外弱語言線索。每個未知碼最多從六封不同電文抽取先驗，避免同封電文的多次重複過度加權。
+- 新加的 `src/han_codebook/anchor_span.py` 僅從原始數字碼序列與 `verified_anchors` 取得已知中文片語；不能讀取 LLM 猜測、歷史真實答案、未驗證反證或私人備註。這是以詞庫模型的過渡機率近似兩格聯繫，**不是訓練得到的 trigram、不是語義驗證或已破譯證據**。
+- `core.analyze(..., anchor_span_weight=0.3)` 會在每個未知碼的優化目標和局部 `change_delta` 裡採用**相同**的固定弱先驗；默認 0 完全保留原有推理。GUI 可選 `0 / 0.3 / 0.8`；CLI `--anchor-span-weight 0.3`，上限 1，超出、不有限或 bool 會拒絕。
+- 可在本機以 `python -m han_codebook.anchor_span_ablation --case <input_case.json> --out <NEW_private_report.json>` 進行**不呼叫 LLM 的純離線**同種子 0/0.3 權重消融。報告只列改變第一順位及 Top-5 排序的碼組 ID、可信錨點數量、結構上下文筆數，不提供中文詞彙、原文、模型連線或任何合成 gold，也**不會選出「較準確」的模型**；新檔 O_EXCL，不覆蓋既有證據。
+- 請以相同 Metadata、同一份資料、同種子與求解預算比對效果。當原始數字碼周邊沒有可信錨點時，此先驗沒有作用；若遇到錯配，應關閉先驗或另作人工核對，不可據此宣稱 Case08 正確率改善。

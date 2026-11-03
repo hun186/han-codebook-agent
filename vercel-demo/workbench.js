@@ -715,6 +715,8 @@ async function start(){
  if(!Number.isInteger(rounds)||rounds<0||rounds>20){notice('LLM 回合數必須是 0～20 整數；0 代表離線分析',true);return}
  const candidateMode=el('candidateMode').value;
  const progressStopPatience=Number(el('progressStopPatience').value);
+ const anchorSpanWeight=Number(el('anchorSpanWeight').value);
+ if(![0,0.3,0.8].includes(anchorSpanWeight)){notice('結構先驗權重無效',true);return}
  const vocabZeroPatience=Number(el('vocabZeroPatience').value);
  if(![0,2,3].includes(vocabZeroPatience)){notice('自動詞庫節省設定無效',true);return}
  const postrunHoldoutFolds=Number(el('postrunHoldoutFolds').value);
@@ -732,7 +734,8 @@ async function start(){
   const queued=await api('/api/start',{case:inferenceCase,rounds,
     use_metadata:el('metadata').value==='true',capture_llm_io:el('capture').checked,
     candidate_mode:candidateMode,progress_stop_patience:progressStopPatience,
-    postrun_holdout_folds:postrunHoldoutFolds,vocab_zero_patience:vocabZeroPatience});
+    postrun_holdout_folds:postrunHoldoutFolds,vocab_zero_patience:vocabZeroPatience,
+    anchor_span_weight:anchorSpanWeight});
   const jobId=queued.job_id;
   if(!current()){
    if(candidateMode==='human'){

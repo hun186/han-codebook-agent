@@ -18,6 +18,7 @@ ROOT=Path(__file__).resolve().parents[1]
 def case_data():
     obj=json.loads((ROOT/"examples"/"demo_case.json").read_text(encoding="utf-8"))
     obj.pop("ground_truth",None)
+    obj["messages"].append({"id":"X-new","codes":["999","013"]})
     return obj
 
 
@@ -34,7 +35,10 @@ class AdaptiveRoundIntegrityTests(unittest.TestCase):
             return mapping("原詞" if len(calls)==1 else "新增詞")
         def fake_vocab(url,model,packet,**kw):
             return {"vocabulary":[{"term":"新增詞","reason":"依跨報背景提出",
-                                  "evidence_message_ids":[packet["messages"][0]["id"]]}]}
+                                  "evidence_message_ids":["X-new"],
+                                  "target_code":"999",
+                                  "contrasted_candidate":packet["current_hypotheses_unverified"][0]["candidate"],
+                                  "contrast_reason":"現有候選不足以涵蓋新語境"}]}
         def fake_code(url,model,packet,**kw):
             self.assertIn("新增詞",packet["available_vocabulary"])
             return {"hypotheses":[]}
@@ -69,7 +73,10 @@ class AdaptiveRoundIntegrityTests(unittest.TestCase):
             return mapping("原詞" if flags["steps"]==1 else "新增詞")
         def fake_vocab(url,model,packet,**kw):
             return {"vocabulary":[{"term":"新增詞","reason":"可疑活動",
-                                  "evidence_message_ids":[packet["messages"][0]["id"]]}]}
+                                  "evidence_message_ids":["X-new"],
+                                  "target_code":"999",
+                                  "contrasted_candidate":packet["current_hypotheses_unverified"][0]["candidate"],
+                                  "contrast_reason":"現有候選不足以涵蓋新語境"}]}
         def fake_code(url,model,packet,**kw):
             flags["code_calls"]+=1
             return {"hypotheses":[]}

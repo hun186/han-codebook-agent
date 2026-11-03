@@ -89,6 +89,10 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
             "\"patterns\":[[\"補給\",\"車隊\",\"出發\"]]}。"
             "候選詞需有具體理由，evidence_message_ids 請填寫輸入 messages 中實際出現且相關的電文 id（最多3個）；"
             "沒有可指向的電文時請省略該詞，未標明有效引用的詞不會被自動採納。引用電文仍不代表詞義已驗證。"
+            "若已有未驗證碼組候選，新增詞還必須附 target_code（某個尚未錨定的數字碼組）、"
+            "contrasted_candidate（該碼組目前第一順位候選）與 contrast_reason（具體說明目前候選為何不足）；"
+            "evidence_message_ids 引用的電文必須真的含 target_code。無法指出衝突時不要強行新增詞，"
+            "應優先比較原始詞庫已有候選。這仍是研究假說，不可標註驗證通過。"
             "請盡量提出多樣、具體且彼此不同的候選；包含可能錯誤的候選是正常的。最多 128 個詞和 30 個例句模式。"
             "除有效 JSON 外不可輸出其他內容。"
         )

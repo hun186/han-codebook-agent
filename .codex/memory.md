@@ -1,5 +1,11 @@
 # Project memory
 
+## 2026-11-02 — Context-linked vocabulary contrast requirement (third PR pending)
+- User's private Case08/Demo LLM experiments showed dynamic vocabulary can add words with no actual target-word hits. Existing auto-gate only checked message ID existence and reason length, not whether the target cipher code was in those messages or why the old hypothesis was inadequate.
+- Independent branch `feat/vocab-code-contrast-gate-20261102` (based on main after #41 merge): when offline mapping is available, auto-adopt only if proposed `target_code` is an unverified code, appears in every cited message, `contrasted_candidate` equals that code's current Top-1 and `contrast_reason` is nonblank. Explicit human approval unchanged; true empty-vocab bootstrap keeps source-only allowance. All references and comparisons remain unverified language hypotheses, never gold/verified anchors.
+- Synthetic mocked tests cover genuine/forged code-message link, anchor shielding, wrong first-choice contrast, missing reasons, empty lexicon bootstrap and explicit human override. Tests requiring auto adoption updated to cite real fictional target code and contrast. Parent PR #42 MERGED at `076c61d0e5975768673fada6834e328d0fd8c11e` after latest-head 8/8 Hosted CI, Codex Completed/No Findings and no unresolved threads. PR #43 rebased onto current main for a fresh exact-head formal review. Await full hosted checks and review before merge; never bypass Auto-Merge gate.
+
+
 ## 2026-11-02 — Round progress/optional oracle-free stop (stacked PR pending)
 - Main verified `854bfe42b248dd0679e70219a52889791b41ec71` and main Hosted CI #41412739291 SUCCESS. Parent PR #41 cross-message contrast is under latest-HEAD CI and Codex review; this PR is stacked and must be rebased to main after #41 merge.
 - Separate Top-1 changes, Top-5 rank changes, new previously uncovered codes, novel (code,candidate) model pairs, adopted new vocab, and proposal repetitions. New proposals without ranking movement are NOT evidence of improved decipherment; independent accuracy remains unavailable inside inference.

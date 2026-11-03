@@ -30,6 +30,7 @@ def candidate_checkpoint(
     }
     items = []
     changed_count = 0
+    review_candidate_count = 0
     disagreement_count = 0
     stable_replacement_count = 0
     for code in sorted(new):
@@ -43,6 +44,7 @@ def candidate_checkpoint(
         disagreed = model_first is not None and model_first != current_term
         if not changed and not disagreed:
             continue
+        review_candidate_count += 1
         changed_count += int(changed)
         disagreement_count += int(disagreed)
         # A minimum of two previous *snapshots* that agree is a stability
@@ -84,7 +86,7 @@ def candidate_checkpoint(
         "previously_stable_guesses_replaced": stable_replacement_count,
         "review_items": items,
         "review_item_count": len(items),
-        "truncated": changed_count + disagreement_count > MAX_REVIEW_ITEMS_PER_ROUND,
+        "truncated": review_candidate_count > MAX_REVIEW_ITEMS_PER_ROUND,
         "no_automatic_best_round_selection": True,
         "validation_warning": (
             "Previous stability and model agreement are NOT independent "

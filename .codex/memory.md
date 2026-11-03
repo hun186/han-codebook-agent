@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-03 — Cipher-only diagnostic no longer segments unaligned plaintext (PR pending)
+- Authoritative main = 30f27c6bcf7d8f1863090f9310050bc0e79f82c4; PRs #45/#46/#47 MERGED. Postmerge main Hosted runs #41613989882 and #41613149448 confirmed SUCCESS. Historic #1/#7/#8 OPEN but superseded; do not merge blindly.
+- User requested Vercel updates only on merge: authenticated Vercel project han-codebook-agent-poc was updated with previewDeploymentsDisabled=true; production deploy remains tied to main pushes (usually merges), not PR pushes. This cannot prevent deliberate direct pushes to main. Avoid turning preview back on. Keep GitHub CI and Codex Review independent.
+- Branch fix/cipher-only-validation-no-segmentation-20261103: cipher-only structural audits previously called general validate_case and anchors_and_review, which can launch plaintext segmentation for an unsegmented known pair and validate irrelevant GUI/semantic priors. A bounded cipher-only validator now uses only code lists, message IDs and explicit known-pair segments to reject contradictions, never attempts to segment unaligned plaintext or normalize model hypotheses. Semantic solver rules unchanged.
+- Synthetic tests cover thousands of characters of unsegmented plaintext with segmentation/full-validation hard-mocked to fail on invocation, frozen unsegmented references in shuffled-order null runs, contradictory trusted anchors, invalid code/reference boundaries, oracle blocking and nonmutation. No LAN LLM or historical decipherment accuracy claim. Hosted CI, formal latest-HEAD Codex Review and merge PENDING at time of branch commit.
+
+
 ## 2026-11-03 — Structure-order shuffled null control (third item / PR pending)
 - PR #46 cipher-only cross-message structural LOMO MERGED after latest SHA 0281c31d944c5e3e5ebccf75a7dbe987d95dc9c5, eight Python/Windows/Docker Hosted CI PASS, formal latest-head Codex Completed/No Findings and no open threads, as squash e3b8d047d63cf86e03595004dfb08c39fa4fbbf2. Postmerge main Actions run 41613149448 was still in progress at last check; verify.
 - Branch feat/offline-structure-permutation-baseline-20261103: optional random order null controls shuffle unaligned messages while keeping per-message code counts/membership, preserving all messages referenced by known pairs. 1..32 deterministic seeded trials; aggregate metrics only, case IDs / reference text excluded, create-only 0600 JSON. Zero shufflable messages rejects rather than implying evidence.

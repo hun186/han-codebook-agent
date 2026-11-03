@@ -340,3 +340,16 @@ recurrence with order-shuffled versions of the same cipher messages:
   beyond a *specific randomized ordering*. It is not a p-value, historical
   decipherment accuracy, semantic validation, or a criterion for automatically
   choosing an LLM round or verified Chinese candidate.
+
+
+**Cipher-only validation isolation:** both structural reports now validate bounded
+numeric cipher codes, unique message IDs and consistency of explicit aligned
+known-pair segments without invoking the research solver's full semantic
+validation or its unsegmented-plaintext segmentation heuristic. A known pair
+with only full plaintext is *not* a verified anchor, and in the shuffled null
+control its telegram stays frozen. Researcher notes, hypothesis annotations
+and profile lexicons are ignored even when absent or malformed; this does
+not loosen any validation performed by the normal solver. The structural
+validator still rejects contradictory aligned anchors, invalid references,
+oversized cipher inputs and oracle fields at case/message/known-pair level.
+No trusted phrase wording is exported and no real language inference occurs.

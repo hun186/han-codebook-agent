@@ -104,7 +104,7 @@ class CipherResearchTests(unittest.TestCase):
                     stages = [r[0] for r in conn.execute('select stage from events order by id')]
                 self.assertEqual(stages, ['run_started','preflight','statistical_baseline','round_hypothesis_snapshot',
                     'round_code_selection','llm_proposals_unverified',
-                    'round_progress_snapshot','round_hypothesis_snapshot','rescore'])
+                    'round_progress_snapshot','round_hypothesis_snapshot','rescore','round_candidate_checkpoint'])
         finally:
             server.shutdown()
             server.server_close()

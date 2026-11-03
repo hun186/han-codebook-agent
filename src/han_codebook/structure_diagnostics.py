@@ -11,7 +11,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .core import CaseError, anchors_and_review, validate_case
+from .core import CaseError
+from .cipher_structure_input import trusted_cipher_code_ids
 
 MAX_TOKENS = 100_000
 MAX_CODES = 2_048
@@ -26,20 +27,9 @@ def structure_report(case: dict[str, Any]) -> dict[str, Any]:
     One message contributes one vote per (code, side, neighbor). It can
     have repeated code occurrences, but cannot independently support itself.
     """
-    if not isinstance(case, dict):
-        raise CaseError("Case must be a mapping")
-    if FORBIDDEN.intersection(case):
-        raise CaseError("Evaluation answers are prohibited")
-    if isinstance(case.get("messages"), list):
-        if any(isinstance(m, dict) and FORBIDDEN.intersection(m)
-               for m in case["messages"]):
-            raise CaseError("Embedded evaluation answers are prohibited")
-    validate_case(case)
+    anchors = trusted_cipher_code_ids(case)
     messages = case["messages"]
     total = sum(len(m["codes"]) for m in messages)
-    if total > MAX_TOKENS:
-        raise CaseError("Cipher corpus exceeds diagnostic token cap")
-    anchors, _, _ = anchors_and_review(case)
     occurrences: Counter[str] = Counter()
     by_code: dict[str, dict[str, set[tuple[str, str]]]] = defaultdict(dict)
     patterns: dict[tuple[str, ...], set[str]] = defaultdict(set)

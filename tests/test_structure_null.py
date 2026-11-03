@@ -109,5 +109,30 @@ class StructureNullTests(unittest.TestCase):
         })
 
 
+    def test_long_unsegmented_known_pair_frozen_without_segmentation(self):
+        case = case_fixture()
+        case["known_pairs"].append({
+            "message_id": "A", "plaintext": "私人未切段明文" * 1500
+        })
+        original = deepcopy(case)
+        snapshots = []
+        real_report = structure_report
+        def observe(value):
+            snapshots.append(deepcopy(value))
+            return real_report(value)
+        with patch("han_codebook.core.segmentation_candidates",
+                   side_effect=AssertionError("should never segment known pair")), \
+             patch("han_codebook.structure_null.structure_report",
+                   side_effect=observe):
+            result = permutation_baseline(case, trials=3, seed=9)
+        self.assertEqual(case, original)
+        self.assertEqual(result["frozen_known_pair_messages"], 2)
+        self.assertEqual(result["permutable_messages"], 2)
+        self.assertEqual(len(snapshots), 4)
+        for shadow in snapshots[1:]:
+            self.assertEqual(shadow["messages"][1]["codes"], case["messages"][1]["codes"])
+        self.assertNotIn("私人未切段", json.dumps(result, ensure_ascii=False))
+
+
 if __name__ == "__main__":
     unittest.main()

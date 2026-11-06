@@ -11,7 +11,7 @@ _SCHEMAS = {
     "analysis": {"use_metadata": bool, "rounds": int, "evaluate_demo": bool,
                  "adaptive_vocabulary": bool},
     "llm": {"base_url": str, "model": str, "timeout_seconds": int,
-            "provider": str, "allow_external_api": bool,
+            "provider": str, "allow_external_api": bool, "max_output_tokens": int,
              "allow_private_network": bool, "allowed_hosts": list, "api_key_env": str,
             "capture_io": bool, "reasoning_effort": str, "response_format": str},
 }
@@ -59,6 +59,10 @@ def load_settings(path: str | Path) -> dict[str, Any]:
         raise CaseError("Config 'llm.timeout_seconds' must be in 1..600")
     if result["llm"].get("provider", "local") not in ("local", "deepinfra"):
         raise CaseError("llm.provider must be local or deepinfra")
+    cap=result["llm"].get("max_output_tokens")
+    if cap is not None:
+        from .agent import validate_max_output_tokens
+        validate_max_output_tokens(cap)
     effort=result["llm"].get("reasoning_effort")
     if effort is not None and effort not in ("none","minimal","low","medium","high","xhigh"):
         raise CaseError("llm.reasoning_effort must be none/minimal/low/medium/high/xhigh")

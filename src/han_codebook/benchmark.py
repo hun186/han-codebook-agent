@@ -108,6 +108,7 @@ def run_suite(suite_path: str | Path, *, variants: tuple[bool,...]=(True,False),
                       llm_api_key_env=llm.get('api_key_env'),
                       llm_provider=llm.get('provider','local'),
                       llm_allow_external_api=llm.get('allow_external_api',False),
+                      llm_max_output_tokens=llm.get('max_output_tokens'),
                       llm_reasoning_effort=llm.get('reasoning_effort'),
                       llm_response_format=llm.get('response_format'))
             else:

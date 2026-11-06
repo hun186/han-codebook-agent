@@ -97,7 +97,8 @@ def refresh_vocabulary(case: dict, *, round_number: int, metadata: bool,
                        current: dict | None, llm_settings: dict,
                        review: Callable[[int, list[dict]], list[str] | dict] | None = None,
                        query: Callable[..., dict] = query_local_llm,
-                       on_exchange: Callable | None = None) -> tuple[dict, dict]:
+                       on_exchange: Callable | None = None,
+                       on_metrics: Callable | None = None) -> tuple[dict, dict]:
     """One explicit private-model vocabulary request; review is opt-in.
 
     Rejects unknown returned words and disallows any partial case mutation.
@@ -139,6 +140,8 @@ def refresh_vocabulary(case: dict, *, round_number: int, metadata: bool,
         reasoning_effort=llm_settings.get("reasoning_effort"),
         response_format=llm_settings.get("response_format"),
         on_exchange=on_exchange,
+        on_metrics=on_metrics,
+        max_output_tokens=llm_settings.get("max_output_tokens"),
     )
     entries = response.get("vocabulary")
     if not isinstance(entries, list):

@@ -27,6 +27,8 @@ def main(argv=None) -> int:
     parser.add_argument("--model", default=None, help="LLM model name")
     parser.add_argument("--provider", choices=("local", "deepinfra"), default=None,
                         help="Provider (DeepInfra requires explicit external consent)")
+    parser.add_argument("--max-output-tokens", type=int, default=None,
+                        help="DeepInfra per-request output cap 1024..16384 (default 8192)")
     parser.add_argument("--allow-external-api", action="store_true",
                         help="Consent to transmit case context to paid DeepInfra HTTPS")
     parser.add_argument("--out", default=None)
@@ -56,6 +58,10 @@ def main(argv=None) -> int:
         evaluate = args.evaluate_demo if args.evaluate_demo is not None else analysis.get("evaluate_demo", False)
         provider = args.provider or llm.get("provider", "local")
         external = args.allow_external_api or llm.get("allow_external_api", False)
+        if args.max_output_tokens is not None and provider != "deepinfra":
+            parser.error("--max-output-tokens only applies to DeepInfra")
+        output_cap = (args.max_output_tokens if args.max_output_tokens is not None
+                      else llm.get("max_output_tokens"))
         url = args.ollama_url or (DEEPINFRA_BASE_URL if args.provider == "deepinfra"
                                   else llm.get("base_url", "http://127.0.0.1:11434/v1"))
         model = args.model or llm.get("model", "qwen3:14b")
@@ -85,6 +91,7 @@ def main(argv=None) -> int:
                            llm_allowed_hosts=llm.get("allowed_hosts", []),
                            llm_api_key_env=key_env,
                            llm_provider=provider, llm_allow_external_api=external,
+                           llm_max_output_tokens=output_cap,
                            progress=lambda message: print(message, flush=True),
                            capture_llm_io=llm.get("capture_io", False),
                            llm_reasoning_effort=llm.get("reasoning_effort"),

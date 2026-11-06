@@ -12,7 +12,8 @@ import secrets
 import tempfile
 from urllib.parse import urlsplit
 
-from .agent import validate_llm_endpoint
+from .agent import (DEEPINFRA_DEFAULT_MAX_OUTPUT_TOKENS,
+                    validate_llm_endpoint, validate_max_output_tokens)
 from .config import load_settings
 from .core import CaseError
 
@@ -23,7 +24,7 @@ MAX_LLM_ROUNDS = 20
 _CONFIRMATION_FIELDS = (
     "provider", "base_url", "model", "timeout_seconds", "allow_external_api",
     "allow_private_network", "allowed_hosts", "api_key_env",
-    "reasoning_effort", "response_format",
+    "reasoning_effort", "response_format", "max_output_tokens",
 )
 
 
@@ -57,6 +58,7 @@ def model_settings(path: Path) -> dict:
         "provider": llm.get("provider", "local"),
         "allow_external_api": llm.get("allow_external_api", False),
         "model": llm.get("model", "qwen3:14b"),
+        "max_output_tokens": llm.get("max_output_tokens", DEEPINFRA_DEFAULT_MAX_OUTPUT_TOKENS),
         "timeout_seconds": llm.get("timeout_seconds", 90),
         "allow_private_network": llm.get("allow_private_network", False),
         "allowed_hosts": list(llm.get("allowed_hosts", [])),
@@ -69,13 +71,19 @@ def model_settings(path: Path) -> dict:
 
 def save_model_settings(path: Path, raw: dict) -> dict:
     """Persist only allowlisted settings, with explicit LAN opt-in."""
-    if not isinstance(raw, dict) or set(raw) - {"base_url", "model", "timeout_seconds", "allow_private_network", "provider", "allow_external_api", "api_key_env"}:
+    if not isinstance(raw, dict) or set(raw) - {"base_url", "model", "timeout_seconds", "allow_private_network", "provider", "allow_external_api", "api_key_env", "max_output_tokens"}:
         raise CaseError("Unsupported LLM configuration fields")
     url, model, timeout = raw.get("base_url"), raw.get("model"), raw.get("timeout_seconds")
     lan = raw.get("allow_private_network", False)
     provider = raw.get("provider", "local")
     external = raw.get("allow_external_api", False)
     env_name = raw.get("api_key_env", "")
+    cap = raw.get("max_output_tokens")
+    if provider == "deepinfra":
+        cap = validate_max_output_tokens(
+            DEEPINFRA_DEFAULT_MAX_OUTPUT_TOKENS if cap is None else cap)
+    elif cap is not None:
+        raise CaseError("max_output_tokens applies to DeepInfra only")
     if type(provider) is not str or provider not in ("local", "deepinfra"):
         raise CaseError("Provider must be local or deepinfra")
     if type(external) is not bool or (provider == "local" and external):
@@ -107,7 +115,10 @@ def save_model_settings(path: Path, raw: dict) -> dict:
     else:
         existing["llm"].pop("api_key_env", None)
     if provider == "deepinfra":
+        existing["llm"]["max_output_tokens"] = cap
         existing["llm"].pop("reasoning_effort", None)
+    else:
+        existing["llm"].pop("max_output_tokens", None)
     # Avoid saving a literal secret or publishing it to the UI.
     existing["llm"].pop("api_key", None)
     path = path.resolve()

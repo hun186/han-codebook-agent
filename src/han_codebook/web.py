@@ -544,6 +544,7 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                                 llm_api_key_env=llm.get("api_key_env"),
                                 llm_provider=llm.get("provider", "local"),
                                 llm_allow_external_api=llm.get("allow_external_api", False),
+                                llm_max_output_tokens=llm.get("max_output_tokens"),
                                 progress=progress,
                                 capture_llm_io=capture and rounds > 0,
                                 llm_reasoning_effort=llm.get("reasoning_effort"),

@@ -85,7 +85,8 @@ def generate_vocabulary(case: dict, *, metadata: bool, llm_settings: dict,
                       provider=llm_settings.get('provider', 'local'),
                       allow_external_api=llm_settings.get('allow_external_api', False),
                       reasoning_effort=llm_settings.get('reasoning_effort'),
-                      response_format=llm_settings.get('response_format'))
+                      response_format=llm_settings.get('response_format'),
+                      max_output_tokens=llm_settings.get('max_output_tokens'))
         entries = reply.get('vocabulary')
         if not isinstance(entries,list):
             raise CaseError('LLM vocabulary reply must contain vocabulary array')

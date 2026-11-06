@@ -1,5 +1,11 @@
 # Project memory
 
+## 2026-11-06 — PR #50 second Codex P1: stale-tab destination confirmation
+- Official Codex found that simultaneous browser tabs could cause an old local-only confirmation to silently authorize a newly saved DeepInfra provider. A new nonsecret settings receipt (SHA-256 of provider/URL/model/connection settings) is returned by /api/settings and checked against the job-admission LLM snapshot while holding the settings/jobs lock.
+- For external DeepInfra jobs both a fresh matching confirmation receipt and explicit per-job confirmed_external_api=true are required. Missing, stale or mismatched confirmations fail closed before job/thread creation. GUI re-reads /api/settings immediately before the per-run/phrase-vocabulary confirm and sends the receipt + external consent. Local old API callers remain backward-compatible; supplied stale receipts still rejected.
+- Regression tests cover two-tab stale local->external switch on /api/start and /api/suggest-vocabulary, correct snapshot admission, no job creation on refusal, and token revision on model/URL change. Vercel Mock remains synthetic only; Hosted CI and fresh formal Codex Review not yet verified at commit time.
+
+
 ## 2026-11-06 — DeepInfra PR #50 first formal review corrections (pending re-review)
 - Codex review at initial SHA 125fd019 found P1 conflict with AGENTS.md absolute public API prohibition, P2 experiment runners dropping provider/consent. User explicitly requested DeepInfra and authorized development of this optional named external provider. Root AGENTS.md now states exact pinned HTTPS DeepInfra opt-in exception while forbidding other public endpoints; no generic public URL permission.
 - volume_llm batch rescore and full run validation, and benchmark run_agent invocation now propagate provider/allow_external_api. Offline synthetic regressions cover both runners, positive explicit consent and negative blocked consent, without real model calls or secrets.

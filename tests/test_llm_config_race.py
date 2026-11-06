@@ -199,5 +199,71 @@ class LLMConfigRaceTests(unittest.TestCase):
             self.assertEqual(observed, [("approved-model", "http://127.0.0.1:11434")])
 
 
+    def test_stale_local_tab_cannot_send_research_to_new_deepinfra_provider(self):
+        from han_codebook.model_settings import model_settings
+        old=model_settings(self.cfg)["confirmation_token"]
+        deep={"provider":"deepinfra","allow_external_api":True,
+              "base_url":"https://api.deepinfra.com/v1/openai",
+              "model":"deepseek-ai/DeepSeek-V4-Flash-0731",
+              "timeout_seconds":90,"allow_private_network":False,
+              "api_key_env":"DEEPINFRA_API_KEY"}
+        save_model_settings(self.cfg,deep)
+        candidate=dict(self.case)
+        candidate["known_pairs"]=[]
+        with patch("han_codebook.web.run_agent") as runner, \
+             patch("han_codebook.auto_vocabulary.generate_vocabulary") as vocab:
+            for body in (
+                {"case":self.case,"rounds":1},
+                {"case":self.case,"rounds":1,"confirmed_llm_config":old,
+                 "confirmed_external_api":False},
+                {"case":self.case,"rounds":1,"confirmed_llm_config":old,
+                 "confirmed_external_api":True},
+            ):
+                with self.assertRaises(error.HTTPError) as rejected:
+                    self.post("/api/start",body)
+                self.assertEqual(rejected.exception.code,400)
+            for body in (
+                {"case":candidate,"confirmed":True},
+                {"case":candidate,"confirmed":True,"confirmed_external_api":True,
+                 "confirmed_llm_config":old},
+            ):
+                with self.assertRaises(error.HTTPError) as rejected:
+                    self.post("/api/suggest-vocabulary",body)
+                self.assertEqual(rejected.exception.code,400)
+            runner.assert_not_called()
+            vocab.assert_not_called()
+        self.assertEqual(self.jobs,{})
+
+    def test_exact_current_deepinfra_receipt_is_required_and_pinned(self):
+        from han_codebook.model_settings import model_settings
+        deep={"provider":"deepinfra","allow_external_api":True,
+              "base_url":"https://api.deepinfra.com/v1/openai",
+              "model":"deepseek-ai/DeepSeek-V4-Flash-0731",
+              "timeout_seconds":90,"allow_private_network":False,
+              "api_key_env":"DEEPINFRA_API_KEY"}
+        save_model_settings(self.cfg,deep)
+        receipt=model_settings(self.cfg)["confirmation_token"]
+        with self._defer_job_thread("codebook-job", deferred:=[]):
+            admitted=self.post("/api/start", {
+                "case":self.case,"rounds":1,
+                "confirmed_external_api":True,"confirmed_llm_config":receipt})
+        self.assertEqual(len(deferred),1)
+        self.assertEqual(self.jobs[admitted["job_id"]]["status"],"queued")
+        # New configuration is pinned in job-admission snapshot, but changing
+        # active jobs through the UI remains forbidden.
+        with self.assertRaises(error.HTTPError) as rejected:
+            self.post("/api/settings/llm", self.settings("other", 18080))
+        self.assertEqual(rejected.exception.code,409)
+
+    def test_confirmation_token_changes_with_model_and_destination(self):
+        from han_codebook.model_settings import model_settings
+        first=model_settings(self.cfg)["confirmation_token"]
+        save_model_settings(self.cfg,self.settings("other-model",11434))
+        second=model_settings(self.cfg)["confirmation_token"]
+        self.assertNotEqual(first,second)
+        save_model_settings(self.cfg,self.settings("other-model",18080))
+        third=model_settings(self.cfg)["confirmation_token"]
+        self.assertNotEqual(second,third)
+
 if __name__ == "__main__":
     unittest.main()

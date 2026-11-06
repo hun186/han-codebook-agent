@@ -346,6 +346,8 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                         if any(j["status"] in ("queued", "running", "awaiting_review", "cancelling") for j in jobs.values()):
                             return self._json(409, {"error": "An investigation is already running"})
                         llm_snapshot = copy.deepcopy(load_settings(settings_path)["llm"])
+                        from .model_settings import require_llm_admission_confirmation
+                        require_llm_admission_confirmation(data, llm_snapshot)
                         job_id = secrets.token_hex(8)
                         jobs[job_id] = {"id":job_id,"type":"vocabulary","status":"queued",
                                         "logs":[],"result":None,"events":[],"error":None}
@@ -453,6 +455,9 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                         # Pin the approved LLM destination/model at job admission;
                         # background execution must never reread mutable YAML.
                         llm_snapshot = copy.deepcopy(load_settings(settings_path)["llm"])
+                        if rounds:
+                            from .model_settings import require_llm_admission_confirmation
+                            require_llm_admission_confirmation(data, llm_snapshot)
                         job_id = secrets.token_hex(8)
                         jobs[job_id] = {"id": job_id, "type": "analysis", "status": "queued", "logs": [], "result": None,
                                         "events": [], "error": None,

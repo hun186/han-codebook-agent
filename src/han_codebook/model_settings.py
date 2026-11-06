@@ -4,8 +4,11 @@ Write the environment variable NAME, never a token. Preserve unrelated YAML.
 """
 from __future__ import annotations
 import os
+import hashlib
+import json
 from pathlib import Path
 import re
+import secrets
 import tempfile
 from urllib.parse import urlsplit
 
@@ -14,6 +17,37 @@ from .config import load_settings
 from .core import CaseError
 
 MAX_LLM_ROUNDS = 20
+
+# This is a freshness receipt for NONSECRET model settings, not authentication.
+# It must be compared while the job-admission/settings-write lock is held.
+_CONFIRMATION_FIELDS = (
+    "provider", "base_url", "model", "timeout_seconds", "allow_external_api",
+    "allow_private_network", "allowed_hosts", "api_key_env",
+    "reasoning_effort", "response_format",
+)
+
+
+def llm_confirmation_token(llm: dict) -> str:
+    values = {key: llm.get(key) for key in _CONFIRMATION_FIELDS}
+    values["provider"] = llm.get("provider", "local")
+    values["allow_external_api"] = llm.get("allow_external_api", False)
+    canonical = json.dumps(values, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def require_llm_admission_confirmation(payload: dict, llm: dict) -> None:
+    """Fail closed for external use and for any supplied stale destination."""
+    provider = llm.get("provider", "local")
+    provided = payload.get("confirmed_llm_config")
+    if provider == "deepinfra":
+        if payload.get("confirmed_external_api") is not True:
+            raise CaseError("DeepInfra needs an explicit per-run external consent")
+        if not llm.get("allow_external_api", False):
+            raise CaseError("DeepInfra external API is disabled")
+    if provider == "deepinfra" or provided is not None:
+        expected = llm_confirmation_token(llm)
+        if not isinstance(provided, str) or not secrets.compare_digest(provided, expected):
+            raise CaseError("LLM model or provider changed after confirmation; confirm again")
 
 
 def model_settings(path: Path) -> dict:
@@ -29,6 +63,7 @@ def model_settings(path: Path) -> dict:
         "api_key_env": llm.get("api_key_env", ""),
         "max_rounds": MAX_LLM_ROUNDS,
         "secret_value_exposed": False,
+        "confirmation_token": llm_confirmation_token(llm),
     }
 
 

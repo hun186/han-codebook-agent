@@ -843,7 +843,8 @@ if(apiQuality && apiQuality.attempts>0){
    esc(apiQuality.cached_prompt_tokens_reported??0)+' tokens · 命中率 '+
    (apiQuality.cache_hit_rate==null?'未回報':esc((apiQuality.cache_hit_rate*100).toFixed(1))+'%')+
    '（'+esc(apiQuality.cache_reported_attempts??0)+'／'+esc(apiQuality.attempts)+' 次有快取資料）'+
-   (apiQuality.estimated_cost_reported==null?'':' · 供應商成本估值 
+   (apiQuality.estimated_cost_reported==null ? '' : ' · 供應商成本估值 USD '+esc(apiQuality.estimated_cost_reported))+
+   '<br><small>快取只重用輸入前綴；未回報不代表 0 命中，沒有可靠單價時不推算節省金額。</small></div>';
 }
 
 let domCounts={};for(let m of result.decoded_messages)domCounts[m.domain_inferred||'未知']=(domCounts[m.domain_inferred||'未知']||0)+1;el('reportLink').innerHTML=`<a href="/api/jobs/${esc(j.id)}/report.docx" download style="color:#4bd0bc">下載研究分析報告（Word）</a>　｜　<a href="/api/jobs/${esc(j.id)}/report.md" download style="color:#4bd0bc">下載 Markdown</a>`;el('bars').innerHTML=chartBar('錨點占比',anchored/proposals.length,1)+chartBar('待驗證占比',(proposals.length-anchored)/proposals.length,1)+'<h3>電文領域分布</h3>'+Object.entries(domCounts).map(([k,n])=>chartBar(k,n,result.decoded_messages.length)).join('');

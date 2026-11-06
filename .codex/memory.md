@@ -1,5 +1,11 @@
 # Project memory
 
+## 2026-11-06 — DeepInfra PR #50 first formal review corrections (pending re-review)
+- Codex review at initial SHA 125fd019 found P1 conflict with AGENTS.md absolute public API prohibition, P2 experiment runners dropping provider/consent. User explicitly requested DeepInfra and authorized development of this optional named external provider. Root AGENTS.md now states exact pinned HTTPS DeepInfra opt-in exception while forbidding other public endpoints; no generic public URL permission.
+- volume_llm batch rescore and full run validation, and benchmark run_agent invocation now propagate provider/allow_external_api. Offline synthetic regressions cover both runners, positive explicit consent and negative blocked consent, without real model calls or secrets.
+- Latest-head CI, formal Codex review and resolved threads are PENDING. Never merge based on older review or partial matrix; Vercel PR previews stay disabled.
+
+
 ## 2026-11-06 — DeepInfra explicit external API integration (PR pending)
 - Latest main before feature: cfcd995378ddfba3486e4ea6b2b749a28b30bd6c; previous PR #48/#49 merged and postmerge main CI 41621365797 SUCCESS. Historic PRs #1/#7/#8 remain OPEN superseded.
 - User specifically requested optional DeepInfra LLM provider in han-codebook-agent. Official provider supports OpenAI-compatible chat at https://api.deepinfra.com/v1/openai with DEEPINFRA_API_KEY and model full ID. The new provider is opt-in; local/RFC1918 remains unchanged and default; public endpoints remain forbidden except exact official DeepInfra HTTPS when allow_external_api=true. A redirect-denial handler protects Bearer and user case data; key obtained only from process environment.

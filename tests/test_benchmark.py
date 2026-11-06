@@ -162,7 +162,8 @@ class BenchmarkTests(unittest.TestCase):
     def test_benchmark_passes_deepinfra_provider_and_consent(self):
         entry={'id':'07_alias_mixed_length',
                'case':str(BENCH/'cases/07_alias_mixed_length.json'),
-               'gold':str(BENCH/'gold/07_alias_mixed_length.json')}
+               'gold':str(BENCH/'gold/07_alias_mixed_length.json'),
+               'description':'DeepInfra provider propagation (mock only)'}
         with tempfile.TemporaryDirectory() as td:
             tmp=Path(td)
             spec=tmp/'suite.json'

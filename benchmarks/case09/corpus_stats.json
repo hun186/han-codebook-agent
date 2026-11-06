@@ -1,0 +1,78 @@
+{
+  "seed": 20261106,
+  "three_digit": true,
+  "stats": [
+    {
+      "case_id": "09_valley_0025_cold",
+      "intercepted_messages": 25,
+      "reference_fragments": 0,
+      "intercepted_groups": 600,
+      "unique_codes": 217,
+      "speculative_code_hypotheses": 12,
+      "external_observations": 4
+    },
+    {
+      "case_id": "09_valley_0025_sparse",
+      "intercepted_messages": 25,
+      "reference_fragments": 3,
+      "intercepted_groups": 600,
+      "unique_codes": 217,
+      "speculative_code_hypotheses": 12,
+      "external_observations": 4
+    },
+    {
+      "case_id": "09_valley_0100_cold",
+      "intercepted_messages": 100,
+      "reference_fragments": 0,
+      "intercepted_groups": 2400,
+      "unique_codes": 261,
+      "speculative_code_hypotheses": 12,
+      "external_observations": 23
+    },
+    {
+      "case_id": "09_valley_0100_sparse",
+      "intercepted_messages": 100,
+      "reference_fragments": 3,
+      "intercepted_groups": 2400,
+      "unique_codes": 261,
+      "speculative_code_hypotheses": 12,
+      "external_observations": 23
+    },
+    {
+      "case_id": "09_valley_0400_cold",
+      "intercepted_messages": 400,
+      "reference_fragments": 0,
+      "intercepted_groups": 9600,
+      "unique_codes": 308,
+      "speculative_code_hypotheses": 12,
+      "external_observations": 72
+    },
+    {
+      "case_id": "09_valley_0400_sparse",
+      "intercepted_messages": 400,
+      "reference_fragments": 3,
+      "intercepted_groups": 9600,
+      "unique_codes": 308,
+      "speculative_code_hypotheses": 12,
+      "external_observations": 72
+    },
+    {
+      "case_id": "09_valley_1000_cold",
+      "intercepted_messages": 1000,
+      "reference_fragments": 0,
+      "intercepted_groups": 24000,
+      "unique_codes": 336,
+      "speculative_code_hypotheses": 12,
+      "external_observations": 167
+    },
+    {
+      "case_id": "09_valley_1000_sparse",
+      "intercepted_messages": 1000,
+      "reference_fragments": 3,
+      "intercepted_groups": 24000,
+      "unique_codes": 336,
+      "speculative_code_hypotheses": 12,
+      "external_observations": 167
+    }
+  ]
+}

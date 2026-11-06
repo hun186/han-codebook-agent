@@ -159,5 +159,32 @@ class BenchmarkTests(unittest.TestCase):
             self.assertFalse((temp/'should_not_create.json').exists())
 
 
+    def test_benchmark_passes_deepinfra_provider_and_consent(self):
+        entry={'id':'07_alias_mixed_length',
+               'case':str(BENCH/'cases/07_alias_mixed_length.json'),
+               'gold':str(BENCH/'gold/07_alias_mixed_length.json'),
+               'description':'DeepInfra provider propagation (mock only)'}
+        with tempfile.TemporaryDirectory() as td:
+            tmp=Path(td)
+            spec=tmp/'suite.json'
+            spec.write_text(json.dumps({'version':1,'cases':[entry]}),encoding='utf-8')
+            calls=[]
+            def fake_agent(case,**options):
+                calls.append(options)
+                from han_codebook.core import analyze
+                return analyze(case,iterations=1,restarts=1)
+            settings={'base_url':'https://api.deepinfra.com/v1/openai',
+                      'model':'deepseek-ai/DeepSeek-V4-Flash-0731',
+                      'provider':'deepinfra','allow_external_api':True,
+                      'api_key_env':'DEEPINFRA_API_KEY'}
+            with patch('han_codebook.benchmark.run_agent',side_effect=fake_agent):
+                result=run_suite(spec,variants=(True,),rounds=1,
+                                 audit_dir=tmp/'audit',llm_settings=settings)
+            self.assertEqual(len(result['runs']),1)
+            self.assertEqual(calls[0]['llm_provider'],'deepinfra')
+            self.assertTrue(calls[0]['llm_allow_external_api'])
+            self.assertEqual(calls[0]['llm_api_key_env'],'DEEPINFRA_API_KEY')
+
+
 if __name__=='__main__':
     unittest.main()

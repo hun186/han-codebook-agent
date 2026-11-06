@@ -60,7 +60,9 @@ def llm_rescore(case: dict, baseline: dict, *, metadata: bool, llm_settings: dic
     url = llm_settings['base_url']
     model = llm_settings['model']
     validate_llm_endpoint(url, allow_private_network=llm_settings.get('allow_private_network', False),
-                          allowed_hosts=llm_settings.get('allowed_hosts', []))
+                          allowed_hosts=llm_settings.get('allowed_hosts', []),
+                          provider=llm_settings.get('provider','local'),
+                          allow_external_api=llm_settings.get('allow_external_api',False))
     _, _, vocabulary = anchors_and_review(case)
     hints: dict[str, dict[str, float]] = {}
     all_messages = case['messages']
@@ -116,6 +118,8 @@ def llm_rescore(case: dict, baseline: dict, *, metadata: bool, llm_settings: dic
                               allow_private_network=llm_settings.get('allow_private_network', False),
                               allowed_hosts=llm_settings.get('allowed_hosts', []),
                               api_key_env=llm_settings.get('api_key_env'), on_exchange=on_exchange,
+                              provider=llm_settings.get('provider','local'),
+                              allow_external_api=llm_settings.get('allow_external_api',False),
                               reasoning_effort=llm_settings.get('reasoning_effort'),
                               response_format=llm_settings.get('response_format'))
                 calls += 1
@@ -198,7 +202,9 @@ def run_llm_comparison(manifest_path: str | Path = MANIFEST, *, sizes: tuple[int
     if not {'base_url','model'} <= set(config):
         raise CaseError('LLM config must provide llm.base_url and llm.model')
     validate_llm_endpoint(config['base_url'], allow_private_network=config.get('allow_private_network',False),
-                          allowed_hosts=config.get('allowed_hosts', []))
+                          allowed_hosts=config.get('allowed_hosts', []),
+                          provider=config.get('provider','local'),
+                          allow_external_api=config.get('allow_external_api',False))
     spec, home = load_manifest(manifest_path)
     rows = []
     audit = []

@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
-from .agent import run_agent, probe_llm_service
+from .agent import run_agent, probe_llm_service, llm_api_base, DEEPINFRA_BASE_URL
 from .config import load_settings
 from .core import load_case, evaluate_demo, CaseError
 
@@ -25,6 +25,10 @@ def main(argv=None) -> int:
                         help="0=disabled; 2..20 consecutive stagnant rounds before early stop")
     parser.add_argument("--ollama-url", default=None, help="OpenAI-compatible base endpoint")
     parser.add_argument("--model", default=None, help="LLM model name")
+    parser.add_argument("--provider", choices=("local", "deepinfra"), default=None,
+                        help="Provider (DeepInfra requires explicit external consent)")
+    parser.add_argument("--allow-external-api", action="store_true",
+                        help="Consent to transmit case context to paid DeepInfra HTTPS")
     parser.add_argument("--out", default=None)
     parser.add_argument("--db", default=None)
     parser.add_argument("--evaluate-demo", action="store_true", default=None, help="Only score fictional demo ground truth")
@@ -50,8 +54,15 @@ def main(argv=None) -> int:
         timeout = llm.get("timeout_seconds", 90)
         metadata = not args.no_metadata if args.no_metadata is not None else analysis.get("use_metadata", True)
         evaluate = args.evaluate_demo if args.evaluate_demo is not None else analysis.get("evaluate_demo", False)
-        url = args.ollama_url or llm.get("base_url", "http://127.0.0.1:11434/v1")
+        provider = args.provider or llm.get("provider", "local")
+        external = args.allow_external_api or llm.get("allow_external_api", False)
+        url = args.ollama_url or (DEEPINFRA_BASE_URL if args.provider == "deepinfra"
+                                  else llm.get("base_url", "http://127.0.0.1:11434/v1"))
         model = args.model or llm.get("model", "qwen3:14b")
+        # CLI override must NOT forward an existing LAN proxy's Bearer token
+        # to a third-party API. A configured DeepInfra custom env is retained.
+        key_env = ("DEEPINFRA_API_KEY" if args.provider == "deepinfra"
+                   else llm.get("api_key_env"))
         out = args.out or project.get("output", "artifacts/result.json")
         db = args.db or project.get("audit_db", "artifacts/audit.sqlite")
         if args.check_llm:
@@ -59,19 +70,21 @@ def main(argv=None) -> int:
             ok = probe_llm_service(url, timeout=min(timeout, 8),
                                    allow_private_network=llm.get("allow_private_network", False),
                                    allowed_hosts=llm.get("allowed_hosts", []),
-                                   api_key_env=llm.get("api_key_env"))
+                                   api_key_env=key_env,
+                                   provider=provider, allow_external_api=external)
             print("[check] Note: TCP/models checks do not validate actual chat inference.", flush=True)
             return 0 if ok else 2
         print(f"[start] Case: {case_path} | rounds: {rounds} | model: {model}", flush=True)
         if rounds:
-            print(f"[start] Chat endpoint: {url.rstrip('/') + ('' if url.rstrip('/').endswith('/v1') else '/v1')}/chat/completions", flush=True)
+            print(f"[start] Chat endpoint: {llm_api_base(url, provider)}/chat/completions", flush=True)
             print("[start] Waiting for LLM can take longer than an offline run. Ctrl+C cancels.", flush=True)
         case = load_case(case_path)
         result = run_agent(case, rounds=rounds, llm_url=url, model=model, db_path=db,
                            metadata=metadata, llm_timeout=timeout,
                            allow_private_network=llm.get("allow_private_network", False),
                            llm_allowed_hosts=llm.get("allowed_hosts", []),
-                           llm_api_key_env=llm.get("api_key_env"),
+                           llm_api_key_env=key_env,
+                           llm_provider=provider, llm_allow_external_api=external,
                            progress=lambda message: print(message, flush=True),
                            capture_llm_io=llm.get("capture_io", False),
                            llm_reasoning_effort=llm.get("reasoning_effort"),

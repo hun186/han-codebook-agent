@@ -1,5 +1,31 @@
 # Project memory
 
+## 2026-11-06 — Third Codex P2: public Mock needs a stable settings receipt
+- Real GUI verifies current saved LLM settings before every model action. Public Vercel Mock adapter must return a stable nonsecret receipt, or the simulated research actions cannot pass their UI confirmation.
+- Mock receipt PUBLIC_MOCK_SETTINGS_V1_NO_NETWORK now accepted with consistent server-side mock checks, any supplied stale receipt or true external API consent rejected; no paid request, no private case transmitted. Node test covers successful Mock, stale, external refusal.
+- Hosted latest-head CI and formal Codex review pending; no early merge.
+
+
+## 2026-11-06 — PR #50 second Codex P1: stale-tab destination confirmation
+- Official Codex found that simultaneous browser tabs could cause an old local-only confirmation to silently authorize a newly saved DeepInfra provider. A new nonsecret settings receipt (SHA-256 of provider/URL/model/connection settings) is returned by /api/settings and checked against the job-admission LLM snapshot while holding the settings/jobs lock.
+- For external DeepInfra jobs both a fresh matching confirmation receipt and explicit per-job confirmed_external_api=true are required. Missing, stale or mismatched confirmations fail closed before job/thread creation. GUI re-reads /api/settings immediately before the per-run/phrase-vocabulary confirm and sends the receipt + external consent. Local old API callers remain backward-compatible; supplied stale receipts still rejected.
+- Regression tests cover two-tab stale local->external switch on /api/start and /api/suggest-vocabulary, correct snapshot admission, no job creation on refusal, and token revision on model/URL change. Vercel Mock remains synthetic only; Hosted CI and fresh formal Codex Review not yet verified at commit time.
+
+
+## 2026-11-06 — DeepInfra PR #50 first formal review corrections (pending re-review)
+- Codex review at initial SHA 125fd019 found P1 conflict with AGENTS.md absolute public API prohibition, P2 experiment runners dropping provider/consent. User explicitly requested DeepInfra and authorized development of this optional named external provider. Root AGENTS.md now states exact pinned HTTPS DeepInfra opt-in exception while forbidding other public endpoints; no generic public URL permission.
+- volume_llm batch rescore and full run validation, and benchmark run_agent invocation now propagate provider/allow_external_api. Offline synthetic regressions cover both runners, positive explicit consent and negative blocked consent, without real model calls or secrets.
+- Latest-head CI, formal Codex review and resolved threads are PENDING. Never merge based on older review or partial matrix; Vercel PR previews stay disabled.
+
+
+## 2026-11-06 — DeepInfra explicit external API integration (PR pending)
+- Latest main before feature: cfcd995378ddfba3486e4ea6b2b749a28b30bd6c; previous PR #48/#49 merged and postmerge main CI 41621365797 SUCCESS. Historic PRs #1/#7/#8 remain OPEN superseded.
+- User specifically requested optional DeepInfra LLM provider in han-codebook-agent. Official provider supports OpenAI-compatible chat at https://api.deepinfra.com/v1/openai with DEEPINFRA_API_KEY and model full ID. The new provider is opt-in; local/RFC1918 remains unchanged and default; public endpoints remain forbidden except exact official DeepInfra HTTPS when allow_external_api=true. A redirect-denial handler protects Bearer and user case data; key obtained only from process environment.
+- CLI, GUI settings/test, one-shot and adaptive vocabulary, agent's code rounds and per-job frozen LLM settings all propagate provider and consent. The GUI requires independent checkbox and displays external/paid warning, and model test sends no cipher data. All workbench Mock assets are synced using the canonical static page extraction; public Mock API still rejects real model settings and never makes external calls.
+- Safe-disabled config.deepinfra.example.yaml and offline mocked security tests included, no actual API charged or key accessed by the agent. User must explicitly set environment secret and opt-in.
+- The feature PR's Hosted CI, official exact-head Codex Review and merge are PENDING at authoring; no claim of successful real external request or model accuracy.
+
+
 ## 2026-11-03 — Null-control minimal cipher-only snapshots (PR pending)
 - PR #48 MERGED as 18f41cf013fa8cc77961042327a3150d58c866f3 after all eight exact-head Hosted CI checks and formal Codex Completed/No Findings, no outstanding thread. Main postmerge run #41620643127 was still running when the branch was created; verify separately.
 - Current branch perf/structure-null-minimal-shadows-20261103: shuffled-order null controls used to deep-copy the entire original case on every random trial, including large unsegmented private plaintext, free-form metadata and researcher annotations although only digit code order and explicit verified code IDs affect the statistic. Now snapshot only cipher message IDs/codes once and minimal aligned known-pair segment references, then clone code arrays per trial; full case remains read-only and is validated before this stage.

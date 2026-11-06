@@ -39,27 +39,44 @@ async function listCases(){
  el('caseList').innerHTML=cases.map(c=>`<option value="${esc(c.id)}">${esc(c.id)}</option>`).join('');
  await loadLLMSettings();
 }
+let savedLLMProvider='local';
+function updateLLMProviderUI(){
+ const deep=el('llmPreset').value==='deepinfra';
+ el('llmAllowLANWrap').hidden=deep; el('llmAllowLAN').disabled=deep;
+ el('llmAllowExternalWrap').hidden=!deep; el('llmAllowExternal').disabled=!deep;
+ el('llmUrl').readOnly=deep;
+}
 async function loadLLMSettings(){
  const cfg=await api('/api/settings');
- el('llmModel').value=cfg.model||'';
- el('llmUrl').value=cfg.base_url||'';
+ savedLLMProvider=cfg.provider==='deepinfra'?'deepinfra':'local';
+ el('llmPreset').value=savedLLMProvider==='deepinfra'?'deepinfra':
+    ((cfg.base_url||'').includes('11434')?'ollama':'compatible');
+ el('llmModel').value=cfg.model||''; el('llmUrl').value=cfg.base_url||'';
  el('llmTimeout').value=cfg.timeout_seconds||90;
  el('llmAllowLAN').checked=cfg.allow_private_network===true;
+ el('llmAllowExternal').checked=cfg.allow_external_api===true;
  el('llmKeyEnv').value=cfg.api_key_env||'';
- el('modelInfo').textContent=`${cfg.model} · ${cfg.endpoint}`;
+ el('modelInfo').textContent=(savedLLMProvider==='deepinfra'?'DeepInfra':'本機／區網')+' · '+cfg.model+' · '+cfg.endpoint;
+ updateLLMProviderUI();
 }
 async function saveLLMSettings(){
  const timeout=Number(el('llmTimeout').value);
  if(!Number.isInteger(timeout)||timeout<1||timeout>600)throw Error('請輸入 1～600 的整數等待秒數');
- if(!confirm('修改本機 LLM 端點設定？既有正在執行的工作不會改用新設定。'))return;
- const cfg=await api('/api/settings/llm',{base_url:el('llmUrl').value.trim(),
-   model:el('llmModel').value.trim(),timeout_seconds:timeout,
-   allow_private_network:el('llmAllowLAN').checked,api_key_env:el('llmKeyEnv').value.trim()});
+ const deep=el('llmPreset').value==='deepinfra';
+ if(deep&&!el('llmAllowExternal').checked)throw Error('DeepInfra 必須先勾選外傳資料授權');
+ if(!confirm(deep?'DeepInfra 是外部付費 API，研究資料會傳給第三方。確定儲存並授權外傳？':
+                  '修改本機／區網 LLM 設定？執行中的工作仍使用舊設定。'))return;
+ const cfg=await api('/api/settings/llm',{provider:deep?'deepinfra':'local',
+    allow_external_api:deep&&el('llmAllowExternal').checked,
+    base_url:el('llmUrl').value.trim(),model:el('llmModel').value.trim(),
+    timeout_seconds:timeout,allow_private_network:!deep&&el('llmAllowLAN').checked,
+    api_key_env:el('llmKeyEnv').value.trim()});
  el('llmSettingStatus').textContent='設定已儲存：'+cfg.model+' · '+cfg.base_url;
  await loadLLMSettings();
 }
 async function testLLMSettings(){
- if(!confirm('將測試目前儲存的本機端點，僅傳送 TCP 與模型清單查詢，不傳研究案例。確定？'))return;
+ const host=savedLLMProvider==='deepinfra'?'DeepInfra 外部 HTTPS':'本機／區網';
+ if(!confirm('測試已儲存的 '+host+' TCP／模型清單（使用環境變數金鑰，不傳研究案例）？'))return;
  el('llmSettingStatus').textContent='正在測試已儲存的模型端點...';
  const result=await api('/api/settings/test',{confirmed:true});
  el('llmSettingStatus').textContent=(result.connected?'基本連線檢查成功':'基本連線檢查未成功')+'\n'+(result.diagnostics||[]).join('\n')+'\n'+result.note;
@@ -527,7 +544,19 @@ function renderVocabularyIdeas(){
 async function askVocabulary(){
  if(!research)return;
  const origin=captureOrigin();
- if(!confirm('只將目前密電與可觀察情報傳給 config.yaml 指定的內網 LLM 產生詞庫候選。不是已知明文。確定呼叫？'))return;
+ // Full GUI loads the server's ACTUAL configuration immediately before consent.
+ // A standalone extracted JS regression without this state remains local-only.
+ let confirmation={};
+ if(typeof savedLLMProvider!=='undefined'){
+  try{
+   const cfg=await api('/api/settings');
+   if(!matchesOrigin(origin))return;
+   if(!cfg.confirmation_token)throw Error('無法確認目前 LLM 設定版本');
+   const external=cfg.provider==='deepinfra';
+   if(!confirm('這會將密文與觀察情報傳給已儲存的 '+(external?'DeepInfra 外部付費 API':'本機／區網 LLM')+' 產生未驗證詞庫候選。確定？'))return;
+   confirmation={confirmed_llm_config:cfg.confirmation_token,confirmed_external_api:external};
+  }catch(e){notice('LLM 端點確認失敗：'+e.message,true);return}
+ }else if(!confirm('將密文與背景情報交給本機／區網 LLM 產生未驗證候選。確定？'))return;
  // Every submission gets its own request generation, independent of case
  // fingerprint. A late GET from an already completed job must not win.
  const serial=++vocabRequestSerial;
@@ -538,7 +567,7 @@ async function askVocabulary(){
  try{
   const response=await api('/api/suggest-vocabulary',{
     case:JSON.parse(JSON.stringify(research)),confirmed:true,
-    use_metadata:el('metadata').value==='true'});
+    ...confirmation,use_metadata:el('metadata').value==='true'});
   if(!current())return;
   const jobId=response.job_id;
   vocabActiveJobId=jobId;
@@ -721,7 +750,19 @@ async function start(){
  if(![0,2,5].includes(postrunHoldoutFolds)){notice('留出測試選項無效',true);return}
  if(![0,2,3].includes(progressStopPatience)){notice('停滯提前停止選項無效',true);return}
  if(candidateMode!=='static'&&rounds===0){notice('逐回合動態候選至少需要 1 個 LLM 回合',true);return}
- if(rounds>0&&!confirm(`將電文與情報傳送到 config.yaml 指定的內網 LLM，共 ${rounds} 回合；候選模式：${candidateMode==='human'?'每輪人工確認':candidateMode==='automatic'?'自動擴充詞庫':'既有詞庫'}。確定執行？`))return;
+ let llmConfirmation={};
+ if(rounds>0){
+  if(typeof savedLLMProvider!=='undefined'){
+   try{
+    const cfg=await api('/api/settings');
+    if(!matchesOrigin(origin))return;
+    if(!cfg.confirmation_token)throw Error('無法確認目前 LLM 設定版本');
+    const external=cfg.provider==='deepinfra';
+    if(!confirm(`將密文與情報傳送到已儲存的 ${external?'DeepInfra 外部付費 API':'本機／內網 LLM'}，共 ${rounds} 回合，動態詞庫可能增加呼叫。確定？`))return;
+    llmConfirmation={confirmed_llm_config:cfg.confirmation_token,confirmed_external_api:external};
+   }catch(e){notice('LLM 端點確認失敗：'+e.message,true);return}
+  }else if(!confirm('確定將研究資料傳給本機／內網 LLM？'))return;
+ }
  const serial=++analysisRequestSerial;
  const current=()=>serial===analysisRequestSerial&&matchesOrigin(origin);
  lastJob=null;
@@ -730,7 +771,8 @@ async function start(){
   const inferenceCase=JSON.parse(JSON.stringify(research));
   delete inferenceCase.hypothesis_revision_history;
   const queued=await api('/api/start',{case:inferenceCase,rounds,
-    use_metadata:el('metadata').value==='true',capture_llm_io:el('capture').checked,
+    ...llmConfirmation,use_metadata:el('metadata').value==='true',
+    capture_llm_io:el('capture').checked,
     candidate_mode:candidateMode,progress_stop_patience:progressStopPatience,
     postrun_holdout_folds:postrunHoldoutFolds,vocab_zero_patience:vocabZeroPatience});
   const jobId=queued.job_id;
@@ -824,10 +866,21 @@ el('importLLMIdeas').onclick=importPreviousLLMIdeas;el('checkEvents').onclick=pr
 el('askVocabulary').onclick=askVocabulary;
 el('llmPreset').onchange=()=>{
  const preset=el('llmPreset').value;
- if(preset==='ollama'&&!el('llmUrl').value.trim())el('llmUrl').value='http://127.0.0.1:11434';
- el('llmSettingStatus').textContent=preset==='ollama'?
-   'Ollama 適用本機／內網 OpenAI-compatible /v1/chat/completions；請確認實際埠號與模型名稱。':
-   '自訂內網相容端點：僅接受 loopback 或明確允許的私人 IPv4。';
+ if(preset==='deepinfra'){
+   el('llmUrl').value='https://api.deepinfra.com/v1/openai';
+   if(!el('llmModel').value.trim()||!el('llmModel').value.includes('/'))
+     el('llmModel').value='deepseek-ai/DeepSeek-V4-Flash-0731';
+   el('llmKeyEnv').value='DEEPINFRA_API_KEY';
+   el('llmAllowLAN').checked=false; el('llmAllowExternal').checked=false;
+   el('llmSettingStatus').textContent='DeepInfra 外部付費 API：請設定 DEEPINFRA_API_KEY、勾選外傳同意，再儲存。';
+ }else{
+   if(el('llmUrl').value.startsWith('https://api.deepinfra.com/'))
+      el('llmUrl').value=preset==='ollama'?'http://127.0.0.1:11434':'';
+   if(el('llmKeyEnv').value==='DEEPINFRA_API_KEY')el('llmKeyEnv').value='';
+   el('llmSettingStatus').textContent=preset==='ollama'?'Ollama 本機／內網模型。':
+     '自訂內網 OpenAI-compatible 模型：需授權私人 IP。';
+ }
+ updateLLMProviderUI();
 };
 el('saveLLM').onclick=()=>saveLLMSettings().catch(e=>notice(e.message,true));el('testLLM').onclick=()=>testLLMSettings().catch(e=>notice(e.message,true));
 el('loadCase').onclick=()=>loadCase().catch(e=>notice(e.message,true));el('profilePick').onchange=loadProfile;el('messagePick').onchange=loadEvidence;el('wordSearch').oninput=renderVocab;el('addWord').onclick=()=>{let w=el('newWord').value.trim(),n=Number(el('newWeight').value);if(w&&Number.isFinite(n)&&n>=0){profile().lexicon[w]=n;el('newWord').value='';renderVocab()}};el('saveProfile').onclick=saveProfile;el('applyEvidence').onclick=applyEvidence;el('addObservation').onclick=addObservation;el('applyKnown').onclick=applyKnown;el('knownAdd').onclick=()=>openKnownRowEditor(null);el('knownRowSave').onclick=saveKnownRow;el('knownRowCancel').onclick=closeKnownRowEditor;el('knownRowMessage').onchange=renderKnownWordFields;el('previewAlignment').onclick=previewAlignmentCandidates;el('confirmAlignment').onclick=confirmAlignmentCandidate;el('run').onclick=start;el('save').onclick=save;el('runBenchmark').onclick=startBenchmark;el('loadBenchmark').onclick=()=>api('/api/benchmark').then(renderBenchmark).catch(e=>notice(e.message,true));listCases().then(loadCase).catch(e=>notice(e.message,true));

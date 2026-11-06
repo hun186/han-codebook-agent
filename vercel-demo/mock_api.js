@@ -519,8 +519,11 @@
     jobs.set(id,{id,type,status:'completed',logs:['PUBLIC MOCK · 純瀏覽器模擬，未呼叫 Python／真實 LLM'],result:value,events,error:null});
     return {job_id:id};
   }
+  const MOCK_SETTINGS_RECEIPT='PUBLIC_MOCK_SETTINGS_V1_NO_NETWORK';
   const settings=()=>({base_url:'MOCK (no network)',endpoint:'MOCK (no network)',
-    model:'PUBLIC MOCK LLM',timeout_seconds:90,allow_private_network:false,
+    confirmation_token:MOCK_SETTINGS_RECEIPT,
+    model:'PUBLIC MOCK LLM',timeout_seconds:90,provider:'local',
+    allow_external_api:false,allow_private_network:false,
     allowed_hosts:[],api_key_env:null,capture_io_available:false,
     note:'Vercel static demo is disconnected from all model endpoints.'});
   function handle(path, data) {
@@ -541,6 +544,10 @@
       note:'This website cannot access local or LAN models.'};
     if(route==='/api/event-links')return eventLinks(safeCase(data.case));
     if(route==='/api/suggest-vocabulary'){
+      if(data.confirmed_llm_config!==undefined&&data.confirmed_llm_config!==MOCK_SETTINGS_RECEIPT)
+        throw Error('Mock settings changed since confirmation');
+      if(data.confirmed_external_api===true)
+        throw Error('PUBLIC MOCK never permits external API consent');
       const c=safeCase(data.case);
       if(data.confirmed!==true)throw Error('Mock vocabulary action requires explicit confirmation');
       if((c.known_pairs||[]).length)throw Error('Cold-start candidates require no known plaintext pairs');
@@ -560,6 +567,10 @@
       return {saved_as:name, note:'Temporary browser session only; refresh clears saved changes'};
     }
     if(route==='/api/start'){
+      if(data.confirmed_llm_config!==undefined&&data.confirmed_llm_config!==MOCK_SETTINGS_RECEIPT)
+        throw Error('Mock settings changed since confirmation');
+      if(data.confirmed_external_api===true)
+        throw Error('PUBLIC MOCK never permits external API consent');
       const c=safeCase(data.case);
       const rounds=data.rounds??0;
       if(!Number.isInteger(rounds)||rounds<0||rounds>20)throw Error('Rounds must be 0..20');

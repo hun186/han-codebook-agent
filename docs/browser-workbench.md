@@ -55,3 +55,16 @@ python -m han_codebook.benchmark --config benchmarks/config.yaml --variants both
 全程使用內建**虛構**對照與已知分段作自動化測試，不讀研究資料、設定檔、金鑰，不啟動真實推理或對外連線，不會把合成明文寫入診斷 JSON。**測試內預先設定的人工確認僅模擬按鍵流程，不能當成真實研究員做出確認。** 報告 PASS 僅代表該環境的本機合成 API/E2E 檢查通過；尚需在實際使用者電腦針對真實操作、資料量與 Ollama 配置另行驗收。測試不改動使用者既有案例，且暫存資料在執行後清除。
 
 **Proxy／過期報告注意：** 診斷直接使用無 Proxy 的 loopback HTTP 連線，與電腦既有 HTTP_PROXY／HTTPS_PROXY 設定無關。重新執行會先清除舊 PASS；本輪執行若發生例外仍產生不含原始例外訊息與研究內容的 FAIL 紀錄，寫入失敗則以非零退出碼表示。不要從舊執行截圖推論新的驗收結果。
+
+
+## 可選 DeepInfra 外部 LLM
+
+在「⚙ LLM 端點設定」選擇 DeepInfra 後，GUI 固定 API 端點為
+`https://api.deepinfra.com/v1/openai`，只儲存 `DEEPINFRA_API_KEY`
+環境變數名稱。設定 API Key 的正確值須由本機程序環境提供。只有勾選
+**外傳資料同意**、儲存設定、再按研究執行或詞庫生成並確認時，才會把
+密文／背景情報傳到第三方付費服務。0 回合仍完全離線。
+「測試連線」只查 TCP／模型清單、會向提供商驗證 API Key，**不傳密文**。
+此外部供應商的預算／用量限制請在其帳戶另行設定。公開 Vercel Mock
+不提供連線外部 API 或 API Key 的能力；CLI 另有安全關閉範本
+`config.deepinfra.example.yaml`，詳見根目錄 README。

@@ -131,7 +131,7 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                 settings = model_settings(settings_path)
                 self._json(200, {**settings, "endpoint": settings["base_url"],
                                  "capture_io_available": True,
-                                 "note": "Local/private OpenAI-compatible model only; credentials remain in environment variables."})
+                                 "note": "Private or explicitly approved DeepInfra HTTPS; credentials remain environment-only."})
                 return
             if url.path.startswith("/api/jobs/") and (url.path.endswith("/report.docx") or url.path.endswith("/report.md")):
                 parts = url.path.split("/")
@@ -321,7 +321,10 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                         timeout=min(cfg.get("timeout_seconds",90),8),
                         allow_private_network=cfg.get("allow_private_network",False),
                         allowed_hosts=cfg.get("allowed_hosts",[]),
-                        api_key_env=cfg.get("api_key_env"), report=trace.append)
+                        api_key_env=cfg.get("api_key_env"),
+                        provider=cfg.get("provider", "local"),
+                        allow_external_api=cfg.get("allow_external_api", False),
+                        report=trace.append)
                     return self._json(200, {"connected":ok,"diagnostics":trace,
                            "note":"Only TCP and /v1/models checked; chat completions not verified."})
                 if self.path == "/api/event-links":
@@ -343,6 +346,8 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                         if any(j["status"] in ("queued", "running", "awaiting_review", "cancelling") for j in jobs.values()):
                             return self._json(409, {"error": "An investigation is already running"})
                         llm_snapshot = copy.deepcopy(load_settings(settings_path)["llm"])
+                        from .model_settings import require_llm_admission_confirmation
+                        require_llm_admission_confirmation(data, llm_snapshot)
                         job_id = secrets.token_hex(8)
                         jobs[job_id] = {"id":job_id,"type":"vocabulary","status":"queued",
                                         "logs":[],"result":None,"events":[],"error":None}
@@ -450,6 +455,9 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                         # Pin the approved LLM destination/model at job admission;
                         # background execution must never reread mutable YAML.
                         llm_snapshot = copy.deepcopy(load_settings(settings_path)["llm"])
+                        if rounds:
+                            from .model_settings import require_llm_admission_confirmation
+                            require_llm_admission_confirmation(data, llm_snapshot)
                         job_id = secrets.token_hex(8)
                         jobs[job_id] = {"id": job_id, "type": "analysis", "status": "queued", "logs": [], "result": None,
                                         "events": [], "error": None,
@@ -533,7 +541,10 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                                 llm_timeout=llm.get("timeout_seconds", 90),
                                 allow_private_network=llm.get("allow_private_network", False),
                                 llm_allowed_hosts=llm.get("allowed_hosts", []),
-                                llm_api_key_env=llm.get("api_key_env"), progress=progress,
+                                llm_api_key_env=llm.get("api_key_env"),
+                                llm_provider=llm.get("provider", "local"),
+                                llm_allow_external_api=llm.get("allow_external_api", False),
+                                progress=progress,
                                 capture_llm_io=capture and rounds > 0,
                                 llm_reasoning_effort=llm.get("reasoning_effort"),
                                 llm_response_format=llm.get("response_format"),

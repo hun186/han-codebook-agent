@@ -101,4 +101,50 @@ class LocalLLMVolumeTests(unittest.TestCase):
                         llm_settings={**self._settings(),'allow_private_network':False},progress=lambda _:None)
 
 
+    def test_deepinfra_volume_rescore_propagates_provider_and_consent(self):
+        case=json.loads(CASE.read_text(encoding='utf-8'))
+        case['messages']=case['messages'][:10]
+        base=analyze(case, iterations=1, restarts=1)
+        opts={'base_url':'https://api.deepinfra.com/v1/openai',
+              'provider':'deepinfra','allow_external_api':True,
+              'model':'deepseek-ai/DeepSeek-V4-Flash-0731',
+              'api_key_env':'DEEPINFRA_API_KEY'}
+        seen=[]
+        def mock(url,model,packet,**kwargs):
+            seen.append(kwargs)
+            return {'hypotheses':[]}
+        llm_rescore(case,base,metadata=False,llm_settings=opts,
+                    rounds=1,batch_size=5,iterations=1,restarts=1,
+                    query=mock,progress=lambda _:None)
+        self.assertEqual(len(seen),2)
+        self.assertTrue(all(x['provider']=='deepinfra' and
+                            x['allow_external_api'] is True and
+                            x['api_key_env']=='DEEPINFRA_API_KEY' for x in seen))
+        with self.assertRaises(CaseError):
+            llm_rescore(case,base,metadata=False,
+                        llm_settings={**opts,'allow_external_api':False},
+                        rounds=1,batch_size=5,iterations=1,restarts=1,
+                        query=mock,progress=lambda _:None)
+        self.assertEqual(len(seen),2)
+
+    def test_deepinfra_volume_runner_uses_saved_config_offline_mock(self):
+        with TemporaryDirectory() as tmp:
+            cfg=Path(tmp)/'config.yaml'
+            cfg.write_text('llm:\n  provider: deepinfra\n'
+                           '  allow_external_api: true\n'
+                           '  base_url: https://api.deepinfra.com/v1/openai\n'
+                           '  model: deepseek-ai/DeepSeek-V4-Flash-0731\n'
+                           '  api_key_env: DEEPINFRA_API_KEY\n',encoding='utf-8')
+            seen=[]
+            def mock(url,model,packet,**kwargs):
+                seen.append(kwargs)
+                return {'hypotheses':[]}
+            result=run_llm_comparison(seeds=(101,),sizes=(10,),metadata=False,
+                                      llm_config=cfg,rounds=1,iterations=1,restarts=1,
+                                      query=mock,progress=lambda _:None)
+        self.assertEqual(result['llm_call_total'],1)
+        self.assertEqual(seen[0]['provider'],'deepinfra')
+        self.assertTrue(seen[0]['allow_external_api'])
+
+
 if __name__=='__main__': unittest.main()

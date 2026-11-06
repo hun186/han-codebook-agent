@@ -300,6 +300,19 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
             record_attempt(attempt, None, False, usage, status="invalid_envelope",
                            elapsed_ms=duration, raw=raw)
             raise CaseError(f"LLM output not valid expected JSON: {exc}") from exc
+        # Truncated *reasoning-only* output has no final JSON to complete.
+        # Do not initiate another billable generation just because length hit.
+        message = choice.get("message", {})
+        final_content = message.get("content") if isinstance(message, dict) else None
+        if finish == "length" and (not isinstance(final_content, str)
+                                   or not final_content.strip()):
+            record_attempt(attempt, finish, False, usage, status="empty_final_content",
+                           elapsed_ms=duration, raw=raw)
+            raise CaseError(
+                "LLM output not valid expected JSON: empty final content "
+                f"(reasoning_only={bool(isinstance(message, dict) and (message.get('reasoning') or message.get('reasoning_content')))}, "
+                "finish_reason=length); no retry without a final answer."
+            )
         if finish == "length":
             record_attempt(attempt, finish, False, usage, status="truncated",
                            elapsed_ms=duration, raw=raw)

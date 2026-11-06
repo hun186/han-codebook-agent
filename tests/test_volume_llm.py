@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from han_codebook.core import analyze, CaseError
-from han_codebook.volume_llm import llm_rescore, run_llm_comparison, main
+from han_codebook.volume_llm import llm_rescore, run_llm_comparison, main, LLMStudyInterrupted
 
 ROOT = Path(__file__).resolve().parents[1]
 CASE = ROOT / 'benchmarks/volume/seed_101_case.json'
@@ -145,6 +145,40 @@ class LocalLLMVolumeTests(unittest.TestCase):
         self.assertEqual(result['llm_call_total'],1)
         self.assertEqual(seen[0]['provider'],'deepinfra')
         self.assertTrue(seen[0]['allow_external_api'])
+
+
+    def test_failed_paid_batch_still_retains_token_metrics_without_private_io(self):
+        case=json.loads(CASE.read_text(encoding='utf-8'))
+        case['messages']=case['messages'][:10]
+        base=analyze(case, iterations=1, restarts=1)
+        def mocked_failure(url, model, packet, **kwargs):
+            kwargs['on_metrics']({
+                'attempt':1,'finish_reason':'length',
+                'json_complete':False,'total_tokens':8300,
+                'prompt_tokens':108,'completion_tokens':8192,
+                'estimated_cost':0.01,'status':'truncated'
+            })
+            kwargs['on_metrics']({
+                'attempt':2,'finish_reason':'length',
+                'json_complete':False,'total_tokens':16480,
+                'prompt_tokens':96,'completion_tokens':16384,
+                'estimated_cost':0.02,'status':'truncated'
+            })
+            raise CaseError('both paid requests truncated')
+        with self.assertRaises(LLMStudyInterrupted) as failure:
+            llm_rescore(case,base,metadata=False,
+                        llm_settings={**self._settings(), 'max_output_tokens':8192},
+                        rounds=1,batch_size=25,iterations=1,restarts=1,
+                        capture_io=False,query=mocked_failure,progress=lambda _:None)
+        record=failure.exception.trace[0]
+        self.assertEqual(record['status'],'failed')
+        self.assertNotIn('exchanges',record)
+        metrics=record['llm_api_metrics']
+        self.assertEqual(metrics['attempts'],2)
+        self.assertEqual(metrics['retries'],1)
+        self.assertEqual(metrics['finish_reason_length_count'],2)
+        self.assertEqual(metrics['total_tokens_reported'],24780)
+        self.assertNotIn('research',str(metrics).lower())
 
 
 if __name__=='__main__': unittest.main()

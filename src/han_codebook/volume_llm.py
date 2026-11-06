@@ -173,6 +173,7 @@ def llm_rescore(case: dict, baseline: dict, *, metadata: bool, llm_settings: dic
                                'truncated_unreviewed_count':max(0,len(entries)-15)})
                 trace.append(record)
             except Exception as exc:
+                record["llm_api_metrics"] = summarize_llm_api_metrics(measured_attempts)
                 record.update({'status':'failed', 'seconds':round(time.monotonic()-started,3),
                                'error_type':type(exc).__name__, 'error_summary':str(exc)[:300]})
                 trace.append(record)  # Include captured request/error response if explicitly opted in.

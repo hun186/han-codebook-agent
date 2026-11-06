@@ -359,5 +359,30 @@ class DeepInfraTests(unittest.TestCase):
         self.assertIsNone(summarize_llm_api_metrics([])["json_completeness_rate"])
 
 
+    def test_reasoning_only_length_does_not_trigger_another_paid_request(self):
+        class CountOpener:
+            count = 0
+            def open(self, req, timeout):
+                self.count += 1
+                return FakeResponse(json.dumps({
+                    "choices": [{"finish_reason": "length",
+                                 "message": {"content": "",
+                                             "reasoning": "no final JSON yet"}}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 8192,
+                              "total_tokens": 8202},
+                }).encode())
+        opener = CountOpener()
+        metrics = []
+        with patch.dict(os.environ, {"DEEPINFRA_API_KEY": "SYNTHETIC_TEST_SECRET"}), \
+             patch("han_codebook.agent.request.build_opener", return_value=opener):
+            with self.assertRaisesRegex(CaseError, "empty final content"):
+                query_local_llm(DEEPINFRA_BASE_URL, MODEL, {"codes":["001"]},
+                                provider="deepinfra", allow_external_api=True,
+                                max_output_tokens=8192, on_metrics=metrics.append)
+        self.assertEqual(opener.count, 1)
+        self.assertEqual(metrics[0]["status"], "empty_final_content")
+        self.assertEqual(metrics[0]["finish_reason"], "length")
+
+
 if __name__ == "__main__":
     unittest.main()

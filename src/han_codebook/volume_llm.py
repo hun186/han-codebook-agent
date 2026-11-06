@@ -17,7 +17,7 @@ import time
 import threading
 from typing import Any, Callable
 
-from .agent import query_local_llm, validate_llm_endpoint
+from .agent import query_local_llm, validate_llm_endpoint, summarize_llm_api_metrics
 from .benchmark import score_result
 from .config import load_settings
 from .core import CaseError, analyze, anchors_and_review, validate_case
@@ -104,6 +104,7 @@ def llm_rescore(case: dict, baseline: dict, *, metadata: bool, llm_settings: dic
             else:
                 on_exchange = None
             started = time.monotonic()
+            measured_attempts: list[dict] = []
             attempt_finished = False
             finished = threading.Event()
             def heartbeat() -> None:
@@ -122,9 +123,11 @@ def llm_rescore(case: dict, baseline: dict, *, metadata: bool, llm_settings: dic
                               allow_external_api=llm_settings.get('allow_external_api',False),
                               reasoning_effort=llm_settings.get('reasoning_effort'),
                               response_format=llm_settings.get('response_format'),
-                              max_output_tokens=llm_settings.get('max_output_tokens'))
+                              max_output_tokens=llm_settings.get('max_output_tokens'),
+                              on_metrics=measured_attempts.append)
                 calls += 1
                 attempt_finished = True
+                record["llm_api_metrics"] = summarize_llm_api_metrics(measured_attempts)
                 entries = reply.get('hypotheses')
                 if not isinstance(entries, list):
                     raise CaseError('LLM reply has no hypotheses array')

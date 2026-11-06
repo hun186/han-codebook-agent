@@ -56,6 +56,23 @@ def investigation_docx(result: dict[str, Any], events: list[dict[str, Any]]) -> 
         ["完成 LLM 回合", str(result.get("agent_rounds_completed", 0))],
         ["使用元數據", str(result.get("metadata_used", False))],
     ])
+    metrics = result.get("llm_api_metrics")
+    if isinstance(metrics, dict):
+        n = metrics.get("attempts", 0)
+        rate = metrics.get("json_completeness_rate")
+        doc.add_heading("LLM API JSON 完整性與 Token 用量（非破解正確率）", level=1)
+        _table(doc, ["項目", "結果"], [
+            ["API 請求／JSON 有效", f"{n}／{metrics.get('json_complete_attempts',0)}"],
+            ["JSON 完整率", f"{rate*100:.1f}%" if rate is not None else "未量測"],
+            ["截斷／增額重試", f"{metrics.get('finish_reason_length_count',0)}／{metrics.get('retries',0)}"],
+            ["有回報 Token 用量", f"{metrics.get('usage_reported_attempts',0)}／{n}"],
+            ["回報輸入／輸出／總 Token",
+             f"{metrics.get('prompt_tokens_reported',0)}／"
+             f"{metrics.get('completion_tokens_reported',0)}／"
+             f"{metrics.get('total_tokens_reported',0)}"],
+        ])
+        doc.add_paragraph("完整率只反映 API JSON 結構完整，並非密文破解正確率。"
+                          "Token 用量缺漏不能視為零消耗；重試同樣可能計費。")
     baseline = next((e.get("payload", {}).get("mapping", {}) for e in events if e.get("stage") == "statistical_baseline"), {})
     scores = next((e.get("payload", {}).get("score", "") for e in events if e.get("stage") == "statistical_baseline"), "")
     round_rows = [["Round 0 (統計基線)", "—", "—", "—", str(scores)]]

@@ -446,6 +446,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
               llm_api_key_env: str | None = None,
               llm_provider: str = "local",
               llm_allow_external_api: bool = False,
+              llm_max_output_tokens: int | None = None,
               progress: Callable[[str], None] | None = None,
               capture_llm_io: bool = False,
               llm_reasoning_effort: str | None = None,
@@ -484,6 +485,15 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
     # never silently overwritten with LLM-generated words.
     active_case = copy.deepcopy(case) if adaptive_vocabulary else case
     conn = create_audit(db_path)
+    api_metrics: list[dict[str, Any]] = []
+
+    def record_api_metrics(phase: str, round_number: int,
+                           item: dict[str, Any]) -> None:
+        # Keep metrics without content even when complete Prompt logging is off.
+        safe = {**item, "phase": phase}
+        api_metrics.append(safe)
+        log_event(conn, round_number, "llm_api_metrics", safe)
+
     run_id = uuid.uuid4().hex
     try:
         anchors, reviews, vocab = anchors_and_review(case)
@@ -578,12 +588,14 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                     "allow_external_api": llm_allow_external_api,
                     "reasoning_effort": llm_reasoning_effort,
                     "response_format": llm_response_format,
+                    "max_output_tokens": llm_max_output_tokens,
                 }
                 exchange = (lambda stage, payload: log_event(conn, num, "vocabulary_" + stage, payload)) if capture_llm_io else None
                 active_case, record = refresh_vocabulary(
                     active_case, round_number=num, metadata=metadata, current=current,
                     llm_settings=settings, review=vocabulary_reviewer,
-                    query=vocabulary_query or query_local_llm, on_exchange=exchange)
+                    query=vocabulary_query or query_local_llm, on_exchange=exchange,
+                    on_metrics=lambda item: record_api_metrics("vocabulary", num, item))
                 if cancel_check:
                     cancel_check()
                 log_event(conn, num, "vocabulary_candidates_unverified", record)
@@ -683,13 +695,15 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 worker.start()
             try:
                 extra = {"on_exchange": lambda stage, payload: log_event(conn, num, stage, payload)} if capture_llm_io else {}
+                extra["on_metrics"] = lambda item: record_api_metrics("code", num, item)
                 reply = query_local_llm(llm_url, model, packet, timeout=llm_timeout,
                                         allow_private_network=allow_private_network,
                                         allowed_hosts=llm_allowed_hosts,
                                         api_key_env=llm_api_key_env,
                                         provider=llm_provider, allow_external_api=llm_allow_external_api,
                                         reasoning_effort=llm_reasoning_effort,
-                                        response_format=llm_response_format, **extra)
+                                        response_format=llm_response_format,
+                                        max_output_tokens=llm_max_output_tokens, **extra)
             finally:
                 done.set()
                 if worker:
@@ -821,6 +835,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         # as a verified anchor, and never replace immutable known plaintext.
         from .bold_hypotheses import normalize_bold_hypotheses
         current["bold_hypotheses"] = normalize_bold_hypotheses(case, current["verified_anchors"])
+        current["llm_api_metrics"] = summarize_llm_api_metrics(api_metrics)
         current["agent_rounds_completed"] = len(round_history)
         current["agent_rounds_requested"] = rounds
         current["progress_stop_patience"] = progress_stop_patience

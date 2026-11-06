@@ -41,6 +41,9 @@ const { TextEncoder } = require('node:util');
   const cfg=await get('/api/settings');
   assert.match(cfg.model,/MOCK/);
   assert.equal(cfg.allow_private_network,false);
+  assert.equal(cfg.confirmation_token,'PUBLIC_MOCK_SETTINGS_V1_NO_NETWORK');
+  assert.equal(cfg.provider,'local');
+  assert.equal(cfg.allow_external_api,false);
   assert.equal((await post('/api/settings/test',{confirmed:true})).connected,false);
   const settingsPost=await sandbox.fetch('/api/settings/llm',{
     method:'POST',body:JSON.stringify({base_url:'https://example.org'})
@@ -50,6 +53,21 @@ const { TextEncoder } = require('node:util');
   const caseData=await get('/api/case?id=demo_10');
   assert.equal(caseData.messages.length,10);
   assert.equal(caseData.known_pairs.length,0);
+  const approved=await post('/api/start',{
+    case:caseData,rounds:1,
+    confirmed_llm_config:cfg.confirmation_token,confirmed_external_api:false
+  });
+  assert.equal((await get('/api/jobs/'+approved.job_id)).status,'completed');
+  const stale=await sandbox.fetch('/api/start',{method:'POST',
+    body:JSON.stringify({case:caseData,rounds:1,
+      confirmed_llm_config:'wrong-old-model-version',confirmed_external_api:false})});
+  assert.equal(stale.status,400);
+  assert.match((await stale.json()).error,/settings changed/);
+  const denied=await sandbox.fetch('/api/start',{method:'POST',
+    body:JSON.stringify({case:caseData,rounds:1,
+      confirmed_llm_config:cfg.confirmation_token,confirmed_external_api:true})});
+  assert.equal(denied.status,400);
+  assert.match((await denied.json()).error,/never permits external/);
   assert.ok(caseData.profiles.logistics.lexicon);
   assert.equal(caseData.messages[0].codes[0],fixture.records[0].messages[0].codes[0]);
   for(const rounds of [0,2,20]){

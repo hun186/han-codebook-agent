@@ -1,5 +1,11 @@
 # Project memory
 
+## 2026-11-06 — Third Codex P2: public Mock needs a stable settings receipt
+- Real GUI verifies current saved LLM settings before every model action. Public Vercel Mock adapter must return a stable nonsecret receipt, or the simulated research actions cannot pass their UI confirmation.
+- Mock receipt PUBLIC_MOCK_SETTINGS_V1_NO_NETWORK now accepted with consistent server-side mock checks, any supplied stale receipt or true external API consent rejected; no paid request, no private case transmitted. Node test covers successful Mock, stale, external refusal.
+- Hosted latest-head CI and formal Codex review pending; no early merge.
+
+
 ## 2026-11-06 — PR #50 second Codex P1: stale-tab destination confirmation
 - Official Codex found that simultaneous browser tabs could cause an old local-only confirmation to silently authorize a newly saved DeepInfra provider. A new nonsecret settings receipt (SHA-256 of provider/URL/model/connection settings) is returned by /api/settings and checked against the job-admission LLM snapshot while holding the settings/jobs lock.
 - For external DeepInfra jobs both a fresh matching confirmation receipt and explicit per-job confirmed_external_api=true are required. Missing, stale or mismatched confirmations fail closed before job/thread creation. GUI re-reads /api/settings immediately before the per-run/phrase-vocabulary confirm and sends the receipt + external consent. Local old API callers remain backward-compatible; supplied stale receipts still rejected.

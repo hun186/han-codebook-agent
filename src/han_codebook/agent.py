@@ -224,7 +224,8 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
 
     def record_attempt(attempt: int, finish: str | None, valid: bool,
                        usage: Any, *, status: str, elapsed_ms: float,
-                       raw: bytes | None = None, http_status: int | None = None) -> None:
+                       raw: bytes | None = None, http_status: int | None = None,
+                       response_truncated: bool = False) -> None:
         usage = usage if isinstance(usage, dict) else {}
         safe = {
             "attempt": attempt, "provider": provider,
@@ -246,6 +247,7 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
                     "max_output_tokens": body.get("max_tokens")}
             if http_status is not None:
                 item["http_status"] = http_status
+                item["response_truncated"] = response_truncated
             if raw is not None:
                 item["response"] = raw.decode("utf-8", errors="replace")
             on_exchange("llm_response", item)
@@ -266,10 +268,12 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
             with _urlopen_llm(req, timeout=timeout, provider=provider) as response:
                 raw = response.read(500_000)
         except error.HTTPError as exc:
-            captured = exc.read(64_000) if on_exchange else None
+            captured = exc.read(64_001) if on_exchange else None
             record_attempt(attempt, None, False, None, status="http_error",
                            elapsed_ms=round((time.monotonic()-started_at)*1000,1),
-                           raw=captured, http_status=exc.code)
+                           raw=captured[:64_000] if captured is not None else b"",
+                           http_status=exc.code,
+                           response_truncated=bool(captured is not None and len(captured)>64_000))
             reason = {400:"request rejected or incompatible API parameters",
                       401:"authentication required (set llm.api_key_env)",
                       403:"forbidden by service or proxy",
@@ -313,7 +317,7 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
             content = content.strip()
             if not content:
                 raise ValueError("empty final content (reasoning_only="
-                                 +str(bool(choice["message"].get("reason")))
+                                 +str(bool(choice["message"].get("reasoning") or choice["message"].get("reasoning_content")))
                                  +", finish_reason="+str(finish)
                                  +", completion_tokens="
                                  +str((usage or {}).get("completion_tokens"))+")")

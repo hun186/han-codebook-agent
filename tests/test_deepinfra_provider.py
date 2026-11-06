@@ -12,6 +12,7 @@ from han_codebook.agent import (
     DEEPINFRA_BASE_URL, _RejectRedirects, llm_api_base,
     probe_llm_service, query_local_llm, run_agent, validate_llm_endpoint,
 )
+from han_codebook.cli import main as cli_main
 from han_codebook.config import load_settings
 from han_codebook.core import CaseError, load_case
 from han_codebook.model_settings import model_settings, save_model_settings
@@ -119,6 +120,7 @@ class DeepInfraTests(unittest.TestCase):
         self.assertEqual(body["model"], MODEL)
         self.assertEqual(body["response_format"], {"type": "json_object"})
         self.assertNotIn("reasoning_effort", body)
+        self.assertEqual(body["max_tokens"], 4096)
         self.assertNotIn("SYNTHETIC_TEST_SECRET", req.data.decode())
 
     def test_models_probe_is_metadata_only_and_uses_official_route(self):
@@ -215,6 +217,20 @@ class DeepInfraTests(unittest.TestCase):
                               db_path=str(Path(folder) / "audit.sqlite"))
                 fake.assert_not_called()
 
+
+
+    def test_cli_explicit_provider_override_does_not_reuse_lan_token(self):
+        with patch("han_codebook.cli.probe_llm_service", return_value=True) as probe:
+            self.assertEqual(cli_main([
+                "--config", str(ROOT / "config.yaml"),
+                "--provider", "deepinfra", "--allow-external-api",
+                "--model", MODEL, "--check-llm",
+            ]), 0)
+        options = probe.call_args.kwargs
+        self.assertEqual(options["provider"], "deepinfra")
+        self.assertEqual(options["api_key_env"], "DEEPINFRA_API_KEY")
+        self.assertTrue(options["allow_external_api"])
+        self.assertEqual(probe.call_args.args[0], DEEPINFRA_BASE_URL)
 
 if __name__ == "__main__":
     unittest.main()

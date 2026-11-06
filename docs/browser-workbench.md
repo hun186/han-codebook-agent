@@ -60,11 +60,11 @@ python -m han_codebook.benchmark --config benchmarks/config.yaml --variants both
 ## 可選 DeepInfra 外部 LLM
 
 在「⚙ LLM 端點設定」選擇 DeepInfra 後，GUI 固定 API 端點為
-\`https://api.deepinfra.com/v1/openai\`，只儲存 \`DEEPINFRA_API_KEY\`
+`https://api.deepinfra.com/v1/openai`，只儲存 `DEEPINFRA_API_KEY`
 環境變數名稱。設定 API Key 的正確值須由本機程序環境提供。只有勾選
 **外傳資料同意**、儲存設定、再按研究執行或詞庫生成並確認時，才會把
 密文／背景情報傳到第三方付費服務。0 回合仍完全離線。
 「測試連線」只查 TCP／模型清單、會向提供商驗證 API Key，**不傳密文**。
 此外部供應商的預算／用量限制請在其帳戶另行設定。公開 Vercel Mock
 不提供連線外部 API 或 API Key 的能力；CLI 另有安全關閉範本
-\`config.deepinfra.example.yaml\`，詳見根目錄 README。
+`config.deepinfra.example.yaml`，詳見根目錄 README。

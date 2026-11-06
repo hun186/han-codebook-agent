@@ -167,6 +167,10 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
             {"role": "user", "content": json.dumps(evidence, ensure_ascii=False)}
         ],
     }
+    # Bound paid-provider generated output per call; this is NOT an account
+    # spending cap or input-token budget. Use DeepInfra's account controls.
+    if provider == "deepinfra":
+        body["max_tokens"] = 4096
     # Opt-in compatibility controls; a non-Ollama proxy may not support these.
     if reasoning_effort is not None:
         if reasoning_effort not in ("none","minimal","low","medium","high","xhigh"):

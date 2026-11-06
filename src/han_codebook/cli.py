@@ -59,6 +59,10 @@ def main(argv=None) -> int:
         url = args.ollama_url or (DEEPINFRA_BASE_URL if args.provider == "deepinfra"
                                   else llm.get("base_url", "http://127.0.0.1:11434/v1"))
         model = args.model or llm.get("model", "qwen3:14b")
+        # CLI override must NOT forward an existing LAN proxy's Bearer token
+        # to a third-party API. A configured DeepInfra custom env is retained.
+        key_env = ("DEEPINFRA_API_KEY" if args.provider == "deepinfra"
+                   else llm.get("api_key_env"))
         out = args.out or project.get("output", "artifacts/result.json")
         db = args.db or project.get("audit_db", "artifacts/audit.sqlite")
         if args.check_llm:
@@ -66,7 +70,7 @@ def main(argv=None) -> int:
             ok = probe_llm_service(url, timeout=min(timeout, 8),
                                    allow_private_network=llm.get("allow_private_network", False),
                                    allowed_hosts=llm.get("allowed_hosts", []),
-                                   api_key_env=llm.get("api_key_env"),
+                                   api_key_env=key_env,
                                    provider=provider, allow_external_api=external)
             print("[check] Note: TCP/models checks do not validate actual chat inference.", flush=True)
             return 0 if ok else 2
@@ -79,7 +83,7 @@ def main(argv=None) -> int:
                            metadata=metadata, llm_timeout=timeout,
                            allow_private_network=llm.get("allow_private_network", False),
                            llm_allowed_hosts=llm.get("allowed_hosts", []),
-                           llm_api_key_env=llm.get("api_key_env"),
+                           llm_api_key_env=key_env,
                            llm_provider=provider, llm_allow_external_api=external,
                            progress=lambda message: print(message, flush=True),
                            capture_llm_io=llm.get("capture_io", False),

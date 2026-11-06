@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "09_valley_0025_cold",
+      "case": "cases/09_valley_0025_cold.json",
+      "gold": "gold/09_valley_0025_cold.json",
+      "description": "Fictional progressive corpus, n=25, cold; 24-group intercepted messages"
+    },
+    {
+      "id": "09_valley_0025_sparse",
+      "case": "cases/09_valley_0025_sparse.json",
+      "gold": "gold/09_valley_0025_sparse.json",
+      "description": "Fictional progressive corpus, n=25, sparse; 24-group intercepted messages"
+    },
+    {
+      "id": "09_valley_0100_cold",
+      "case": "cases/09_valley_0100_cold.json",
+      "gold": "gold/09_valley_0100_cold.json",
+      "description": "Fictional progressive corpus, n=100, cold; 24-group intercepted messages"
+    },
+    {
+      "id": "09_valley_0100_sparse",
+      "case": "cases/09_valley_0100_sparse.json",
+      "gold": "gold/09_valley_0100_sparse.json",
+      "description": "Fictional progressive corpus, n=100, sparse; 24-group intercepted messages"
+    },
+    {
+      "id": "09_valley_0400_cold",
+      "case": "cases/09_valley_0400_cold.json",
+      "gold": "gold/09_valley_0400_cold.json",
+      "description": "Fictional progressive corpus, n=400, cold; 24-group intercepted messages"
+    },
+    {
+      "id": "09_valley_0400_sparse",
+      "case": "cases/09_valley_0400_sparse.json",
+      "gold": "gold/09_valley_0400_sparse.json",
+      "description": "Fictional progressive corpus, n=400, sparse; 24-group intercepted messages"
+    },
+    {
+      "id": "09_valley_1000_cold",
+      "case": "cases/09_valley_1000_cold.json",
+      "gold": "gold/09_valley_1000_cold.json",
+      "description": "Fictional progressive corpus, n=1000, cold; 24-group intercepted messages"
+    },
+    {
+      "id": "09_valley_1000_sparse",
+      "case": "cases/09_valley_1000_sparse.json",
+      "gold": "gold/09_valley_1000_sparse.json",
+      "description": "Fictional progressive corpus, n=1000, sparse; 24-group intercepted messages"
+    }
+  ]
+}

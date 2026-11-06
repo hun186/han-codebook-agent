@@ -365,3 +365,7 @@ validated once; all random shuffles and aggregate metric definitions are
 unchanged. Synthetic regressions compare the new outputs exactly with the
 former full-copy algorithm for a fixed random seed. This is a resource/privacy
 improvement, not additional proof of decipherment accuracy.
+
+## Case 09：雲谷救援網（三位數碼組／大語料／稀疏錨點）
+
+新增 25／100／400／1,000 封的巢狀累積合成基準案例（各有 0 錨點及 3 錨點版）；每封主電文 24 個 **三位數**碼組，並分離 Gold 與 80 封獨立 probe。詳見 [Case 09 使用說明](case09/README.md)。八組輸入已直接放在 `benchmarks/cases/09_valley_*.json`，所以本機 Web UI 的案例選單可以直接選用。大語料在獨立 `suite_case09.json`，不加入預設 CI Benchmark。

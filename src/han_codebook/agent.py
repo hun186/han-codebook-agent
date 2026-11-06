@@ -37,6 +37,36 @@ def log_event(conn: sqlite3.Connection, round_num: int, stage: str, payload: dic
 
 
 DEEPINFRA_BASE_URL = "https://api.deepinfra.com/v1/openai"
+DEEPINFRA_DEFAULT_MAX_OUTPUT_TOKENS = 8192
+DEEPINFRA_MAX_OUTPUT_TOKENS = 16384
+
+
+def validate_max_output_tokens(value: int) -> int:
+    if type(value) is not int or not 1024 <= value <= DEEPINFRA_MAX_OUTPUT_TOKENS:
+        raise CaseError("llm.max_output_tokens must be integer 1024..16384")
+    return value
+
+
+def summarize_llm_api_metrics(attempts: list[dict[str, Any]]) -> dict[str, Any]:
+    """JSON structure reliability per API attempt, NOT decipherment accuracy."""
+    n = len(attempts)
+    good = sum(x.get("json_complete") is True for x in attempts)
+    counted = [x for x in attempts if type(x.get("total_tokens")) is int]
+    costs = [x["estimated_cost"] for x in attempts
+             if type(x.get("estimated_cost")) in (int, float)]
+    return {
+        "attempts": n, "json_complete_attempts": good,
+        "json_incomplete_attempts": n - good,
+        "json_completeness_rate": round(good / n, 4) if n else None,
+        "finish_reason_length_count": sum(x.get("finish_reason") == "length" for x in attempts),
+        "retries": sum(x.get("attempt") == 2 for x in attempts),
+        "usage_reported_attempts": len(counted),
+        "prompt_tokens_reported": sum(x.get("prompt_tokens") or 0 for x in counted),
+        "completion_tokens_reported": sum(x.get("completion_tokens") or 0 for x in counted),
+        "total_tokens_reported": sum(x.get("total_tokens") or 0 for x in counted),
+        "estimated_cost_reported": round(sum(costs), 9) if costs else None,
+        "scope": "JSON schema validity per physical request; not decipherment accuracy or a billing cap",
+    }
 
 
 def llm_api_base(base_url: str, provider: str = "local") -> str:
@@ -102,7 +132,9 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
                     reasoning_effort: str | None = None,
                     response_format: str | None = None,
                     provider: str = "local",
-                    allow_external_api: bool = False) -> dict[str, Any]:
+                    allow_external_api: bool = False,
+                    max_output_tokens: int | None = None,
+                    on_metrics: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
     """Paid external prompts are opt-in and never sent to arbitrary public URLs."""
     validate_llm_endpoint(base_url, allow_private_network=allow_private_network,
                           allowed_hosts=allowed_hosts, provider=provider,
@@ -167,11 +199,12 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
             {"role": "user", "content": json.dumps(evidence, ensure_ascii=False)}
         ],
     }
-    # Bound paid-provider generated output per call; this is NOT an account
-    # spending cap or input-token budget. Use DeepInfra's account controls.
-    if provider == "deepinfra":
-        body["max_tokens"] = 4096
-    # Opt-in compatibility controls; a non-Ollama proxy may not support these.
+    # The budget only affects DeepInfra; legacy local requests stay identical.
+    limit = (validate_max_output_tokens(DEEPINFRA_DEFAULT_MAX_OUTPUT_TOKENS
+             if max_output_tokens is None else max_output_tokens)
+             if provider == "deepinfra" else None)
+    if provider == "local" and max_output_tokens is not None:
+        validate_max_output_tokens(max_output_tokens)
     if reasoning_effort is not None:
         if reasoning_effort not in ("none","minimal","low","medium","high","xhigh"):
             raise CaseError("Unsupported llm.reasoning_effort")
@@ -181,7 +214,6 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
         if response_format != "json_object":
             raise CaseError("Unsupported llm.response_format")
         body["response_format"] = {"type":"json_object"}
-    payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     key_ref = api_key_env or ("DEEPINFRA_API_KEY" if provider == "deepinfra" else None)
     if key_ref:
@@ -189,69 +221,116 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
         if not token:
             raise CaseError(f"LLM API key environment variable not set: {key_ref}")
         headers["Authorization"] = f"Bearer {token}"
-    req = request.Request(api + "/chat/completions", data=payload, headers=headers)
-    if on_exchange:
-        on_exchange("llm_request", {"url": req.full_url, "model": model, "body": body})
-    started_at = time.monotonic()
-    try:
-        with _urlopen_llm(req, timeout=timeout, provider=provider) as response:
-            raw = response.read(500_000)
-        if on_exchange:
-            try:
-                meta = json.loads(raw.decode("utf-8"))
-            except (UnicodeDecodeError, ValueError):
-                meta = {}
-            on_exchange("llm_response", {"url": req.full_url,
-                "response": raw.decode("utf-8", errors="replace"),
-                "elapsed_ms": round((time.monotonic() - started_at)*1000, 1),
-                "usage": meta.get("usage") if isinstance(meta, dict) else None})
-    except error.HTTPError as exc:
-        # HTTPError is also a readable response. With explicit opt-in, retain its
-        # bounded body for diagnosing e.g. context-size errors from the LLM proxy.
-        if on_exchange:
-            limit = 64_000
-            raw_error = exc.read(limit + 1)
-            on_exchange("llm_response", {
-                "url": req.full_url, "http_status": exc.code,
-                "response": raw_error[:limit].decode("utf-8", errors="replace"),
-                "response_truncated": len(raw_error) > limit,
-                "elapsed_ms": round((time.monotonic() - started_at) * 1000, 1),
-                "usage": None,
-            })
-        reason = {400: "request rejected or incompatible API parameters", 401: "authentication required (set llm.api_key_env)",
-                  403: "forbidden by service or proxy", 404: "API path or model not found; check /v1/chat/completions route",
-                  405: "HTTP method not allowed; check API proxy", 422: "request schema/model not accepted",
-                  502: "reverse proxy cannot reach the LLM upstream", 503: "LLM service unavailable",
-                  504: "reverse proxy timed out"}.get(exc.code, "HTTP error")
-        raise CaseError(f"LLM HTTP {exc.code}: {reason} (URL: {req.full_url})") from exc
-    except (error.URLError, TimeoutError, ConnectionError) as exc:
-        raise CaseError(f"LLM network error on {req.full_url}: {exc}") from exc
-    try:
-        if raw.lstrip().startswith((b"<!DOCTYPE", b"<html", b"<HTML")):
-            raise ValueError("HTML returned instead of JSON; check proxy/API path")
-        data = json.loads(raw.decode("utf-8"))
-        content = data["choices"][0]["message"]["content"]
-        if not isinstance(content, str):
-            raise ValueError("not text")
-        content = content.strip()
-        if not content:
-            # Reasoning is NOT a final answer and must not be parsed as a
-            # guessed result. Preserve the raw provider response in opt-in audit.
-            choice=data["choices"][0]
-            raise ValueError("empty final content (reasoning_only="
-                             +str(bool(data["choices"][0]["message"].get("reasoning")))
-                             +", finish_reason="+str(choice.get("finish_reason"))
-                             +", completion_tokens="+str(data.get("usage",{}).get("completion_tokens"))+")")
-        if content.startswith("```"):
-            content = content.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-        obj = json.loads(content)
-        required_list = "vocabulary" if vocabulary_task else "hypotheses"
-        if not isinstance(obj, dict) or not isinstance(obj.get(required_list), list):
-            raise ValueError(f"missing {required_list} array")
-        return obj
-    except (KeyError, IndexError, ValueError, TypeError) as e:
-        raise CaseError(f"LLM output not valid expected JSON: {e}") from e
 
+    def record_attempt(attempt: int, finish: str | None, valid: bool,
+                       usage: Any, *, status: str, elapsed_ms: float,
+                       raw: bytes | None = None, http_status: int | None = None) -> None:
+        usage = usage if isinstance(usage, dict) else {}
+        safe = {
+            "attempt": attempt, "provider": provider,
+            "max_output_tokens": body.get("max_tokens"),
+            "finish_reason": finish if isinstance(finish, str) else None,
+            "json_complete": valid, "status": status, "elapsed_ms": elapsed_ms,
+            "prompt_tokens": usage.get("prompt_tokens") if type(usage.get("prompt_tokens")) is int else None,
+            "completion_tokens": usage.get("completion_tokens") if type(usage.get("completion_tokens")) is int else None,
+            "total_tokens": usage.get("total_tokens") if type(usage.get("total_tokens")) is int else None,
+            "estimated_cost": usage.get("estimated_cost")
+                if type(usage.get("estimated_cost")) in (int, float) else None,
+        }
+        if on_metrics:
+            on_metrics(safe)
+        if on_exchange:
+            item = {"url": api + "/chat/completions", "elapsed_ms": elapsed_ms,
+                    "usage": usage or None, "finish_reason": safe["finish_reason"],
+                    "json_complete": valid, "attempt": attempt, "status": status,
+                    "max_output_tokens": body.get("max_tokens")}
+            if http_status is not None:
+                item["http_status"] = http_status
+            if raw is not None:
+                item["response"] = raw.decode("utf-8", errors="replace")
+            on_exchange("llm_response", item)
+
+    max_attempts = (2 if provider == "deepinfra"
+                    and limit < DEEPINFRA_MAX_OUTPUT_TOKENS else 1)
+    for attempt in range(1, max_attempts + 1):
+        if limit is not None:
+            body["max_tokens"] = limit
+        req = request.Request(api + "/chat/completions",
+                              data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+                              headers=headers)
+        if on_exchange:
+            on_exchange("llm_request", {"url": req.full_url, "model": model,
+                                        "body": dict(body), "attempt": attempt})
+        started_at = time.monotonic()
+        try:
+            with _urlopen_llm(req, timeout=timeout, provider=provider) as response:
+                raw = response.read(500_000)
+        except error.HTTPError as exc:
+            captured = exc.read(64_000) if on_exchange else None
+            record_attempt(attempt, None, False, None, status="http_error",
+                           elapsed_ms=round((time.monotonic()-started_at)*1000,1),
+                           raw=captured, http_status=exc.code)
+            reason = {400:"request rejected or incompatible API parameters",
+                      401:"authentication required (set llm.api_key_env)",
+                      403:"forbidden by service or proxy",
+                      404:"API path or model not found; check Chat Completions route",
+                      405:"HTTP method not allowed; check API proxy",
+                      422:"request schema/model not accepted",
+                      502:"reverse proxy cannot reach the LLM upstream",
+                      503:"LLM service unavailable",
+                      504:"reverse proxy timed out"}.get(exc.code, "HTTP error")
+            raise CaseError(f"LLM HTTP {exc.code}: {reason} (URL: {req.full_url})") from exc
+        except (error.URLError, TimeoutError, ConnectionError) as exc:
+            record_attempt(attempt, None, False, None, status="network_error",
+                           elapsed_ms=round((time.monotonic()-started_at)*1000,1))
+            raise CaseError(f"LLM network error on {req.full_url}: {exc}") from exc
+        duration = round((time.monotonic()-started_at)*1000,1)
+        finish, usage = None, None
+        try:
+            if raw.lstrip().startswith((b"<!DOCTYPE", b"<html", b"<HTML")):
+                raise ValueError("HTML returned instead of JSON; check proxy/API path")
+            data = json.loads(raw.decode("utf-8"))
+            choice = data["choices"][0]
+            finish, usage = choice.get("finish_reason"), data.get("usage")
+        except (KeyError, IndexError, ValueError, TypeError) as exc:
+            record_attempt(attempt, None, False, usage, status="invalid_envelope",
+                           elapsed_ms=duration, raw=raw)
+            raise CaseError(f"LLM output not valid expected JSON: {exc}") from exc
+        if finish == "length":
+            record_attempt(attempt, finish, False, usage, status="truncated",
+                           elapsed_ms=duration, raw=raw)
+            if attempt < max_attempts:
+                limit = min(DEEPINFRA_MAX_OUTPUT_TOKENS, limit * 2)
+                continue
+            raise CaseError(
+                f"LLM output truncated (finish_reason=length, max_tokens={body.get('max_tokens')}); "
+                "never accept partial JSON. Reduce the prompt/batch or change the model."
+            )
+        try:
+            content = choice["message"]["content"]
+            if not isinstance(content, str):
+                raise ValueError("not text")
+            content = content.strip()
+            if not content:
+                raise ValueError("empty final content (reasoning_only="
+                                 +str(bool(choice["message"].get("reason")))
+                                 +", finish_reason="+str(finish)
+                                 +", completion_tokens="
+                                 +str((usage or {}).get("completion_tokens"))+")")
+            if content.startswith(chr(96) * 3):
+                content = content.split("\n", 1)[-1].rsplit(chr(96) * 3, 1)[0].strip()
+            obj = json.loads(content)
+            required_list = "vocabulary" if vocabulary_task else "hypotheses"
+            if not isinstance(obj, dict) or not isinstance(obj.get(required_list), list):
+                raise ValueError(f"missing {required_list} array")
+        except (KeyError, IndexError, ValueError, TypeError) as exc:
+            record_attempt(attempt, finish, False, usage, status="invalid_json",
+                           elapsed_ms=duration, raw=raw)
+            raise CaseError(f"LLM output not valid expected JSON: {exc}") from exc
+        record_attempt(attempt, finish, True, usage, status="valid_json",
+                       elapsed_ms=duration, raw=raw)
+        return obj
+    raise CaseError("LLM output did not provide complete JSON")
 
 def probe_llm_service(base_url: str, *, timeout: int = 6,
                       allow_private_network: bool = False,

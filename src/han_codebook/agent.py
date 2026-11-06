@@ -36,9 +36,39 @@ def log_event(conn: sqlite3.Connection, round_num: int, stage: str, payload: dic
     conn.commit()
 
 
+DEEPINFRA_BASE_URL = "https://api.deepinfra.com/v1/openai"
+
+
+def llm_api_base(base_url: str, provider: str = "local") -> str:
+    url = base_url.rstrip("/")
+    return url if provider == "deepinfra" or url.endswith("/v1") else url + "/v1"
+
+
+class _RejectRedirects(request.HTTPRedirectHandler):
+    """Prevent an external redirect from forwarding a paid API key or case data."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _urlopen_llm(req: request.Request, *, timeout: int, provider: str):
+    if provider == "deepinfra":
+        return request.build_opener(_RejectRedirects()).open(req, timeout=timeout)
+    return request.urlopen(req, timeout=timeout)
+
+
 def validate_llm_endpoint(base_url: str, *, allow_private_network: bool = False,
-                          allowed_hosts: tuple[str, ...] | list[str] = ()) -> None:
-    """Never send research material to public hosts; private IPs require explicit opt-in."""
+                          allowed_hosts: tuple[str, ...] | list[str] = (),
+                          provider: str = "local",
+                          allow_external_api: bool = False) -> None:
+    """Local or allowlisted LAN by default; only exact DeepInfra with explicit consent."""
+    if provider == "deepinfra":
+        if allow_external_api is not True:
+            raise CaseError("DeepInfra requires llm.allow_external_api=true")
+        if not isinstance(base_url, str) or base_url.rstrip("/") != DEEPINFRA_BASE_URL:
+            raise CaseError("DeepInfra base URL must equal https://api.deepinfra.com/v1/openai")
+        return
+    if provider != "local":
+        raise CaseError("Unsupported provider (local or deepinfra)")
     parsed = parse.urlparse(base_url)
     hostname = parsed.hostname
     if (parsed.scheme not in ("http", "https") or not hostname or
@@ -70,13 +100,14 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
                     api_key_env: str | None = None,
                     on_exchange: Callable[[str, dict[str, Any]], None] | None = None,
                     reasoning_effort: str | None = None,
-                    response_format: str | None = None) -> dict[str, Any]:
-    """Private LAN is opt-in and allowlisted; never send to unrestricted external URLs."""
+                    response_format: str | None = None,
+                    provider: str = "local",
+                    allow_external_api: bool = False) -> dict[str, Any]:
+    """Paid external prompts are opt-in and never sent to arbitrary public URLs."""
     validate_llm_endpoint(base_url, allow_private_network=allow_private_network,
-                          allowed_hosts=allowed_hosts)
-    api = base_url.rstrip("/")
-    if not api.endswith("/v1"):
-        api += "/v1"
+                          allowed_hosts=allowed_hosts, provider=provider,
+                          allow_external_api=allow_external_api)
+    api = llm_api_base(base_url, provider)
     # Intentionally minimal, HTTP POST to local Ollama/vLLM/OpenAI-compatible endpoint.
     vocabulary_task = evidence.get("task") == "generate_vocabulary"
     if vocabulary_task:
@@ -140,24 +171,26 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
     if reasoning_effort is not None:
         if reasoning_effort not in ("none","minimal","low","medium","high","xhigh"):
             raise CaseError("Unsupported llm.reasoning_effort")
-        body["reasoning_effort"] = reasoning_effort
+        if provider == "local":
+            body["reasoning_effort"] = reasoning_effort
     if response_format is not None and response_format != "default":
         if response_format != "json_object":
             raise CaseError("Unsupported llm.response_format")
         body["response_format"] = {"type":"json_object"}
     payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
     headers = {"Content-Type": "application/json"}
-    if api_key_env:
-        token = os.environ.get(api_key_env)
+    key_ref = api_key_env or ("DEEPINFRA_API_KEY" if provider == "deepinfra" else None)
+    if key_ref:
+        token = os.environ.get(key_ref)
         if not token:
-            raise CaseError(f"LLM API key environment variable not set: {api_key_env}")
+            raise CaseError(f"LLM API key environment variable not set: {key_ref}")
         headers["Authorization"] = f"Bearer {token}"
     req = request.Request(api + "/chat/completions", data=payload, headers=headers)
     if on_exchange:
         on_exchange("llm_request", {"url": req.full_url, "model": model, "body": body})
     started_at = time.monotonic()
     try:
-        with request.urlopen(req, timeout=timeout) as response:
+        with _urlopen_llm(req, timeout=timeout, provider=provider) as response:
             raw = response.read(500_000)
         if on_exchange:
             try:
@@ -213,20 +246,24 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
             raise ValueError(f"missing {required_list} array")
         return obj
     except (KeyError, IndexError, ValueError, TypeError) as e:
-        raise CaseError(f"Local LLM output not valid expected JSON: {e}") from e
+        raise CaseError(f"LLM output not valid expected JSON: {e}") from e
 
 
 def probe_llm_service(base_url: str, *, timeout: int = 6,
                       allow_private_network: bool = False,
                       allowed_hosts: tuple[str, ...] | list[str] = (),
                       api_key_env: str | None = None,
+                      provider: str = "local",
+                      allow_external_api: bool = False,
                       report: Callable[[str], None] = print) -> bool:
     """Lightweight transport + models-route diagnostics. No case data or LLM inference.
 
     A missing /v1/models route is inconclusive: some gateways support only chat.
     Return False for confirmed networking/authentication/proxy problems.
     """
-    validate_llm_endpoint(base_url, allow_private_network=allow_private_network, allowed_hosts=allowed_hosts)
+    validate_llm_endpoint(base_url, allow_private_network=allow_private_network,
+                          allowed_hosts=allowed_hosts, provider=provider,
+                          allow_external_api=allow_external_api)
     parsed = parse.urlparse(base_url)
     host = parsed.hostname
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
@@ -238,19 +275,18 @@ def probe_llm_service(base_url: str, *, timeout: int = 6,
         report(f"[ERROR] TCP connection failed: {exc}. Check network/firewall and service port.")
         return False
     report("[OK] TCP connected. Checking /v1/models (not a chat-model inference) ...")
-    api = base_url.rstrip("/")
-    if not api.endswith("/v1"):
-        api += "/v1"
+    api = llm_api_base(base_url, provider)
     headers = {"Accept": "application/json"}
-    if api_key_env:
-        token = os.environ.get(api_key_env)
+    key_ref = api_key_env or ("DEEPINFRA_API_KEY" if provider == "deepinfra" else None)
+    if key_ref:
+        token = os.environ.get(key_ref)
         if not token:
-            report(f"[ERROR] Missing authentication environment variable: {api_key_env}")
+            report(f"[ERROR] Missing authentication environment variable: {key_ref}")
             return False
         headers["Authorization"] = f"Bearer {token}"
     req = request.Request(api + "/models", headers=headers)
     try:
-        with request.urlopen(req, timeout=timeout) as response:
+        with _urlopen_llm(req, timeout=timeout, provider=provider) as response:
             content = response.read(100_000)
         if content.lstrip().startswith(b"<"):
             report("[WARN] /v1/models returned HTML, likely a web UI or reverse proxy page; chat API is unverified.")
@@ -325,6 +361,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
               allow_private_network: bool = False,
               llm_allowed_hosts: tuple[str, ...] | list[str] = (),
               llm_api_key_env: str | None = None,
+              llm_provider: str = "local",
+              llm_allow_external_api: bool = False,
               progress: Callable[[str], None] | None = None,
               capture_llm_io: bool = False,
               llm_reasoning_effort: str | None = None,
@@ -354,7 +392,11 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         raise CaseError("Vocabulary review requires adaptive vocabulary")
     if rounds:
         validate_llm_endpoint(llm_url, allow_private_network=allow_private_network,
-                              allowed_hosts=llm_allowed_hosts)
+                              allowed_hosts=llm_allowed_hosts, provider=llm_provider,
+                              allow_external_api=llm_allow_external_api)
+        if llm_provider == "deepinfra" and not os.environ.get(
+                llm_api_key_env or "DEEPINFRA_API_KEY"):
+            raise CaseError("DeepInfra API key environment variable not set")
     # Only a private run-local copy is extended. The researcher's saved case is
     # never silently overwritten with LLM-generated words.
     active_case = copy.deepcopy(case) if adaptive_vocabulary else case
@@ -449,6 +491,8 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                     "allow_private_network": allow_private_network,
                     "allowed_hosts": llm_allowed_hosts,
                     "api_key_env": llm_api_key_env,
+                    "provider": llm_provider,
+                    "allow_external_api": llm_allow_external_api,
                     "reasoning_effort": llm_reasoning_effort,
                     "response_format": llm_response_format,
                 }
@@ -542,7 +586,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 },
             }
             if progress:
-                progress(f"[agent] Round {num}/{rounds}: requesting {model} from {llm_url.rstrip('/')}/v1/chat/completions "
+                progress(f"[agent] Round {num}/{rounds}: requesting {model} from {llm_api_base(llm_url, llm_provider)}/chat/completions "
                          f"(socket timeout {llm_timeout}s; {len(unresolved)} unresolved codes) ...")
             start = time.monotonic()
             done = threading.Event()
@@ -560,6 +604,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                                         allow_private_network=allow_private_network,
                                         allowed_hosts=llm_allowed_hosts,
                                         api_key_env=llm_api_key_env,
+                                        provider=llm_provider, allow_external_api=llm_allow_external_api,
                                         reasoning_effort=llm_reasoning_effort,
                                         response_format=llm_response_format, **extra)
             finally:

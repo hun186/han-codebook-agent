@@ -1,5 +1,13 @@
 # Project memory
 
+## 2026-11-06 — DeepInfra explicit external API integration (PR pending)
+- Latest main before feature: cfcd995378ddfba3486e4ea6b2b749a28b30bd6c; previous PR #48/#49 merged and postmerge main CI 41621365797 SUCCESS. Historic PRs #1/#7/#8 remain OPEN superseded.
+- User specifically requested optional DeepInfra LLM provider in han-codebook-agent. Official provider supports OpenAI-compatible chat at https://api.deepinfra.com/v1/openai with DEEPINFRA_API_KEY and model full ID. The new provider is opt-in; local/RFC1918 remains unchanged and default; public endpoints remain forbidden except exact official DeepInfra HTTPS when allow_external_api=true. A redirect-denial handler protects Bearer and user case data; key obtained only from process environment.
+- CLI, GUI settings/test, one-shot and adaptive vocabulary, agent's code rounds and per-job frozen LLM settings all propagate provider and consent. The GUI requires independent checkbox and displays external/paid warning, and model test sends no cipher data. All workbench Mock assets are synced using the canonical static page extraction; public Mock API still rejects real model settings and never makes external calls.
+- Safe-disabled config.deepinfra.example.yaml and offline mocked security tests included, no actual API charged or key accessed by the agent. User must explicitly set environment secret and opt-in.
+- The feature PR's Hosted CI, official exact-head Codex Review and merge are PENDING at authoring; no claim of successful real external request or model accuracy.
+
+
 ## 2026-11-03 — Null-control minimal cipher-only snapshots (PR pending)
 - PR #48 MERGED as 18f41cf013fa8cc77961042327a3150d58c866f3 after all eight exact-head Hosted CI checks and formal Codex Completed/No Findings, no outstanding thread. Main postmerge run #41620643127 was still running when the branch was created; verify separately.
 - Current branch perf/structure-null-minimal-shadows-20261103: shuffled-order null controls used to deep-copy the entire original case on every random trial, including large unsegmented private plaintext, free-form metadata and researcher annotations although only digit code order and explicit verified code IDs affect the statistic. Now snapshot only cipher message IDs/codes once and minimal aligned known-pair segment references, then clone code arrays per trial; full case remains read-only and is validated before this stage.

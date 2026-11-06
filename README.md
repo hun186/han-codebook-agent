@@ -105,6 +105,28 @@ $env:PYTHONPATH = "src"
 - 如反向代理需要 Bearer token，在 YAML 設 `api_key_env: HAN_CODEBOOK_LLM_API_KEY`，並在作業系統環境變數設定 token，**不要把 token 寫進設定檔或提交 Git**。
 - `--rounds 0` 完全跳過 LLM；`config.offline.yaml` 提供確定的離線測試模式。
 
+
+### DeepInfra（外部付費模型，明確選用）
+
+在本機 Web GUI 左側「⚙ LLM 端點設定」→ Provider 選 **DeepInfra（外部付費 API）**。程式將鎖定官方 API Base URL \`https://api.deepinfra.com/v1/openai\`，使用模型完整名稱（例如 \`deepseek-ai/DeepSeek-V4-Flash-0731\`），並要求勾選「同意外傳研究資料」。先在啟動 GUI 的作業系統設定環境變數：
+
+\`\`\`powershell
+# Windows PowerShell：只在目前終端程序有效；不要把密鑰提交到 Git
+$env:DEEPINFRA_API_KEY = Read-Host "DeepInfra API key"
+\`\`\`
+
+\`\`\`bash
+# Linux/macOS：在私人 shell 使用環境變數，不要將值存入 repo
+read -r -s -p "DeepInfra API key: " DEEPINFRA_API_KEY
+export DEEPINFRA_API_KEY
+\`\`\`
+
+重啟 GUI／同一終端啟動程式，勾選外傳同意後按「儲存設定」；可先按「測試連線」只查模型清單（不傳研究案例）。單獨測試不等於 JSON 格式或實際推理成功。CLI 使用 \`config.deepinfra.example.yaml\` 作為安全關閉範本：將 \`analysis.rounds\` 改為 1 以上、\`llm.allow_external_api\` 明確改為 \`true\` 後，才可執行 \`python -m han_codebook --config config.deepinfra.example.yaml\`。或在既有設定上使用 \`--provider deepinfra --model 'deepseek-ai/DeepSeek-V4-Flash-0731' --allow-external-api\`；這會將資料送至外部服務。
+
+DeepInfra 的模型清單、價格、JSON 支援與帳單設定應以供應商當時公告為準。使用 API Key 代表付費帳戶可能被計費；**本程式不能取代供應商預付餘額／月額度控制**。API Key 不存入 YAML、Web GUI、Git 或 URL；應定期輪換並於供應商端設定支出限制。請勿將機密或不可傳第三方的真實密電用於 DeepInfra。執行 LLM 回合前仍有另一個明確確認；\`rounds: 0\` 完全離線。自動詞庫模式可能每回合有更多 API 呼叫。
+
+安全限制：選 DeepInfra 時只允許精確的 \`https://api.deepinfra.com/v1/openai\`，使用 HTTPS＋Bearer，**不跟隨 HTTP redirect**；其他公共主機不能藉此解鎖。原有本機／RFC1918 端點依舊保持獨立的限制及白名單。DeepInfra 模型推論仍可能輸出不符 JSON 的候選；所有結果依舊是未驗證的密文假說。Vercel 公開版維持**純瀏覽器 Mock**，不能發送任何真實 DeepInfra 請求。
+
 ### Docker
 
 ```bash

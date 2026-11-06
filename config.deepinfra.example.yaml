@@ -1,0 +1,21 @@
+# Optional DeepInfra configuration TEMPLATE. This file is SAFE/OFF by default.
+# DeepInfra is a paid third-party HTTPS service. Do not commit personal research
+# cases, API keys, tokens, environment dumps, or actual prompts.
+project:
+  case: examples/demo_case.json
+  output: artifacts/deepinfra_run.json
+  audit_db: artifacts/deepinfra_audit.sqlite
+analysis:
+  use_metadata: true
+  rounds: 0  # Offline until you deliberately choose > 0.
+  evaluate_demo: false
+llm:
+  provider: deepinfra
+  base_url: "https://api.deepinfra.com/v1/openai"
+  model: "deepseek-ai/DeepSeek-V4-Flash-0731"
+  timeout_seconds: 180
+  allow_external_api: false  # Set true only after accepting data export/paid usage.
+  allow_private_network: false
+  allowed_hosts: []
+  api_key_env: DEEPINFRA_API_KEY  # Environment variable NAME, not token.
+  response_format: json_object

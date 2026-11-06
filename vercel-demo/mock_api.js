@@ -520,7 +520,8 @@
     return {job_id:id};
   }
   const settings=()=>({base_url:'MOCK (no network)',endpoint:'MOCK (no network)',
-    model:'PUBLIC MOCK LLM',timeout_seconds:90,allow_private_network:false,
+    model:'PUBLIC MOCK LLM',timeout_seconds:90,provider:'local',
+    allow_external_api:false,allow_private_network:false,
     allowed_hosts:[],api_key_env:null,capture_io_available:false,
     note:'Vercel static demo is disconnected from all model endpoints.'});
   function handle(path, data) {

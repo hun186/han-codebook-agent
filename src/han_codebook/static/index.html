@@ -85,16 +85,16 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
 </div>
 </section>
 <section id="overview" class="page active"><div class="columns"><div class="panel"><h2>執行研究</h2><p class="muted">所有密碼組維持原始字串，已知對齊是確定錨點；收發者與第三方觀察只作推測先驗。</p><div class="row"><div><label>LLM 回合數</label><input id="rounds" type="number" min="0" max="20" step="1" value="0"><small class="muted">0＝離線；1～20 為內網 LLM 回合，不保證回合多就更準確</small></div><div><label>元數據分析</label><select id="metadata"><option value="true">啟用收發者／第三方情報</option><option value="false">停用，作消融比較</option></select></div>
-<div><label>獨立留出測試（推理完成後，選用）</label><select id="postrunHoldoutFolds"><option value="0">停用（預設）</option><option value="2">遮蔽 2 組已對齊電文，獨立離線測試</option><option value="5">遮蔽最多 5 組已對齊電文</option></select><small class="muted">額外離線求解；評估的是遮蔽後的統計求解器，不是 LLM 各輪正確率，也不會自動選回合。</small></div><div><label>停滯時提前停止（選用）</label><select id="progressStopPatience"><option value="0">停用：執行全部回合</option><option value="2">連續 2 回合無進展時停止</option><option value="3">連續 3 回合無進展時停止</option></select><small class="muted">需先詢問全部未知碼；沒有新增引用／候選、Top-5 未變，才計停滯。不是正確率判斷。</small></div><div><label>自動詞庫節省呼叫（只影響自動模式）</label><select id="vocabZeroPatience"><option value="2">連續 2 回合無新詞後略過（建議）</option><option value="3">連續 3 回合無新詞後略過</option><option value="0">停用：每回合都生成新詞</option></select><small class="muted">停止的只有詞庫生成；數字碼組推理仍繼續，人工審核模式不自動略過。</small></div><div><label>候選詞庫更新／人工覆核</label><select id="candidateMode"><option value="static">維持既有詞庫（相容模式）</option><option value="automatic">逐回合動態擴充，自動採納未驗證候選</option><option value="human">逐回合動態擴充，人工覆核後續行</option></select></div></div><p class="muted">動態模式每回合先由內網 LLM 依目前密文、跨報目擊與上一輪未驗證假說提出新詞，再更新詞庫、聯合求解與修正碼組候選。關閉人工覆核即可自動連續執行；候選絕不自動標記為已驗證明文。分析期間使用啟動時的案例快照；新增情報請重新啟動分析。</p><p><label><input type="checkbox" id="capture"> 在本機 SQLite 保存**完整** LLM Prompt 與回覆（可能包含敏感情報）</label></p><div class="row"><button id="run" class="primary">執行分析</button><button id="save">另存案例</button></div><p class="alert">預設 0 輪不連 LLM；選擇大於 0 輪並按「執行分析」才會將研究案例送往 config.yaml 指定的內網服務。</p><h3>工作進度</h3><pre id="progress">尚未啟動</pre><div id="diagnosticLink" class="row"></div><p class="muted">成功或失敗的分析均可匯出診斷 ZIP。分享版不含明文／原始 Prompt；私人完整版需確認內容後才能下載，勿公開上傳機密資料。</p><div id="pendingVocabularyReview" class="guide-callout" hidden></div></div><div class="panel"><h2>最新結果總覽</h2><div id="summary" class="muted">先載入案例並執行分析。</div><div id="reportLink"></div><div id="bars"></div></div></div><div class="panel"><h2>每封電文候選解讀</h2><div id="readings" class="wrap muted">尚無結果</div></div></section>
+<div><label>獨立留出測試（推理完成後，選用）</label><select id="postrunHoldoutFolds"><option value="0">停用（預設）</option><option value="2">遮蔽 2 組已對齊電文，獨立離線測試</option><option value="5">遮蔽最多 5 組已對齊電文</option></select><small class="muted">額外離線求解；評估的是遮蔽後的統計求解器，不是 LLM 各輪正確率，也不會自動選回合。</small></div><div><label>停滯時提前停止（選用）</label><select id="progressStopPatience"><option value="0">停用：執行全部回合</option><option value="2">連續 2 回合無進展時停止</option><option value="3">連續 3 回合無進展時停止</option></select><small class="muted">需先詢問全部未知碼；沒有新增引用／候選、Top-5 未變，才計停滯。不是正確率判斷。</small></div><div><label>自動詞庫節省呼叫（只影響自動模式）</label><select id="vocabZeroPatience"><option value="2">連續 2 回合無新詞後略過（建議）</option><option value="3">連續 3 回合無新詞後略過</option><option value="0">停用：每回合都生成新詞</option></select><small class="muted">停止的只有詞庫生成；數字碼組推理仍繼續，人工審核模式不自動略過。</small></div><div><label>候選詞庫更新／人工覆核</label><select id="candidateMode"><option value="static">維持既有詞庫（相容模式）</option><option value="automatic">逐回合動態擴充，自動採納未驗證候選</option><option value="human">逐回合動態擴充，人工覆核後續行</option></select></div></div><p class="muted">動態模式每回合先由內網 LLM 依目前密文、跨報目擊與上一輪未驗證假說提出新詞，再更新詞庫、聯合求解與修正碼組候選。關閉人工覆核即可自動連續執行；候選絕不自動標記為已驗證明文。分析期間使用啟動時的案例快照；新增情報請重新啟動分析。</p><p><label><input type="checkbox" id="capture"> 在本機 SQLite 保存**完整** LLM Prompt 與回覆（可能包含敏感情報）</label></p><div class="row"><button id="run" class="primary">執行分析</button><button id="save">另存案例</button></div><p class="alert">預設 0 輪完全離線；大於 0 輪且再次確認後，才會傳送研究案例給已儲存的本機／內網 LLM 或明確授權的外部 DeepInfra。</p><h3>工作進度</h3><pre id="progress">尚未啟動</pre><div id="diagnosticLink" class="row"></div><p class="muted">成功或失敗的分析均可匯出診斷 ZIP。分享版不含明文／原始 Prompt；私人完整版需確認內容後才能下載，勿公開上傳機密資料。</p><div id="pendingVocabularyReview" class="guide-callout" hidden></div></div><div class="panel"><h2>最新結果總覽</h2><div id="summary" class="muted">先載入案例並執行分析。</div><div id="reportLink"></div><div id="bars"></div></div></div><div class="panel"><h2>每封電文候選解讀</h2><div id="readings" class="wrap muted">尚無結果</div></div></section>
 <section id="modelSettings" class="page"><div class="panel"><h2>本機 LLM 端點設定</h2>
-<p class="guide-callout settings-help">參考 AI 模擬病人的 Provider/Model 設定概念，這裡只支援 Ollama／vLLM／內網 OpenAI-compatible Chat Completions。基於密電保密性，<strong>不開放公網端點</strong>。修改只會寫入本機 config.yaml；API Key 本體不會儲存於此介面。</p>
-<div class="gridfield"><div><label>Provider 類型（操作提示）</label><select id="llmPreset"><option value="ollama">Ollama Local / LAN</option><option value="compatible">內網 OpenAI-compatible</option></select></div>
+<p class="guide-callout settings-help">參考 AI 模擬病人的 Provider/Model 設定概念，支援本機／內網 LLM 與明確授權的 DeepInfra 官方 HTTPS。<strong>DeepInfra 是外部付費 API：執行時會將密文、背景情報與候選傳至第三方。</strong>預設禁止外傳；金鑰只從環境變數讀取，不儲存於 config.yaml。</p>
+<div class="gridfield"><div><label>Provider 類型（操作提示）</label><select id="llmPreset"><option value="ollama">Ollama Local / LAN</option><option value="compatible">內網 OpenAI-compatible</option><option value="deepinfra">DeepInfra（外部付費 API）</option></select></div>
 <div><label>模型名稱</label><input type="text" id="llmModel" maxlength="128" placeholder="qwen3:14b"></div>
 <div><label>API Base URL</label><input type="text" id="llmUrl" placeholder="http://127.0.0.1:11434"></div>
 <div><label>等待秒數（1～600）</label><input type="number" id="llmTimeout" min="1" max="600" step="1" value="90"></div>
 <div><label>API Key 環境變數名稱（選填，勿貼金鑰）</label><input type="text" id="llmKeyEnv" autocomplete="off" placeholder="HAN_CODEBOOK_LLM_API_KEY"></div>
-</div><label><input id="llmAllowLAN" type="checkbox"> 明確允許連向指定 RFC1918 內網 IP（只允許此一目的 IP）</label>
-<p class="muted">127.0.0.1／localhost 不需要啟用內網許可；若使用 192.168.x.x、10.x.x.x 或 172.16～31.x.x，必須勾選許可。DNS 和公網 IP 均被拒絕。服務測試只檢查 TCP 與模型清單，不會傳送研究案例。</p>
+</div><label id="llmAllowLANWrap"><input id="llmAllowLAN" type="checkbox"> 明確允許連向指定 RFC1918 內網 IP（只允許此一目的 IP）</label><label id="llmAllowExternalWrap" hidden><input id="llmAllowExternal" type="checkbox"> <strong>我同意將研究資料傳給 DeepInfra 的外部付費 API</strong>（可能產生費用，請在 DeepInfra 設定額度上限）</label>
+<p class="muted">本機／內網仍限制 localhost 或明確授權的 RFC1918 IP，其他 DNS／公網不可使用。DeepInfra 僅允許 https://api.deepinfra.com/v1/openai；請設定 DEEPINFRA_API_KEY 並勾選外傳同意。測試只查 TCP 與模型清單（會使用 API Key 認證，但不傳案例）。</p>
 <div class="row"><button class="primary" id="saveLLM">儲存本機 LLM 設定</button><button id="testLLM">測試連線（不傳送密電）</button></div><pre id="llmSettingStatus" class="muted">尚未檢查</pre>
 </div></section>
 <section id="vocab" class="page"><div class="panel"><h2>詞彙與語言先驗</h2><p class="muted">編輯會直接影響解碼候選與頻率分布；權重不是已驗證答案，範例句為 token 清單，一句一行，以空格區隔。</p>
@@ -179,27 +179,44 @@ async function listCases(){
  el('caseList').innerHTML=cases.map(c=>`<option value="${esc(c.id)}">${esc(c.id)}</option>`).join('');
  await loadLLMSettings();
 }
+let savedLLMProvider='local';
+function updateLLMProviderUI(){
+ const deep=el('llmPreset').value==='deepinfra';
+ el('llmAllowLANWrap').hidden=deep; el('llmAllowLAN').disabled=deep;
+ el('llmAllowExternalWrap').hidden=!deep; el('llmAllowExternal').disabled=!deep;
+ el('llmUrl').readOnly=deep;
+}
 async function loadLLMSettings(){
  const cfg=await api('/api/settings');
- el('llmModel').value=cfg.model||'';
- el('llmUrl').value=cfg.base_url||'';
+ savedLLMProvider=cfg.provider==='deepinfra'?'deepinfra':'local';
+ el('llmPreset').value=savedLLMProvider==='deepinfra'?'deepinfra':
+    ((cfg.base_url||'').includes('11434')?'ollama':'compatible');
+ el('llmModel').value=cfg.model||''; el('llmUrl').value=cfg.base_url||'';
  el('llmTimeout').value=cfg.timeout_seconds||90;
  el('llmAllowLAN').checked=cfg.allow_private_network===true;
+ el('llmAllowExternal').checked=cfg.allow_external_api===true;
  el('llmKeyEnv').value=cfg.api_key_env||'';
- el('modelInfo').textContent=`${cfg.model} · ${cfg.endpoint}`;
+ el('modelInfo').textContent=(savedLLMProvider==='deepinfra'?'DeepInfra':'本機／區網')+' · '+cfg.model+' · '+cfg.endpoint;
+ updateLLMProviderUI();
 }
 async function saveLLMSettings(){
  const timeout=Number(el('llmTimeout').value);
  if(!Number.isInteger(timeout)||timeout<1||timeout>600)throw Error('請輸入 1～600 的整數等待秒數');
- if(!confirm('修改本機 LLM 端點設定？既有正在執行的工作不會改用新設定。'))return;
- const cfg=await api('/api/settings/llm',{base_url:el('llmUrl').value.trim(),
-   model:el('llmModel').value.trim(),timeout_seconds:timeout,
-   allow_private_network:el('llmAllowLAN').checked,api_key_env:el('llmKeyEnv').value.trim()});
+ const deep=el('llmPreset').value==='deepinfra';
+ if(deep&&!el('llmAllowExternal').checked)throw Error('DeepInfra 必須先勾選外傳資料授權');
+ if(!confirm(deep?'DeepInfra 是外部付費 API，研究資料會傳給第三方。確定儲存並授權外傳？':
+                  '修改本機／區網 LLM 設定？執行中的工作仍使用舊設定。'))return;
+ const cfg=await api('/api/settings/llm',{provider:deep?'deepinfra':'local',
+    allow_external_api:deep&&el('llmAllowExternal').checked,
+    base_url:el('llmUrl').value.trim(),model:el('llmModel').value.trim(),
+    timeout_seconds:timeout,allow_private_network:!deep&&el('llmAllowLAN').checked,
+    api_key_env:el('llmKeyEnv').value.trim()});
  el('llmSettingStatus').textContent='設定已儲存：'+cfg.model+' · '+cfg.base_url;
  await loadLLMSettings();
 }
 async function testLLMSettings(){
- if(!confirm('將測試目前儲存的本機端點，僅傳送 TCP 與模型清單查詢，不傳研究案例。確定？'))return;
+ const host=savedLLMProvider==='deepinfra'?'DeepInfra 外部 HTTPS':'本機／區網';
+ if(!confirm('測試已儲存的 '+host+' TCP／模型清單（使用環境變數金鑰，不傳研究案例）？'))return;
  el('llmSettingStatus').textContent='正在測試已儲存的模型端點...';
  const result=await api('/api/settings/test',{confirmed:true});
  el('llmSettingStatus').textContent=(result.connected?'基本連線檢查成功':'基本連線檢查未成功')+'\n'+(result.diagnostics||[]).join('\n')+'\n'+result.note;
@@ -667,7 +684,7 @@ function renderVocabularyIdeas(){
 async function askVocabulary(){
  if(!research)return;
  const origin=captureOrigin();
- if(!confirm('只將目前密電與可觀察情報傳給 config.yaml 指定的內網 LLM 產生詞庫候選。不是已知明文。確定呼叫？'))return;
+ if(!confirm('這會將密文與觀察情報傳給已儲存的 '+(savedLLMProvider==='deepinfra'?'DeepInfra 外部付費 API':'本機／區網 LLM')+' 產生未驗證詞庫候選。確定？'))return;
  // Every submission gets its own request generation, independent of case
  // fingerprint. A late GET from an already completed job must not win.
  const serial=++vocabRequestSerial;
@@ -861,7 +878,7 @@ async function start(){
  if(![0,2,5].includes(postrunHoldoutFolds)){notice('留出測試選項無效',true);return}
  if(![0,2,3].includes(progressStopPatience)){notice('停滯提前停止選項無效',true);return}
  if(candidateMode!=='static'&&rounds===0){notice('逐回合動態候選至少需要 1 個 LLM 回合',true);return}
- if(rounds>0&&!confirm(`將電文與情報傳送到 config.yaml 指定的內網 LLM，共 ${rounds} 回合；候選模式：${candidateMode==='human'?'每輪人工確認':candidateMode==='automatic'?'自動擴充詞庫':'既有詞庫'}。確定執行？`))return;
+ if(rounds>0&&!confirm(`將密文與情報傳送到已儲存的 ${savedLLMProvider==='deepinfra'?'DeepInfra 外部付費 API':'本機／內網 LLM'}，共 ${rounds} 回合，動態詞庫可能增加呼叫。確定？`))return;
  const serial=++analysisRequestSerial;
  const current=()=>serial===analysisRequestSerial&&matchesOrigin(origin);
  lastJob=null;
@@ -964,10 +981,21 @@ el('importLLMIdeas').onclick=importPreviousLLMIdeas;el('checkEvents').onclick=pr
 el('askVocabulary').onclick=askVocabulary;
 el('llmPreset').onchange=()=>{
  const preset=el('llmPreset').value;
- if(preset==='ollama'&&!el('llmUrl').value.trim())el('llmUrl').value='http://127.0.0.1:11434';
- el('llmSettingStatus').textContent=preset==='ollama'?
-   'Ollama 適用本機／內網 OpenAI-compatible /v1/chat/completions；請確認實際埠號與模型名稱。':
-   '自訂內網相容端點：僅接受 loopback 或明確允許的私人 IPv4。';
+ if(preset==='deepinfra'){
+   el('llmUrl').value='https://api.deepinfra.com/v1/openai';
+   if(!el('llmModel').value.trim()||!el('llmModel').value.includes('/'))
+     el('llmModel').value='deepseek-ai/DeepSeek-V4-Flash-0731';
+   el('llmKeyEnv').value='DEEPINFRA_API_KEY';
+   el('llmAllowLAN').checked=false; el('llmAllowExternal').checked=false;
+   el('llmSettingStatus').textContent='DeepInfra 外部付費 API：請設定 DEEPINFRA_API_KEY、勾選外傳同意，再儲存。';
+ }else{
+   if(el('llmUrl').value.startsWith('https://api.deepinfra.com/'))
+      el('llmUrl').value=preset==='ollama'?'http://127.0.0.1:11434':'';
+   if(el('llmKeyEnv').value==='DEEPINFRA_API_KEY')el('llmKeyEnv').value='';
+   el('llmSettingStatus').textContent=preset==='ollama'?'Ollama 本機／內網模型。':
+     '自訂內網 OpenAI-compatible 模型：需授權私人 IP。';
+ }
+ updateLLMProviderUI();
 };
 el('saveLLM').onclick=()=>saveLLMSettings().catch(e=>notice(e.message,true));el('testLLM').onclick=()=>testLLMSettings().catch(e=>notice(e.message,true));
 el('loadCase').onclick=()=>loadCase().catch(e=>notice(e.message,true));el('profilePick').onchange=loadProfile;el('messagePick').onchange=loadEvidence;el('wordSearch').oninput=renderVocab;el('addWord').onclick=()=>{let w=el('newWord').value.trim(),n=Number(el('newWeight').value);if(w&&Number.isFinite(n)&&n>=0){profile().lexicon[w]=n;el('newWord').value='';renderVocab()}};el('saveProfile').onclick=saveProfile;el('applyEvidence').onclick=applyEvidence;el('addObservation').onclick=addObservation;el('applyKnown').onclick=applyKnown;el('knownAdd').onclick=()=>openKnownRowEditor(null);el('knownRowSave').onclick=saveKnownRow;el('knownRowCancel').onclick=closeKnownRowEditor;el('knownRowMessage').onchange=renderKnownWordFields;el('previewAlignment').onclick=previewAlignmentCandidates;el('confirmAlignment').onclick=confirmAlignmentCandidate;el('run').onclick=start;el('save').onclick=save;el('runBenchmark').onclick=startBenchmark;el('loadBenchmark').onclick=()=>api('/api/benchmark').then(renderBenchmark).catch(e=>notice(e.message,true));listCases().then(loadCase).catch(e=>notice(e.message,true));

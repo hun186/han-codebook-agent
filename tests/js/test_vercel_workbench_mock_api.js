@@ -58,11 +58,11 @@ const { TextEncoder } = require('node:util');
     confirmed_llm_config:cfg.confirmation_token,confirmed_external_api:false
   });
   assert.equal((await get('/api/jobs/'+approved.job_id)).status,'completed');
-  const stale=await sandbox.fetch('/api/start',{method:'POST',
+  const staleReceiptResponse=await sandbox.fetch('/api/start',{method:'POST',
     body:JSON.stringify({case:caseData,rounds:1,
       confirmed_llm_config:'wrong-old-model-version',confirmed_external_api:false})});
-  assert.equal(stale.status,400);
-  assert.match((await stale.json()).error,/settings changed/);
+  assert.equal(staleReceiptResponse.status,400);
+  assert.match((await staleReceiptResponse.json()).error,/settings changed/);
   const denied=await sandbox.fetch('/api/start',{method:'POST',
     body:JSON.stringify({case:caseData,rounds:1,
       confirmed_llm_config:cfg.confirmation_token,confirmed_external_api:true})});

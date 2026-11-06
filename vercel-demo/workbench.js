@@ -544,7 +544,7 @@ function renderVocabularyIdeas(){
 async function askVocabulary(){
  if(!research)return;
  const origin=captureOrigin();
- if(!confirm('這會將密文與觀察情報傳給已儲存的 '+(savedLLMProvider==='deepinfra'?'DeepInfra 外部付費 API':'本機／區網 LLM')+' 產生未驗證詞庫候選。確定？'))return;
+ if(!confirm('這會將密文與觀察情報傳給已儲存的 '+((typeof savedLLMProvider!=='undefined'&&savedLLMProvider==='deepinfra')?'DeepInfra 外部付費 API':'本機／區網 LLM')+' 產生未驗證詞庫候選。確定？'))return;
  // Every submission gets its own request generation, independent of case
  // fingerprint. A late GET from an already completed job must not win.
  const serial=++vocabRequestSerial;
@@ -738,7 +738,7 @@ async function start(){
  if(![0,2,5].includes(postrunHoldoutFolds)){notice('留出測試選項無效',true);return}
  if(![0,2,3].includes(progressStopPatience)){notice('停滯提前停止選項無效',true);return}
  if(candidateMode!=='static'&&rounds===0){notice('逐回合動態候選至少需要 1 個 LLM 回合',true);return}
- if(rounds>0&&!confirm(`將密文與情報傳送到已儲存的 ${savedLLMProvider==='deepinfra'?'DeepInfra 外部付費 API':'本機／內網 LLM'}，共 ${rounds} 回合，動態詞庫可能增加呼叫。確定？`))return;
+ if(rounds>0&&!confirm(`將密文與情報傳送到已儲存的 ${(typeof savedLLMProvider!=='undefined'&&savedLLMProvider==='deepinfra')?'DeepInfra 外部付費 API':'本機／內網 LLM'}，共 ${rounds} 回合，動態詞庫可能增加呼叫。確定？`))return;
  const serial=++analysisRequestSerial;
  const current=()=>serial===analysisRequestSerial&&matchesOrigin(origin);
  lastJob=null;

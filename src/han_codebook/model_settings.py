@@ -20,6 +20,8 @@ def model_settings(path: Path) -> dict:
     llm = load_settings(path)["llm"]
     return {
         "base_url": llm.get("base_url", "http://127.0.0.1:11434"),
+        "provider": llm.get("provider", "local"),
+        "allow_external_api": llm.get("allow_external_api", False),
         "model": llm.get("model", "qwen3:14b"),
         "timeout_seconds": llm.get("timeout_seconds", 90),
         "allow_private_network": llm.get("allow_private_network", False),
@@ -32,11 +34,21 @@ def model_settings(path: Path) -> dict:
 
 def save_model_settings(path: Path, raw: dict) -> dict:
     """Persist only allowlisted settings, with explicit LAN opt-in."""
-    if not isinstance(raw, dict) or set(raw) - {"base_url", "model", "timeout_seconds", "allow_private_network", "api_key_env"}:
+    if not isinstance(raw, dict) or set(raw) - {"base_url", "model", "timeout_seconds", "allow_private_network", "provider", "allow_external_api", "api_key_env"}:
         raise CaseError("Unsupported LLM configuration fields")
     url, model, timeout = raw.get("base_url"), raw.get("model"), raw.get("timeout_seconds")
     lan = raw.get("allow_private_network", False)
+    provider = raw.get("provider", "local")
+    external = raw.get("allow_external_api", False)
     env_name = raw.get("api_key_env", "")
+    if type(provider) is not str or provider not in ("local", "deepinfra"):
+        raise CaseError("Provider must be local or deepinfra")
+    if type(external) is not bool or (provider == "local" and external):
+        raise CaseError("External API consent only applies to DeepInfra")
+    if provider == "deepinfra":
+        if not external or lan:
+            raise CaseError("DeepInfra needs external API consent, not LAN permission")
+        env_name = env_name or "DEEPINFRA_API_KEY"
     if not isinstance(url, str) or len(url) > 250 or not isinstance(model, str) or not 1 <= len(model.strip()) <= 128:
         raise CaseError("Model name and local endpoint are required")
     if type(timeout) is not int or not 1 <= timeout <= 600 or type(lan) is not bool:
@@ -46,17 +58,21 @@ def save_model_settings(path: Path, raw: dict) -> dict:
     host = urlsplit(url).hostname or ""
     # The only allowed remote host is the exact private IP entered by the operator.
     allowlist = [host] if lan and host not in ("localhost", "127.0.0.1", "::1") else []
-    validate_llm_endpoint(url, allow_private_network=lan, allowed_hosts=allowlist)
+    validate_llm_endpoint(url, allow_private_network=lan, allowed_hosts=allowlist,
+                          provider=provider, allow_external_api=external)
     import yaml
     existing = load_settings(path)
     existing["llm"].update({
         "base_url": url.rstrip("/"), "model": model.strip(), "timeout_seconds": timeout,
+        "provider": provider, "allow_external_api": external,
         "allow_private_network": lan, "allowed_hosts": allowlist,
     })
     if env_name:
         existing["llm"]["api_key_env"] = env_name
     else:
         existing["llm"].pop("api_key_env", None)
+    if provider == "deepinfra":
+        existing["llm"].pop("reasoning_effort", None)
     # Avoid saving a literal secret or publishing it to the UI.
     existing["llm"].pop("api_key", None)
     path = path.resolve()

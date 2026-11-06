@@ -62,7 +62,9 @@ def generate_vocabulary(case: dict, *, metadata: bool, llm_settings: dict,
     """
     url, model = llm_settings['base_url'], llm_settings['model']
     validate_llm_endpoint(url,allow_private_network=llm_settings.get('allow_private_network',False),
-                          allowed_hosts=llm_settings.get('allowed_hosts', []))
+                          allowed_hosts=llm_settings.get('allowed_hosts', []),
+                          provider=llm_settings.get('provider', 'local'),
+                          allow_external_api=llm_settings.get('allow_external_api', False))
     packet = make_vocabulary_packet(case, metadata=metadata)
     record: dict[str, Any] = {'task':'generate_vocabulary','model':model,
                               'metadata_enabled':metadata,'messages':len(case['messages'])}
@@ -80,6 +82,8 @@ def generate_vocabulary(case: dict, *, metadata: bool, llm_settings: dict,
                       allow_private_network=llm_settings.get('allow_private_network',False),
                       allowed_hosts=llm_settings.get('allowed_hosts', []),
                       api_key_env=llm_settings.get('api_key_env'),on_exchange=capture,
+                      provider=llm_settings.get('provider', 'local'),
+                      allow_external_api=llm_settings.get('allow_external_api', False),
                       reasoning_effort=llm_settings.get('reasoning_effort'),
                       response_format=llm_settings.get('response_format'))
         entries = reply.get('vocabulary')

@@ -1,5 +1,13 @@
 # Project memory
 
+## 2026-11-06 — DeepInfra configurable output budget + JSON completeness (PR pending)
+- User approved change of DeepInfra hard-coded 4096 output tokens to UI-controlled 1024..16384, default 8192, CLI optional override. DeepInfra-only request cap; local Ollama requests unchanged.
+- Query recognizes finish_reason=length and NEVER accepts partial JSON, even if syntactically parseable. If budget < 16384, retry at most once with doubled budget capped at 16384; at hard cap fail with clear error. No retries on non-length JSON failures, network/HTTP errors or empty reasoning-only response; explicitly account for extra token/cost usage.
+- Provider metrics callback emits non-content telemetry: JSON schema completeness per physical request, finish reason, retry count, provider-reported prompt/completion/total tokens and estimated cost if available. Logs safe metric events even when full Prompt capture is OFF. Main run report and Word/Markdown/GUI now show structural completeness, not true decipherment accuracy; missing usage is labeled as missing, not free.
+- CLI, GUI, YAML, run_agent, adaptive/independent vocab, volume experiments, benchmark forward max_output_tokens. Config confirmation digest includes token cap so a stale tab cannot confirm old spending budget. Vercel public Mock remains offline synthetic, synced to canonical GUI with no paid API.
+- Test suite includes simulated truncated responses, exact max cap, invalid JSON nonretry, settings constraints, nonmutation and metadata privacy. No user's paid key or real DeepInfra request used. At authoring, Hosted CI/formal latest-head Codex Review/merge PENDING. Never state merged until gates verified.
+
+
 ## 2026-11-06 — Third Codex P2: public Mock needs a stable settings receipt
 - Real GUI verifies current saved LLM settings before every model action. Public Vercel Mock adapter must return a stable nonsecret receipt, or the simulated research actions cannot pass their UI confirmation.
 - Mock receipt PUBLIC_MOCK_SETTINGS_V1_NO_NETWORK now accepted with consistent server-side mock checks, any supplied stale receipt or true external API consent rejected; no paid request, no private case transmitted. Node test covers successful Mock, stale, external refusal.

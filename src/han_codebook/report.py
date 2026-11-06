@@ -55,6 +55,23 @@ def investigation_report(result: dict[str, Any], events: list[dict[str, Any]]) -
     for e in llm_responses:
         p=e['payload']
         lines.append(f"- Round {e['round']}：耗時 {p.get('elapsed_ms','?')} ms；Token usage `{p.get('usage')}`。原始內容可在本機 SQLite 稽核紀錄檢視。")
+    metrics = result.get("llm_api_metrics")
+    if isinstance(metrics, dict):
+        total = metrics.get("attempts", 0)
+        rate = metrics.get("json_completeness_rate")
+        rate_label = f"{rate * 100:.1f}%" if rate is not None else "未量測"
+        lines += ['', '## LLM API JSON 完整性與 Token 用量（非破解正確率）', '',
+                  f"- API 請求：{total} 次；JSON 有效 {metrics.get('json_complete_attempts',0)} 次；"
+                  f"完整率 {rate_label}。",
+                  f"- 輸出截斷：{metrics.get('finish_reason_length_count',0)} 次；"
+                  f"增額重試：{metrics.get('retries',0)} 次（重試亦計費）。",
+                  f"- 供應商回報 Token：輸入 {metrics.get('prompt_tokens_reported',0)}、"
+                  f"輸出 {metrics.get('completion_tokens_reported',0)}、"
+                  f"合計 {metrics.get('total_tokens_reported',0)}；"
+                  f"有回報用量 {metrics.get('usage_reported_attempts',0)}/{total} 次。",
+                  "未回報用量不代表零成本。JSON 結構有效不代表候選正確。", '']
+        if metrics.get("estimated_cost_reported") is not None:
+            lines.append(f"- 供應商回報成本估值（若有）：{metrics['estimated_cost_reported']}。")
     lines += ['', '## 電文候選明文', '', '| 電文 | 領域推測 | 候選明文 | 已確定碼組 |', '|---|---|---|---|']
     for m in result['decoded_messages']:
         lines.append(f"| `{m['id']}` | {m['domain_inferred'] or '未知'} | {m['reading']} | {m['verified_codes']}/{m['total_codes']} |")

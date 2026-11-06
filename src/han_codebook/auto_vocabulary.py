@@ -9,7 +9,7 @@ from collections import Counter
 import time
 from typing import Any, Callable
 
-from .agent import query_local_llm, validate_llm_endpoint
+from .agent import query_local_llm, validate_llm_endpoint, summarize_llm_api_metrics
 from .core import CaseError, validate_case
 from .llm_evidence import safe_message_metadata
 
@@ -75,6 +75,7 @@ def generate_vocabulary(case: dict, *, metadata: bool, llm_settings: dict,
     else:
         capture = None
     started = time.monotonic()
+    measured_attempts: list[dict] = []
     progress(f'[vocab] LLM generating candidate terms from {len(case["messages"])} ciphertexts '
              f'and {len(packet["side_information_samples"])} contextual records ...')
     try:
@@ -85,7 +86,9 @@ def generate_vocabulary(case: dict, *, metadata: bool, llm_settings: dict,
                       provider=llm_settings.get('provider', 'local'),
                       allow_external_api=llm_settings.get('allow_external_api', False),
                       reasoning_effort=llm_settings.get('reasoning_effort'),
-                      response_format=llm_settings.get('response_format'))
+                      response_format=llm_settings.get('response_format'),
+                      max_output_tokens=llm_settings.get('max_output_tokens'),
+                      on_metrics=measured_attempts.append)
         entries = reply.get('vocabulary')
         if not isinstance(entries,list):
             raise CaseError('LLM vocabulary reply must contain vocabulary array')
@@ -125,6 +128,7 @@ def generate_vocabulary(case: dict, *, metadata: bool, llm_settings: dict,
         generated = case_from_vocabulary_record(case, {'terms':[{'term':w} for w in terms],
                                                        'patterns':patterns})
         record.update({'status':'completed','elapsed_seconds':round(time.monotonic()-started,3),
+                       'llm_api_metrics':summarize_llm_api_metrics(measured_attempts),
                        'terms':[{'term':w,'reason':reasons[w]} for w in terms],
                        'patterns':patterns, 'candidate_count':len(terms),
                         'vocabulary_diagnostics': {'raw_items':len(entries), 'unique_accepted':len(terms),
@@ -136,6 +140,7 @@ def generate_vocabulary(case: dict, *, metadata: bool, llm_settings: dict,
         return generated, record
     except Exception as exc:
         record.update({'status':'failed','elapsed_seconds':round(time.monotonic()-started,3),
+                       'llm_api_metrics':summarize_llm_api_metrics(measured_attempts),
                        'error_type':type(exc).__name__,'error_summary':str(exc)[:300]})
         # Avoid silent fallback to gold-bearing seeded lexicons.
         setattr(exc,'vocabulary_record',record)

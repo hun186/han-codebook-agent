@@ -45,6 +45,7 @@ function updateLLMProviderUI(){
  el('llmAllowLANWrap').hidden=deep; el('llmAllowLAN').disabled=deep;
  el('llmAllowExternalWrap').hidden=!deep; el('llmAllowExternal').disabled=!deep;
  el('llmUrl').readOnly=deep;
+ el('llmOutputTokenWrap').hidden=!deep; el('llmMaxOutputTokens').disabled=!deep;
 }
 async function loadLLMSettings(){
  const cfg=await api('/api/settings');
@@ -53,6 +54,7 @@ async function loadLLMSettings(){
     ((cfg.base_url||'').includes('11434')?'ollama':'compatible');
  el('llmModel').value=cfg.model||''; el('llmUrl').value=cfg.base_url||'';
  el('llmTimeout').value=cfg.timeout_seconds||90;
+ el('llmMaxOutputTokens').value=cfg.max_output_tokens??8192;
  el('llmAllowLAN').checked=cfg.allow_private_network===true;
  el('llmAllowExternal').checked=cfg.allow_external_api===true;
  el('llmKeyEnv').value=cfg.api_key_env||'';
@@ -63,14 +65,19 @@ async function saveLLMSettings(){
  const timeout=Number(el('llmTimeout').value);
  if(!Number.isInteger(timeout)||timeout<1||timeout>600)throw Error('請輸入 1～600 的整數等待秒數');
  const deep=el('llmPreset').value==='deepinfra';
+ const budget=Number(el('llmMaxOutputTokens').value);
+ if(deep&&(!Number.isInteger(budget)||budget<1024||budget>16384))
+   throw Error('DeepInfra 最大輸出 tokens 必須是 1,024～16,384 的整數');
  if(deep&&!el('llmAllowExternal').checked)throw Error('DeepInfra 必須先勾選外傳資料授權');
  if(!confirm(deep?'DeepInfra 是外部付費 API，研究資料會傳給第三方。確定儲存並授權外傳？':
                   '修改本機／區網 LLM 設定？執行中的工作仍使用舊設定。'))return;
- const cfg=await api('/api/settings/llm',{provider:deep?'deepinfra':'local',
+ const setting={provider:deep?'deepinfra':'local',
     allow_external_api:deep&&el('llmAllowExternal').checked,
     base_url:el('llmUrl').value.trim(),model:el('llmModel').value.trim(),
     timeout_seconds:timeout,allow_private_network:!deep&&el('llmAllowLAN').checked,
-    api_key_env:el('llmKeyEnv').value.trim()});
+    api_key_env:el('llmKeyEnv').value.trim()};
+ if(deep)setting.max_output_tokens=budget;
+ const cfg=await api('/api/settings/llm',setting);
  el('llmSettingStatus').textContent='設定已儲存：'+cfg.model+' · '+cfg.base_url;
  await loadLLMSettings();
 }
@@ -661,6 +668,18 @@ function renderJob(j){const origin=arguments.length>1?arguments[1]:null;if(origi
  if(origin&&!matchesOrigin(origin))return;
  lastLLMEntries=(j.events||[]).filter(x=>x.stage==='llm_proposals_unverified').flatMap(x=>x.payload.accepted||[]);
  lastLLMOrigin=origin;let result=j.result,proposals=Object.entries(result.proposals),anchored=proposals.filter(([,p])=>p.status==='verified_alignment').length;el('summary').innerHTML=`<div class="kpi"><div><small>分析電文</small><strong>${result.decoded_messages.length}</strong></div><div><small>已驗證碼組</small><strong>${anchored}</strong></div><div><small>待驗證碼組</small><strong>${proposals.length-anchored}</strong></div><div><small>完成 LLM 回合</small><strong>${result.agent_rounds_completed}</strong></div></div><p class="alert">候選排名與分數不等於破解成功率。必須使用獨立金標資料評估。</p>`;
+const apiQuality=result.llm_api_metrics;
+if(apiQuality && apiQuality.attempts>0){
+ const r=apiQuality.json_completeness_rate;
+ el('summary').innerHTML+='<div class="message"><strong>API JSON 完整率：'+
+   (r===null?'未量測':esc((r*100).toFixed(1))+'%')+
+   '</strong> · 完整 '+esc(apiQuality.json_complete_attempts)+'／'+esc(apiQuality.attempts)+
+   ' 次 · 截斷 '+esc(apiQuality.finish_reason_length_count)+
+   ' 次 · 增額重試 '+esc(apiQuality.retries)+' 次 · 回報 Token '+
+   esc(apiQuality.total_tokens_reported)+'（'+esc(apiQuality.usage_reported_attempts)+
+   '／'+esc(apiQuality.attempts)+' 次有回報）<br><small>JSON 結構完整不是破譯準確率；重試可能增加 API 費用。</small></div>';
+}
+
 let domCounts={};for(let m of result.decoded_messages)domCounts[m.domain_inferred||'未知']=(domCounts[m.domain_inferred||'未知']||0)+1;el('reportLink').innerHTML=`<a href="/api/jobs/${esc(j.id)}/report.docx" download style="color:#4bd0bc">下載研究分析報告（Word）</a>　｜　<a href="/api/jobs/${esc(j.id)}/report.md" download style="color:#4bd0bc">下載 Markdown</a>`;el('bars').innerHTML=chartBar('錨點占比',anchored/proposals.length,1)+chartBar('待驗證占比',(proposals.length-anchored)/proposals.length,1)+'<h3>電文領域分布</h3>'+Object.entries(domCounts).map(([k,n])=>chartBar(k,n,result.decoded_messages.length)).join('');
 el('readings').innerHTML='<table><thead><tr><th>電文</th><th>每個碼組的目前候選（點選可標註）</th><th>確定碼組</th></tr></thead><tbody>'+result.decoded_messages.map(x=>`<tr><td>${esc(x.id)}<br><small>${esc(x.domain_inferred||'未知')}</small></td><td>${x.codes.map((c,i)=>`<button class="hypo-read ${research?.bold_hypotheses?.[c]?'bold-code':result.proposals[c]?.status==='verified_alignment'?'verified-code':''}" data-readcode="${esc(c)}" title="${research?.bold_hypotheses?.[c]?'紫紅：大膽指定未驗證假說，原始明文仍保留':result.proposals[c]?.status==='verified_alignment'?'綠色：已有可信逐碼明文，點選可記錄反對假說':'藍色：未驗證候選'}">${esc(research?.bold_hypotheses?.[c]?.term||x.suggested_segments[i])}${research?.bold_hypotheses?.[c]?'<small>⚡大膽假說</small>':''}<small>${esc(c)}</small></button>`).join('')}</td><td>${x.verified_codes}/${x.total_codes}</td></tr>`).join('')+'</tbody></table>';
 el('readings').querySelectorAll('[data-readcode]').forEach(b=>b.onclick=()=>{openMark(b.dataset.readcode);if(!el('markWord').value)el('markWord').value=result.proposals[b.dataset.readcode]?.term||''});renderPriorComparison(result);priorResult=JSON.parse(JSON.stringify(result));
@@ -871,6 +890,7 @@ el('llmPreset').onchange=()=>{
    if(!el('llmModel').value.trim()||!el('llmModel').value.includes('/'))
      el('llmModel').value='deepseek-ai/DeepSeek-V4-Flash-0731';
    el('llmKeyEnv').value='DEEPINFRA_API_KEY';
+   el('llmMaxOutputTokens').value=8192;
    el('llmAllowLAN').checked=false; el('llmAllowExternal').checked=false;
    el('llmSettingStatus').textContent='DeepInfra 外部付費 API：請設定 DEEPINFRA_API_KEY、勾選外傳同意，再儲存。';
  }else{

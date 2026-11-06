@@ -125,7 +125,7 @@ export DEEPINFRA_API_KEY
 
 重啟 GUI／同一終端啟動程式，勾選外傳同意後按「儲存設定」；可先按「測試連線」只查模型清單（不傳研究案例）。單獨測試不等於 JSON 格式或實際推理成功。CLI 使用 `config.deepinfra.example.yaml` 作為安全關閉範本：將 `analysis.rounds` 改為 1 以上、`llm.allow_external_api` 明確改為 `true` 後，才可執行 `python -m han_codebook --config config.deepinfra.example.yaml`。或在既有設定上使用 `--provider deepinfra --model 'deepseek-ai/DeepSeek-V4-Flash-0731' --allow-external-api`；這會將資料送至外部服務。
 
-DeepInfra 每次模型請求的輸出目前限制為最多 4096 tokens（不限制輸入長度，也不是總帳單上限）。DeepInfra 的模型清單、價格、JSON 支援與帳單設定應以供應商當時公告為準。使用 API Key 代表付費帳戶可能被計費；**本程式不能取代供應商預付餘額／月額度控制**。API Key 不存入 YAML、Web GUI、Git 或 URL；應定期輪換並於供應商端設定支出限制。請勿將機密或不可傳第三方的真實密電用於 DeepInfra。執行 LLM 回合前仍有另一個明確確認；`rounds: 0` 完全離線。自動詞庫模式可能每回合有更多 API 呼叫。
+DeepInfra 每次模型請求的輸出由 llm.max_output_tokens 控制，預設 8,192、可設定 1,024～16,384（GUI 可直接調整，CLI 可用 --max-output-tokens 16384 覆寫）。這是每次輸出上限，並非上下文限制或總費用限制。若 DeepInfra 回報 finish_reason=length，且未達 16,384，程式最多自動提高到 16,384 重試一次；若仍截斷則拒絕採納部分 JSON，應改為縮小批次或更換支援更長輸出的模型。重試可能產生額外費用。研究報告（Word／Markdown／GUI）會顯示 JSON 結構完整率、截斷與重試次數、供應商回報的 Token 用量；未回報不代表 0，也不代表破譯正確率。DeepInfra 的模型清單、價格、JSON 支援與帳單設定應以供應商當時公告為準。使用 API Key 代表付費帳戶可能被計費；**本程式不能取代供應商預付餘額／月額度控制**。API Key 不存入 YAML、Web GUI、Git 或 URL；應定期輪換並於供應商端設定支出限制。請勿將機密或不可傳第三方的真實密電用於 DeepInfra。執行 LLM 回合前仍有另一個明確確認；`rounds: 0` 完全離線。自動詞庫模式可能每回合有更多 API 呼叫。
 
 安全限制：選 DeepInfra 時只允許精確的 `https://api.deepinfra.com/v1/openai`，使用 HTTPS＋Bearer，**不跟隨 HTTP redirect**；其他公共主機不能藉此解鎖。原有本機／RFC1918 端點依舊保持獨立的限制及白名單。DeepInfra 模型推論仍可能輸出不符 JSON 的候選；所有結果依舊是未驗證的密文假說。Vercel 公開版維持**純瀏覽器 Mock**，不能發送任何真實 DeepInfra 請求。
 

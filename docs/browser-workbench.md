@@ -68,3 +68,8 @@ python -m han_codebook.benchmark --config benchmarks/config.yaml --variants both
 此外部供應商的預算／用量限制請在其帳戶另行設定。公開 Vercel Mock
 不提供連線外部 API 或 API Key 的能力；CLI 另有安全關閉範本
 `config.deepinfra.example.yaml`，詳見根目錄 README。
+
+
+### DeepInfra 輸出長度與 JSON 品質監控
+
+在本機「LLM 端點設定」選 DeepInfra，設定每次最大輸出 tokens（預設 8192，範圍 1024..16384）。這不等於模型上下文長度或帳戶預算上限。若供應商回傳 finish_reason=length，程式不採納截斷內容；在尚未達上限時只提高輸出上限重試一次，最後仍截斷就停止並報錯。只有完成 JSON 解析與必要欄位驗證，才算成功。研究結果的 API JSON 完整率以物理 API 請求次數為分母，包含重試；同時呈現截斷、重試、實際用量與回報覆蓋率，不能視為破譯正確率。即使未啟用完整 Prompt／回覆保存，預設只保存不包含研究內容的技術計數；公開 Mock 版不會呼叫 DeepInfra。

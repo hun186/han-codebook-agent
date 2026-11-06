@@ -120,7 +120,7 @@ class DeepInfraTests(unittest.TestCase):
         self.assertEqual(body["model"], MODEL)
         self.assertEqual(body["response_format"], {"type": "json_object"})
         self.assertNotIn("reasoning_effort", body)
-        self.assertEqual(body["max_tokens"], 4096)
+        self.assertEqual(body["max_tokens"], 8192)
         self.assertNotIn("SYNTHETIC_TEST_SECRET", req.data.decode())
 
     def test_models_probe_is_metadata_only_and_uses_official_route(self):
@@ -231,6 +231,133 @@ class DeepInfraTests(unittest.TestCase):
         self.assertEqual(options["api_key_env"], "DEEPINFRA_API_KEY")
         self.assertTrue(options["allow_external_api"])
         self.assertEqual(probe.call_args.args[0], DEEPINFRA_BASE_URL)
+
+    def test_retry_only_on_length_and_count_both_paid_requests(self):
+        class QueueOpener:
+            def __init__(self, bodies):
+                self.bodies = list(bodies)
+                self.calls = []
+            def open(self, req, timeout):
+                self.calls.append(json.loads(req.data.decode("utf-8")))
+                return FakeResponse(self.bodies.pop(0))
+        def response(finish, content, tokens):
+            return json.dumps({"choices":[{"finish_reason":finish,
+                                            "message":{"content":content}}],
+                               "usage":{"prompt_tokens":100,
+                                        "completion_tokens":tokens,
+                                        "total_tokens":100+tokens}}).encode()
+        first = response("length", '{"hypotheses":[]}', 8192)
+        second = response("stop", '{"hypotheses":[]}', 128)
+        opener = QueueOpener([first, second])
+        measured = []
+        with patch.dict(os.environ, {"DEEPINFRA_API_KEY": "SYNTHETIC_TEST_SECRET"}), \
+             patch("han_codebook.agent.request.build_opener", return_value=opener):
+            result = query_local_llm(
+                DEEPINFRA_BASE_URL, MODEL, {"codes": ["001"]},
+                provider="deepinfra", allow_external_api=True,
+                max_output_tokens=8192, on_metrics=measured.append)
+        self.assertEqual(result, {"hypotheses":[]})
+        self.assertEqual([b["max_tokens"] for b in opener.calls], [8192,16384])
+        self.assertEqual([m["json_complete"] for m in measured], [False, True])
+        self.assertEqual([m["finish_reason"] for m in measured], ["length","stop"])
+        from han_codebook.agent import summarize_llm_api_metrics
+        summary = summarize_llm_api_metrics(measured)
+        self.assertEqual(summary["attempts"], 2)
+        self.assertEqual(summary["retries"], 1)
+        self.assertEqual(summary["finish_reason_length_count"], 1)
+        self.assertEqual(summary["json_completeness_rate"], 0.5)
+        self.assertEqual(summary["total_tokens_reported"], 200+8192+128)
+
+    def test_at_hard_cap_truncation_never_returns_partial_json_or_retries(self):
+        class OneRequest:
+            def __init__(self):
+                self.requests = []
+            def open(self, req, timeout):
+                self.requests.append(json.loads(req.data.decode()))
+                return FakeResponse(json.dumps({
+                    "choices": [{"finish_reason": "length",
+                                 "message": {"content": '{"hypotheses":[]}'}}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 16384,
+                              "total_tokens": 16394},
+                }).encode())
+        opener = OneRequest()
+        metrics = []
+        with patch.dict(os.environ, {"DEEPINFRA_API_KEY": "SYNTHETIC_TEST_SECRET"}), \
+             patch("han_codebook.agent.request.build_opener", return_value=opener):
+            with self.assertRaisesRegex(CaseError, "finish_reason=length"):
+                query_local_llm(DEEPINFRA_BASE_URL, MODEL, {"codes": ["001"]},
+                                provider="deepinfra", allow_external_api=True,
+                                max_output_tokens=16384, on_metrics=metrics.append)
+        self.assertEqual(len(opener.requests), 1)
+        self.assertEqual(metrics[0]["status"], "truncated")
+        self.assertFalse(metrics[0]["json_complete"])
+
+    def test_invalid_json_without_length_never_retries(self):
+        class OneRequest:
+            def __init__(self): self.count = 0
+            def open(self, req, timeout):
+                self.count += 1
+                return FakeResponse(json.dumps({
+                    "choices": [{"finish_reason": "stop",
+                                 "message": {"content": '{"hypotheses":['}}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 9,
+                              "total_tokens": 19},
+                }).encode())
+        opener = OneRequest()
+        metrics = []
+        with patch.dict(os.environ, {"DEEPINFRA_API_KEY": "SYNTHETIC_TEST_SECRET"}), \
+             patch("han_codebook.agent.request.build_opener", return_value=opener):
+            with self.assertRaisesRegex(CaseError, "not valid expected JSON"):
+                query_local_llm(DEEPINFRA_BASE_URL, MODEL, {"codes": ["001"]},
+                                provider="deepinfra", allow_external_api=True,
+                                max_output_tokens=8192, on_metrics=metrics.append)
+        self.assertEqual(opener.count, 1)
+        self.assertEqual(metrics[0]["status"], "invalid_json")
+        self.assertFalse(metrics[0]["json_complete"])
+
+    def test_token_boundaries_and_settings_confirmation_receipt(self):
+        from han_codebook.agent import validate_max_output_tokens
+        for value in (-1, 0, 1023, 16385, 8192.0, True, "8192"):
+            with self.subTest(value=value), self.assertRaises(CaseError):
+                validate_max_output_tokens(value)
+        self.assertEqual(validate_max_output_tokens(1024), 1024)
+        self.assertEqual(validate_max_output_tokens(16384), 16384)
+        with TemporaryDirectory() as folder:
+            cfg = Path(folder) / "config.yaml"
+            cfg.write_text("llm:\n  base_url: http://127.0.0.1:11434\n"
+                           "  model: qwen3:14b\n", encoding="utf-8")
+            deep={"provider": "deepinfra", "allow_external_api": True,
+                  "base_url": DEEPINFRA_BASE_URL, "model": MODEL,
+                  "timeout_seconds": 90, "allow_private_network": False,
+                  "api_key_env": "DEEPINFRA_API_KEY", "max_output_tokens": 8192}
+            initial=save_model_settings(cfg, deep)
+            before=cfg.read_bytes()
+            for bad in (0, True, 16385, 8192.5):
+                with self.assertRaises(CaseError):
+                    save_model_settings(cfg, {**deep, "max_output_tokens": bad})
+                self.assertEqual(cfg.read_bytes(), before)
+            updated=save_model_settings(cfg, {**deep, "max_output_tokens": 16384})
+            self.assertNotEqual(initial["confirmation_token"], updated["confirmation_token"])
+            self.assertEqual(load_settings(cfg)["llm"]["max_output_tokens"], 16384)
+            local=save_model_settings(cfg, {
+                "provider":"local", "allow_external_api":False,
+                "base_url":"http://127.0.0.1:11434", "model":"qwen3:14b",
+                "timeout_seconds":90, "allow_private_network":False,
+                "api_key_env":""})
+            self.assertEqual(local["provider"], "local")
+            self.assertNotIn("max_output_tokens", load_settings(cfg)["llm"])
+
+    def test_safe_metrics_summary_never_includes_prompt_or_result(self):
+        from han_codebook.agent import summarize_llm_api_metrics
+        rows=[{"attempt":1, "finish_reason":"stop", "json_complete":True,
+               "prompt_tokens":20, "completion_tokens":10, "total_tokens":30,
+               "estimated_cost":0.001, "private":"secret-research-packet"}]
+        summary=summarize_llm_api_metrics(rows)
+        self.assertEqual(summary["json_completeness_rate"], 1.0)
+        self.assertEqual(summary["total_tokens_reported"], 30)
+        self.assertNotIn("secret-research-packet", json.dumps(summary))
+        self.assertIsNone(summarize_llm_api_metrics([])["json_completeness_rate"])
+
 
 if __name__ == "__main__":
     unittest.main()

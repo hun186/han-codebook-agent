@@ -184,6 +184,15 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                 return
             try:
                 data = self._body()
+                # Model discovery is an explicit metadata-only action; never send case data.
+                if self.path == "/api/models/refresh":
+                    if data != {"confirmed": True}:
+                        raise CaseError("Model refresh requires explicit confirmation")
+                    from .model_catalog import fetch_deepinfra_models
+                    cfg = load_settings(settings_path)["llm"]
+                    env_name = (cfg.get("api_key_env") if cfg.get("provider") == "deepinfra"
+                                else None) or "DEEPINFRA_API_KEY"
+                    return self._json(200, fetch_deepinfra_models(api_key_env=env_name))
                 # Strict same-origin POST, not a cacheable GET. Sensitive ZIPs
                 # require a second explicit full-data confirmation from the GUI.
                 export_match = re.fullmatch(r"/api/jobs/([0-9a-f]{16})/diagnostics", self.path)

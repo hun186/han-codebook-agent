@@ -12,7 +12,7 @@ analysis:
 llm:
   provider: deepinfra
   base_url: "https://api.deepinfra.com/v1/openai"
-  model: "deepseek-ai/DeepSeek-V4-Flash-0731"
+  model: "deepseek-ai/DeepSeek-V4.1-Flash-1017"
   timeout_seconds: 180
   max_output_tokens: 8192   # DeepInfra output per call; 1024..16384
   allow_external_api: false  # Set true only after accepting data export/paid usage.

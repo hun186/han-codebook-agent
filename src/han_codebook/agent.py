@@ -8,6 +8,7 @@ import copy
 from collections import Counter
 import ipaddress
 import json
+import hashlib
 import os
 import sqlite3
 import socket
@@ -54,6 +55,13 @@ def summarize_llm_api_metrics(attempts: list[dict[str, Any]]) -> dict[str, Any]:
     counted = [x for x in attempts if type(x.get("total_tokens")) is int]
     costs = [x["estimated_cost"] for x in attempts
              if type(x.get("estimated_cost")) in (int, float)]
+    # Cache details may be absent, and absent is NOT equivalent to a cache miss.
+    cache_reported = [x for x in attempts
+                      if type(x.get("cached_tokens")) is int
+                      and type(x.get("prompt_tokens")) is int
+                      and 0 <= x["cached_tokens"] <= x["prompt_tokens"]]
+    cached_tokens = sum(x["cached_tokens"] for x in cache_reported)
+    measured_input = sum(x["prompt_tokens"] for x in cache_reported)
     return {
         "attempts": n, "json_complete_attempts": good,
         "json_incomplete_attempts": n - good,
@@ -65,7 +73,12 @@ def summarize_llm_api_metrics(attempts: list[dict[str, Any]]) -> dict[str, Any]:
         "completion_tokens_reported": sum(x.get("completion_tokens") or 0 for x in counted),
         "total_tokens_reported": sum(x.get("total_tokens") or 0 for x in counted),
         "estimated_cost_reported": round(sum(costs), 9) if costs else None,
-        "scope": "JSON schema validity per physical request; not decipherment accuracy or a billing cap",
+        "cache_reported_attempts": len(cache_reported),
+        "cached_prompt_tokens_reported": cached_tokens,
+        "cache_input_tokens_reported": measured_input,
+        "cache_hit_rate": round(cached_tokens / measured_input, 4) if measured_input else None,
+        "cache_savings_usd_estimated": None,  # No verified per-model rates; never invent a saving.
+        "scope": "JSON schema validity and provider-reported cache tokens; not decipherment accuracy, guaranteed savings, or a billing cap",
     }
 
 
@@ -191,14 +204,37 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
             "並在 reason 中清楚註明尚未驗證。電文 ID 只代表可查線索，不代表詞義正確。"
             "只能回傳 JSON 物件，先輸出最終答案，不要在 content 裡寫思考過程。"
         )
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": json.dumps(evidence, ensure_ascii=False)},
+    ]
+    if provider == "deepinfra":
+        # Put stable, shared research context before per-batch/per-round evidence.
+        # Retain the same fields and values; only change their message boundaries.
+        # The provider caches matching prefixes, not LLM answers.
+        stable_fields = ("policy", "available_vocabulary", "profiles",
+                         "verified_anchors", "output_contract")
+        shared = {key: evidence[key] for key in stable_fields if key in evidence}
+        if shared:
+            changing = {key: value for key, value in evidence.items() if key not in shared}
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": json.dumps(shared, ensure_ascii=False,
+                                                       sort_keys=True)},
+                {"role": "user", "content": json.dumps(changing, ensure_ascii=False)},
+            ]
+        # A hashed, content-scoped cache key contains neither ciphertext nor user IDs.
+        # The literal prefix, model and account still determine cache reuse.
+        prefix = json.dumps(messages[:-1], ensure_ascii=False, sort_keys=True,
+                            separators=(",", ":"))
+        digest = hashlib.sha256((model + "\\0" + prefix).encode("utf-8")).hexdigest()[:32]
     body = {
         "model": model,
         "temperature": 0.2,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": json.dumps(evidence, ensure_ascii=False)}
-        ],
+        "messages": messages,
     }
+    if provider == "deepinfra":
+        body["prompt_cache_key"] = "han-codebook-v1-" + digest
     # The budget only affects DeepInfra; legacy local requests stay identical.
     limit = (validate_max_output_tokens(DEEPINFRA_DEFAULT_MAX_OUTPUT_TOKENS
              if max_output_tokens is None else max_output_tokens)
@@ -227,12 +263,22 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
                        raw: bytes | None = None, http_status: int | None = None,
                        response_truncated: bool = False) -> None:
         usage = usage if isinstance(usage, dict) else {}
+        details = usage.get("prompt_tokens_details")
+        detail_cache = details.get("cached_tokens") if isinstance(details, dict) else None
+        legacy_cache = usage.get("prompt_cache_hit_tokens")
+        cached = (detail_cache if type(detail_cache) is int else
+                  legacy_cache if type(legacy_cache) is int else None)
+        tokens_in = usage.get("prompt_tokens")
+        if cached is not None and (cached < 0 or
+                                    (type(tokens_in) is int and cached > tokens_in)):
+            cached = None
         safe = {
             "attempt": attempt, "provider": provider,
             "max_output_tokens": body.get("max_tokens"),
             "finish_reason": finish if isinstance(finish, str) else None,
             "json_complete": valid, "status": status, "elapsed_ms": elapsed_ms,
             "prompt_tokens": usage.get("prompt_tokens") if type(usage.get("prompt_tokens")) is int else None,
+            "cached_tokens": cached,
             "completion_tokens": usage.get("completion_tokens") if type(usage.get("completion_tokens")) is int else None,
             "total_tokens": usage.get("total_tokens") if type(usage.get("total_tokens")) is int else None,
             "estimated_cost": usage.get("estimated_cost")

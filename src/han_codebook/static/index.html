@@ -552,7 +552,7 @@ function applyEvidence(){
    }
    initializeMarks();renderIdeas();
   }
-  renderObservations();renderMessageOverview();
+  renderObservations();if(typeof renderMessageOverview==='function')renderMessageOverview();
   notice('已套用 '+m.id+' 的密文與情報'+(orphaned.length?'；已清理 '+orphaned.length+' 個不再出現的碼組及歷史':'')+'（尚未保存到磁碟）');
  }catch(e){notice(e.message,true)}
 }
@@ -638,7 +638,7 @@ function renderKnownPairs(){
  el('knownPairs').querySelectorAll('[data-known-edit]').forEach(btn=>btn.onclick=()=>openKnownRowEditor(Number(btn.dataset.knownEdit)));
  el('knownPairs').querySelectorAll('[data-known-delete]').forEach(btn=>btn.onclick=()=>deleteKnownRow(Number(btn.dataset.knownDelete)));
  el('knownEdit').value=JSON.stringify(pairs,null,2);
- renderMessageOverview();
+ if(typeof renderMessageOverview==='function')renderMessageOverview();
 }
 function closeKnownRowEditor(){knownEditorIndex=null;knownEditorOrigin=null;el('knownRowEditor').hidden=true;el('knownRowVerified').checked=false;}
 function knownJsonIsSynced(){

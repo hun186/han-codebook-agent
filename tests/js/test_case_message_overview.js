@@ -90,4 +90,19 @@ run('overviewState.page=0;overviewState.expanded.clear();renderMessageOverview()
 assert.equal(el('caseOverviewPager').textContent,'第 1 / 40 頁');
 assert.match(el('caseOverviewBody').innerHTML,/L0025/);
 assert.doesNotMatch(el('caseOverviewBody').innerHTML,/L0026/);
-console.log('Case overview offline smoke PASS: 100/1000 rows, paging, filters, full plaintext, no gold, dirty-navigation guard');
+// Add a new message through the real editor handler and ensure the overview
+// immediately reflects the increment rather than stale 1000-message counts.
+const addBegin=js.indexOf('function addNewMessage(){');
+const addEnd=js.indexOf('function deleteMessage(){',addBegin);
+assert.ok(addBegin>=0&&addEnd>addBegin);
+let promptCount=0;
+context.prompt=()=>++promptCount===1?'L1001':'001 002 003';
+context.Option=class {constructor(value,label){this.value=value;this.label=label}};
+context.initializeMarks=()=>{};
+el('messagePick').add=()=>{};
+new vm.Script(js.slice(addBegin,addEnd),{filename:'add-message.js'}).runInContext(context);
+run('addNewMessage()');
+assert.equal(context.research.messages.length,1001);
+assert.match(el('caseOverviewMatchCount').textContent,/1001 \\/ 1001/);
+assert.match(el('caseOverviewKpis').innerHTML,/1001/);
+console.log('Case overview offline smoke PASS: 100/1000/1001 rows, paging, filters, full plaintext, no gold, dirty-navigation guard, add refresh');

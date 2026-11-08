@@ -1,5 +1,11 @@
 # Project memory
 
+## 2026-11-08 — PR #55 merged, add-message draft guard pending
+- PR #55 (case-wide 100/1000-message inventory) merged as `c6c4aec38a38d73b1125011d266040f28fb7380e` from exact reviewed HEAD `ba91489630d69de13d5891e52f2a8887403d9849`; all eight latest-head Hosted CI checks succeeded, Codex code review completed with no current findings, all three previous threads resolved. Browser/workstation human acceptance and live LLM quality are NOT established.
+- New branch `fix/add-message-draft-guard-20261108`: `addNewMessage()` now warns and refuses to switch editors when current ciphertext/metadata/observation draft is unsaved, unless user explicitly confirms discard; cancellation keeps the case and draft intact. Existing offline browser-VM test now covers cancel/confirm on a synthetic 1000-message case, then verifies case-wide inventory refresh. Vercel Mock JS derives from the exact canonical GUI script. No external API or private data involved.
+- At authoring: Hosted CI, formal latest-HEAD Codex review, and merge are **PENDING**, not completed.
+
+
 ## 2026-11-06 — DeepInfra configurable output budget + JSON completeness (PR pending)
 - User approved change of DeepInfra hard-coded 4096 output tokens to UI-controlled 1024..16384, default 8192, CLI optional override. DeepInfra-only request cap; local Ollama requests unchanged.
 - Query recognizes finish_reason=length and NEVER accepts partial JSON, even if syntactically parseable. If budget < 16384, retry at most once with doubled budget capped at 16384; at hard cap fail with clear error. No retries on non-length JSON failures, network/HTTP errors or empty reasoning-only response; explicitly account for extra token/cost usage.

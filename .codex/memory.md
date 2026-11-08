@@ -1,5 +1,11 @@
 # Project memory
 
+## 2026-11-08 — PR #56 merged; case-transition draft protection pending
+- PR #56 safely guards add-message editor transitions and merged as `e03dfa044ed5ddea545e5d89158d47c7588068d5` after HEAD `deb5637586ac05ced42a0d82644f35ec521d3fbc` passed 8/8 Hosted CI and formal Codex Completed/No Findings (0 unresolved threads). No live workstation or paid inference test is claimed.
+- Current branch `fix/case-transition-draft-guard-20261108`: protects **unapplied editor form edits**, not every unsaved in-memory research-case change, when loading a different case or creating a new blank case. An aborted/failed load keeps current job/editor state; an asynchronous older load is discarded after a newer case transition. Node VM and Python unittest wrapper test canceled loads, draft edits arriving during fetch, stale responses, and confirmed new-case creation. Canonical GUI and Vercel browser-only Mock JS remain synchronized.
+- This branch's Hosted CI, latest-HEAD formal Codex review and merge are PENDING. No real case material, external LLM or protected workflow altered.
+
+
 ## 2026-11-08 — PR #55 merged, add-message draft guard pending
 - PR #55 (case-wide 100/1000-message inventory) merged as `c6c4aec38a38d73b1125011d266040f28fb7380e` from exact reviewed HEAD `ba91489630d69de13d5891e52f2a8887403d9849`; all eight latest-head Hosted CI checks succeeded, Codex code review completed with no current findings, all three previous threads resolved. Browser/workstation human acceptance and live LLM quality are NOT established.
 - New branch `fix/add-message-draft-guard-20261108`: `addNewMessage()` now warns and refuses to switch editors when current ciphertext/metadata/observation draft is unsaved, unless user explicitly confirms discard; cancellation keeps the case and draft intact. Existing offline browser-VM test now covers cancel/confirm on a synthetic 1000-message case, then verifies case-wide inventory refresh. Vercel Mock JS derives from the exact canonical GUI script. No external API or private data involved.

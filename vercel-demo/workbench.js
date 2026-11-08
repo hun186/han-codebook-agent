@@ -119,16 +119,23 @@ function presentCase(){
  el('progress').textContent='此案例尚未執行分析';
  el('vocabProgress').textContent='';el('vocabSuggestions').replaceChildren();ideaSnapshots=[JSON.parse(JSON.stringify(research.candidate_ideas||{}))];ideaCursor=0;el('markCompare').textContent='重新分析後可與上一輪比較';el('profilePick').innerHTML=Object.keys(research.profiles).map(k=>`<option>${esc(k)}</option>`).join('');el('messagePick').innerHTML=research.messages.map(m=>`<option>${esc(m.id)}</option>`).join('');loadProfile();loadEvidence();initializeMarks();renderIdeas();renderBoldHypotheses();renderKnownPairs();closeKnownRowEditor();notice(`已載入 ${research.case_id}: ${research.messages.length} 封電文`)}
 async function loadCase(){
- // Invalidate the old case immediately, before the network fetch returns.
- invalidateOldJobs();
- const requestGeneration=caseGeneration;
+ // Keep the current editor and running jobs intact if loading fails or the
+ // researcher declines to discard an uncommitted evidence form draft.
+ const requestGeneration=caseGeneration, previousCase=research;
  const wanted=el('caseList').value;
  const loaded=await api('/api/case?id='+encodeURIComponent(wanted));
- if(requestGeneration!==caseGeneration)return;
- research=loaded;presentCase();
+ // A newer case selection/create action takes priority over this response.
+ if(requestGeneration!==caseGeneration||research!==previousCase)return;
+ if(evidenceDraftChanged()&&!confirm('目前電文有尚未套用的密文／情報修改，載入其他案例將放棄這些修改。仍要載入嗎？')){
+  notice('已保留目前電文草稿，沒有切換案例');return;
+ }
+ invalidateOldJobs();research=loaded;presentCase();
 }
 function newResearchCase(){const id=prompt('研究案例 ID（英文／數字／底線，稍後另存才會寫入檔案）','research_'+Date.now());if(!id)return;
  if(!/^[A-Za-z0-9_-]{1,50}$/.test(id)){notice('案例 ID 只能使用英文、數字、_、-（1 至 50 字元）',true);return}
+ if(evidenceDraftChanged()&&!confirm('目前電文有尚未套用的密文／情報修改，建立空白案例將放棄這些修改。仍要建立嗎？')){
+  notice('已保留目前電文草稿，沒有建立新案例');return;
+ }
  research={case_id:id,description:'研究員新建案例；待補充密碼組與候選詞',profiles:{general:{keywords:[],lexicon:{},sentences:[]}},
  messages:[{id:'MSG-001',codes:['000']}],known_pairs:[],candidate_ideas:{}};presentCase();notice('空白案例已建立於本次頁面。請修改 MSG-001 密碼組，輸入真實資料或虛構範例；按「另存案例」才會存檔。')}
 function addNewMessage(){if(!research)return;let id=prompt('新電文 ID（不得與既有電文重複）','MSG-'+String(research.messages.length+1).padStart(3,'0'));if(!id)return;

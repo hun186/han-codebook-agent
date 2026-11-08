@@ -42,11 +42,14 @@ class ModelSettingsLayoutTests(unittest.TestCase):
     def test_provider_switch_only_exposes_relevant_permission_and_help(self):
         local = LOCAL.read_text(encoding="utf-8")
         mock = MOCK.read_text(encoding="utf-8")
+        mock_script = (ROOT / "vercel-demo/workbench.js").read_text(encoding="utf-8")
+        # Local GUI has inline JS; public Mock uses the same extracted JS asset.
+        for script in (local, mock_script):
+            self.assertIn("el('llmAllowLANWrap').hidden=deep", script)
+            self.assertIn("el('llmAllowExternalWrap').hidden=!deep", script)
+            self.assertIn("el('llmLANHelp').hidden=deep", script)
+            self.assertIn("el('llmDeepInfraHelp').hidden=!deep", script)
         for html in (local, mock):
-            self.assertIn("el('llmAllowLANWrap').hidden=deep", html)
-            self.assertIn("el('llmAllowExternalWrap').hidden=!deep", html)
-            self.assertIn("el('llmLANHelp').hidden=deep", html)
-            self.assertIn("el('llmDeepInfraHelp').hidden=!deep", html)
             self.assertIn('id="llmDeepInfraHelp" class="muted llm-provider-help" hidden', html)
             self.assertIn('id="llmAllowLANWrap"', html)
             self.assertIn("192.168.0.134", html)

@@ -89,7 +89,8 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
 <section id="modelSettings" class="page"><div class="panel"><h2>本機 LLM 端點設定</h2>
 <p class="guide-callout settings-help">參考 AI 模擬病人的 Provider/Model 設定概念，支援本機／內網 LLM 與明確授權的 DeepInfra 官方 HTTPS。<strong>DeepInfra 是外部付費 API：執行時會將密文、背景情報與候選傳至第三方。</strong>預設禁止外傳；金鑰只從環境變數讀取，不儲存於 config.yaml。</p>
 <div class="gridfield"><div><label>Provider 類型（操作提示）</label><select id="llmPreset"><option value="ollama">Ollama Local / LAN</option><option value="compatible">內網 OpenAI-compatible</option><option value="deepinfra">DeepInfra（外部付費 API）</option></select></div>
-<div><label>模型名稱</label><input type="text" id="llmModel" maxlength="128" placeholder="qwen3:14b"></div>
+<div><label>模型名稱（可手動輸入）</label><input type="text" id="llmModel" maxlength="128" placeholder="qwen3:14b">
+<div id="llmModelCatalogWrap" hidden><label for="llmModelChoices">DeepInfra 模型清單（手動刷新）</label><div class="row"><select id="llmModelChoices" aria-label="選擇 DeepInfra 模型"><option value="">— 請按右方按鈕更新模型清單 —</option></select><button id="refreshLLMModels" type="button">更新清單</button></div><small id="llmModelCatalogStatus" class="muted">讀取模型目錄，不傳送密電或執行付費推論；若暫時不可用，仍可手動輸入完整模型 ID。</small></div></div>
 <div><label>API Base URL</label><input type="text" id="llmUrl" placeholder="http://127.0.0.1:11434"></div>
 <div><label>等待秒數（1～600）</label><input type="number" id="llmTimeout" min="1" max="600" step="1" value="90"></div>
 <div id="llmOutputTokenWrap" hidden><label>DeepInfra 每次最大輸出 tokens（預設 8,192；上限 16,384）</label><input type="number" id="llmMaxOutputTokens" min="1024" max="16384" step="1024" value="8192"><small class="muted">限制單次輸出，不是上下文或帳戶總花費上限。明確截斷時最多增額重試一次，可能增加費用。</small></div>

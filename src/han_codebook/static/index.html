@@ -89,7 +89,8 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
 <section id="modelSettings" class="page"><div class="panel"><h2>本機 LLM 端點設定</h2>
 <p class="guide-callout settings-help">參考 AI 模擬病人的 Provider/Model 設定概念，支援本機／內網 LLM 與明確授權的 DeepInfra 官方 HTTPS。<strong>DeepInfra 是外部付費 API：執行時會將密文、背景情報與候選傳至第三方。</strong>預設禁止外傳；金鑰只從環境變數讀取，不儲存於 config.yaml。</p>
 <div class="gridfield"><div><label>Provider 類型（操作提示）</label><select id="llmPreset"><option value="ollama">Ollama Local / LAN</option><option value="compatible">內網 OpenAI-compatible</option><option value="deepinfra">DeepInfra（外部付費 API）</option></select></div>
-<div><label>模型名稱</label><input type="text" id="llmModel" maxlength="128" placeholder="qwen3:14b"></div>
+<div><label>模型名稱（可手動輸入）</label><input type="text" id="llmModel" maxlength="128" placeholder="qwen3:14b">
+<div id="llmModelCatalogWrap" hidden><label for="llmModelChoices">DeepInfra 模型清單（手動刷新）</label><div class="row"><select id="llmModelChoices" aria-label="選擇 DeepInfra 模型"><option value="">— 請按右方按鈕更新模型清單 —</option></select><button id="refreshLLMModels" type="button">更新清單</button></div><small id="llmModelCatalogStatus" class="muted">讀取模型目錄，不傳送密電或執行付費推論；若暫時不可用，仍可手動輸入完整模型 ID。</small></div></div>
 <div><label>API Base URL</label><input type="text" id="llmUrl" placeholder="http://127.0.0.1:11434"></div>
 <div><label>等待秒數（1～600）</label><input type="number" id="llmTimeout" min="1" max="600" step="1" value="90"></div>
 <div id="llmOutputTokenWrap" hidden><label>DeepInfra 每次最大輸出 tokens（預設 8,192；上限 16,384）</label><input type="number" id="llmMaxOutputTokens" min="1024" max="16384" step="1024" value="8192"><small class="muted">限制單次輸出，不是上下文或帳戶總花費上限。明確截斷時最多增額重試一次，可能增加費用。</small></div>
@@ -187,6 +188,8 @@ function updateLLMProviderUI(){
  el('llmAllowExternalWrap').hidden=!deep; el('llmAllowExternal').disabled=!deep;
  el('llmUrl').readOnly=deep;
  el('llmOutputTokenWrap').hidden=!deep; el('llmMaxOutputTokens').disabled=!deep;
+ el('llmModelCatalogWrap').hidden=!deep; el('llmModelChoices').disabled=!deep;
+ el('refreshLLMModels').disabled=!deep;
 }
 async function loadLLMSettings(){
  const cfg=await api('/api/settings');
@@ -201,6 +204,24 @@ async function loadLLMSettings(){
  el('llmKeyEnv').value=cfg.api_key_env||'';
  el('modelInfo').textContent=(savedLLMProvider==='deepinfra'?'DeepInfra':'本機／區網')+' · '+cfg.model+' · '+cfg.endpoint;
  updateLLMProviderUI();
+}
+async function refreshLLMModels(){
+ if(el('llmPreset').value!=='deepinfra')return;
+ const btn=el('refreshLLMModels'), status=el('llmModelCatalogStatus');
+ if(!confirm('讀取 DeepInfra 模型清單？只使用本機環境變數金鑰驗證，不傳送密電、不進行推論。'))return;
+ btn.disabled=true;status.textContent='正在讀取 DeepInfra 模型清單…';
+ try{
+  const data=await api('/api/models/refresh',{confirmed:true});
+  const current=el('llmModel').value.trim(),list=el('llmModelChoices');
+  list.replaceChildren();list.add(new Option('— 請選擇模型（也可手動輸入） —',''));
+  for(const id of data.models)list.add(new Option(id,id));
+  list.value=data.models.includes(current)?current:'';
+  status.textContent='取得 '+data.count+' 個供應商模型 ID。'+
+    (data.preferred_model?'優先建議：'+data.preferred_model+'。':'未找到預設的 DeepSeek V4.1 模型。')+
+    (current&&!data.models.includes(current)?'目前輸入的模型不在清單內，已保留原值；請確認可用性。':'')+
+    ' 選取下拉項目才會改動欄位，仍須儲存設定。';
+ }catch(e){status.textContent='取得清單失敗：'+e.message+'。已保留手動輸入。'}
+ finally{btn.disabled=el('llmPreset').value!=='deepinfra'}
 }
 async function saveLLMSettings(){
  const timeout=Number(el('llmTimeout').value);
@@ -818,7 +839,12 @@ if(apiQuality && apiQuality.attempts>0){
    ' 次 · 截斷 '+esc(apiQuality.finish_reason_length_count)+
    ' 次 · 增額重試 '+esc(apiQuality.retries)+' 次 · 回報 Token '+
    esc(apiQuality.total_tokens_reported)+'（'+esc(apiQuality.usage_reported_attempts)+
-   '／'+esc(apiQuality.attempts)+' 次有回報）<br><small>JSON 結構完整不是破譯準確率；重試可能增加 API 費用。</small></div>';
+   '／'+esc(apiQuality.attempts)+' 次有回報）<br>快取輸入 '+
+   esc(apiQuality.cached_prompt_tokens_reported??0)+' tokens · 命中率 '+
+   (apiQuality.cache_hit_rate==null?'未回報':esc((apiQuality.cache_hit_rate*100).toFixed(1))+'%')+
+   '（'+esc(apiQuality.cache_reported_attempts??0)+'／'+esc(apiQuality.attempts)+' 次有快取資料）'+
+   (apiQuality.estimated_cost_reported==null ? '' : ' · 供應商成本估值 USD '+esc(apiQuality.estimated_cost_reported))+
+   '<br><small>快取只重用輸入前綴；未回報不代表 0 命中，沒有可靠單價時不推算節省金額。</small></div>';
 }
 
 let domCounts={};for(let m of result.decoded_messages)domCounts[m.domain_inferred||'未知']=(domCounts[m.domain_inferred||'未知']||0)+1;el('reportLink').innerHTML=`<a href="/api/jobs/${esc(j.id)}/report.docx" download style="color:#4bd0bc">下載研究分析報告（Word）</a>　｜　<a href="/api/jobs/${esc(j.id)}/report.md" download style="color:#4bd0bc">下載 Markdown</a>`;el('bars').innerHTML=chartBar('錨點占比',anchored/proposals.length,1)+chartBar('待驗證占比',(proposals.length-anchored)/proposals.length,1)+'<h3>電文領域分布</h3>'+Object.entries(domCounts).map(([k,n])=>chartBar(k,n,result.decoded_messages.length)).join('');
@@ -1029,7 +1055,7 @@ el('llmPreset').onchange=()=>{
  if(preset==='deepinfra'){
    el('llmUrl').value='https://api.deepinfra.com/v1/openai';
    if(!el('llmModel').value.trim()||!el('llmModel').value.includes('/'))
-     el('llmModel').value='deepseek-ai/DeepSeek-V4-Flash-0731';
+     el('llmModel').value='deepseek-ai/DeepSeek-V4.1-Flash-1017';
    el('llmKeyEnv').value='DEEPINFRA_API_KEY';
    el('llmMaxOutputTokens').value=8192;
    el('llmAllowLAN').checked=false; el('llmAllowExternal').checked=false;
@@ -1043,6 +1069,9 @@ el('llmPreset').onchange=()=>{
  }
  updateLLMProviderUI();
 };
+el('llmModelChoices').onchange=()=>{if(el('llmModelChoices').value)el('llmModel').value=el('llmModelChoices').value};
+el('llmModel').oninput=()=>{const pick=el('llmModelChoices');pick.value=[...pick.options].some(x=>x.value===el('llmModel').value)?el('llmModel').value:''};
+el('refreshLLMModels').onclick=()=>refreshLLMModels();
 el('saveLLM').onclick=()=>saveLLMSettings().catch(e=>notice(e.message,true));el('testLLM').onclick=()=>testLLMSettings().catch(e=>notice(e.message,true));
 el('loadCase').onclick=()=>loadCase().catch(e=>notice(e.message,true));el('profilePick').onchange=loadProfile;el('messagePick').onchange=loadEvidence;el('wordSearch').oninput=renderVocab;el('addWord').onclick=()=>{let w=el('newWord').value.trim(),n=Number(el('newWeight').value);if(w&&Number.isFinite(n)&&n>=0){profile().lexicon[w]=n;el('newWord').value='';renderVocab()}};el('saveProfile').onclick=saveProfile;el('applyEvidence').onclick=applyEvidence;el('addObservation').onclick=addObservation;el('applyKnown').onclick=applyKnown;el('knownAdd').onclick=()=>openKnownRowEditor(null);el('knownRowSave').onclick=saveKnownRow;el('knownRowCancel').onclick=closeKnownRowEditor;el('knownRowMessage').onchange=renderKnownWordFields;el('previewAlignment').onclick=previewAlignmentCandidates;el('confirmAlignment').onclick=confirmAlignmentCandidate;el('run').onclick=start;el('save').onclick=save;el('runBenchmark').onclick=startBenchmark;el('loadBenchmark').onclick=()=>api('/api/benchmark').then(renderBenchmark).catch(e=>notice(e.message,true));listCases().then(loadCase).catch(e=>notice(e.message,true));
 </script></body></html>

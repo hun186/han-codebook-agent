@@ -70,7 +70,15 @@ def investigation_docx(result: dict[str, Any], events: list[dict[str, Any]]) -> 
              f"{metrics.get('prompt_tokens_reported',0)}／"
              f"{metrics.get('completion_tokens_reported',0)}／"
              f"{metrics.get('total_tokens_reported',0)}"],
+            ["快取輸入 Tokens／有快取回報請求",
+             f"{metrics.get('cached_prompt_tokens_reported',0)}／"
+             f"{metrics.get('cache_reported_attempts',0)}／{n}"],
+            ["快取命中率（僅已回報部分）",
+             f"{metrics['cache_hit_rate']*100:.1f}%" if metrics.get("cache_hit_rate") is not None
+             else "未回報"],
         ])
+        doc.add_paragraph("快取僅重用輸入前綴，不重用模型答案。未回報快取資訊不代表零命中；"
+                          "沒有可靠單價時不推算節省金額。")
         doc.add_paragraph("完整率只反映 API JSON 結構完整，並非密文破解正確率。"
                           "Token 用量缺漏不能視為零消耗；重試同樣可能計費。")
     baseline = next((e.get("payload", {}).get("mapping", {}) for e in events if e.get("stage") == "statistical_baseline"), {})

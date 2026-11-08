@@ -42,6 +42,11 @@ SCRIPTS = (
 
 def generate() -> tuple[str, str]:
     source = CANONICAL.read_text(encoding="utf-8")
+    # Reject accidentally concatenated source outside the HTML document. This
+    # can render as user-visible text/controls while passing JS and parity tests.
+    if source.lower().count("</html>") != 1 or not source.rstrip().lower().endswith("</body></html>"):
+        raise ValueError("Canonical GUI must end with one closing HTML tag")
+
     matches = list(re.finditer(r"<script>([\s\S]*?)</script>", source, re.I))
     if len(matches) != 1 or source.count(LOCAL_CAPTION) != 1 or source.count(TOP_BAR) != 1:
         raise ValueError("Canonical GUI structure changed; review synchronization rules")

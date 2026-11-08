@@ -69,6 +69,11 @@ def investigation_report(result: dict[str, Any], events: list[dict[str, Any]]) -
                   f"輸出 {metrics.get('completion_tokens_reported',0)}、"
                   f"合計 {metrics.get('total_tokens_reported',0)}；"
                   f"有回報用量 {metrics.get('usage_reported_attempts',0)}/{total} 次。",
+                  f"- DeepInfra 快取輸入：{metrics.get('cached_prompt_tokens_reported',0)} tokens；"
+                  f"供應商回報快取資料 {metrics.get('cache_reported_attempts',0)}/{total} 次；"
+                  f"可量測輸入命中率：{(str(round(metrics['cache_hit_rate']*100,1))+'%') if metrics.get('cache_hit_rate') is not None else '未回報'}。",
+                  "快取僅重用輸入前綴，不重用推論答案；未回報快取資訊不代表 0 命中，"
+                  "缺少可靠單價時不估計節省費用。",
                   "未回報用量不代表零成本。JSON 結構有效不代表候選正確。", '']
         if metrics.get("estimated_cost_reported") is not None:
             lines.append(f"- 供應商回報成本估值（若有）：{metrics['estimated_cost_reported']}。")

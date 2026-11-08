@@ -108,7 +108,7 @@ $env:PYTHONPATH = "src"
 
 ### DeepInfra（外部付費模型，明確選用）
 
-在本機 Web GUI 左側「⚙ LLM 端點設定」→ Provider 選 **DeepInfra（外部付費 API）**。程式將鎖定官方 API Base URL `https://api.deepinfra.com/v1/openai`，使用模型完整名稱（例如 `deepseek-ai/DeepSeek-V4-Flash-0731`），並要求勾選「同意外傳研究資料」。先在啟動 GUI 的作業系統設定環境變數：
+在本機 Web GUI 左側「⚙ LLM 端點設定」→ Provider 選 **DeepInfra（外部付費 API）**。程式將鎖定官方 API Base URL `https://api.deepinfra.com/v1/openai`，使用模型完整名稱（例如 `deepseek-ai/DeepSeek-V4.1-Flash-1017`），並要求勾選「同意外傳研究資料」。先在啟動 GUI 的作業系統設定環境變數：
 
 ```powershell
 # Windows PowerShell：只在目前終端程序有效；不要把密鑰提交到 Git
@@ -123,9 +123,13 @@ read -r -s -p "DeepInfra API key: " DEEPINFRA_API_KEY
 export DEEPINFRA_API_KEY
 ```
 
-重啟 GUI／同一終端啟動程式，勾選外傳同意後按「儲存設定」；可先按「測試連線」只查模型清單（不傳研究案例）。單獨測試不等於 JSON 格式或實際推理成功。CLI 使用 `config.deepinfra.example.yaml` 作為安全關閉範本：將 `analysis.rounds` 改為 1 以上、`llm.allow_external_api` 明確改為 `true` 後，才可執行 `python -m han_codebook --config config.deepinfra.example.yaml`。或在既有設定上使用 `--provider deepinfra --model 'deepseek-ai/DeepSeek-V4-Flash-0731' --allow-external-api`；這會將資料送至外部服務。
+重啟 GUI／同一終端啟動程式，勾選外傳同意後按「儲存設定」；可先按「測試連線」只查模型清單（不傳研究案例）。單獨測試不等於 JSON 格式或實際推理成功。CLI 使用 `config.deepinfra.example.yaml` 作為安全關閉範本：將 `analysis.rounds` 改為 1 以上、`llm.allow_external_api` 明確改為 `true` 後，才可執行 `python -m han_codebook --config config.deepinfra.example.yaml`。或在既有設定上使用 `--provider deepinfra --model 'deepseek-ai/DeepSeek-V4.1-Flash-1017' --allow-external-api`；這會將資料送至外部服務。
 
 DeepInfra 每次模型請求的輸出由 llm.max_output_tokens 控制，預設 8,192、可設定 1,024～16,384（GUI 可直接調整，CLI 可用 --max-output-tokens 16384 覆寫）。這是每次輸出上限，並非上下文限制或總費用限制。若 DeepInfra 回報 finish_reason=length，且未達 16,384，程式最多自動提高到 16,384 重試一次；若仍截斷則拒絕採納部分 JSON，應改為縮小批次或更換支援更長輸出的模型。重試可能產生額外費用。研究報告（Word／Markdown／GUI）會顯示 JSON 結構完整率、截斷與重試次數、供應商回報的 Token 用量；未回報不代表 0，也不代表破譯正確率。DeepInfra 的模型清單、價格、JSON 支援與帳單設定應以供應商當時公告為準。使用 API Key 代表付費帳戶可能被計費；**本程式不能取代供應商預付餘額／月額度控制**。API Key 不存入 YAML、Web GUI、Git 或 URL；應定期輪換並於供應商端設定支出限制。請勿將機密或不可傳第三方的真實密電用於 DeepInfra。執行 LLM 回合前仍有另一個明確確認；`rounds: 0` 完全離線。自動詞庫模式可能每回合有更多 API 呼叫。
+
+**模型下拉選單與 Prompt Cache**：在本機「LLM 端點設定」選 DeepInfra 後，按「更新清單」才會以目前環境變數金鑰讀取 `GET https://api.deepinfra.com/v1/openai/models`；不會傳研究資料或呼叫付費推論。模型列表來自供應商當下回應，優先顯示 `DeepSeek-V4.1-Flash-1017`（若確實有提供），否則提示 `DeepSeek-V4.1-Flash`（若可用）。下拉選擇後才會修改模型輸入欄；手動輸入或先前儲存的 ID 不會被偷偷覆寫。目錄取得失敗時維持手動輸入；儲存設定及每次外傳確認仍不可省略。
+
+DeepInfra 支援的模型可自動重用相同的 Prompt 前綴。程式將固定的系統規則、共同研究脈絡放在變動批次之前，並送出以模型與固定前綴雜湊而成、**不含原文或帳號資訊**的 `prompt_cache_key`。供應商是否命中視其模型與快取狀態而定；不保證固定節省幅度，也不會快取舊答案。API 回應若含 `usage.prompt_tokens_details.cached_tokens`（或相容欄位），GUI、Word、Markdown、SQLite 只記錄統計數字與可量測命中率；沒有資料時顯示「未回報」，不當作 0。若沒有驗證過的模型費率，**不虛構節省美元數字**。不要把快取機制當成花費上限或敏感資料防外傳功能。
 
 安全限制：選 DeepInfra 時只允許精確的 `https://api.deepinfra.com/v1/openai`，使用 HTTPS＋Bearer，**不跟隨 HTTP redirect**；其他公共主機不能藉此解鎖。原有本機／RFC1918 端點依舊保持獨立的限制及白名單。DeepInfra 模型推論仍可能輸出不符 JSON 的候選；所有結果依舊是未驗證的密文假說。Vercel 公開版維持**純瀏覽器 Mock**，不能發送任何真實 DeepInfra 請求。
 

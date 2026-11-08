@@ -80,6 +80,14 @@ class VercelMockDemoTests(unittest.TestCase):
         self.assertNotIn('<script>',html)
         self.assertFalse((DEMO/'mock_api.js').read_text(encoding='utf-8').find('localStorage')>=0)
 
+    def test_html_document_ends_at_single_closing_tag(self):
+        # Codex P2: appended JS after </html> must not be rendered as page text.
+        for file in (BASE/'src/han_codebook/static/index.html', DEMO/'index.html'):
+            with self.subTest(file=str(file)):
+                html=file.read_text(encoding='utf-8')
+                self.assertEqual(html.lower().count('</html>'), 1)
+                self.assertTrue(html.rstrip().lower().endswith('</body></html>'))
+
     @unittest.skipUnless(shutil.which('node'), 'Node unavailable; skip browser mock API test')
     def test_canonical_gui_mock_api_contract(self):
         proc=subprocess.run(['node',str(BASE/'tests/js/test_vercel_workbench_mock_api.js')],

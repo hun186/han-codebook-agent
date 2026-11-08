@@ -37,6 +37,35 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
 #toast[hidden]{display:none}
 .settings-help{line-height:1.65}
 
+/* Dense overview: do not force horizontal overflow on the rest of the workbench. */
+.case-overview-tools{display:grid;grid-template-columns:minmax(220px,2fr) repeat(2,minmax(150px,1fr)) minmax(110px,.6fr);gap:10px;align-items:end}
+.case-overview-tools>*{min-width:0}
+.case-overview-tools input,.case-overview-tools select{width:100%;min-width:0;max-width:100%}
+.case-overview-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:8px;margin:12px 0}
+.case-overview-kpis>div{padding:10px;background:#0c1b2d;border:1px solid #2f4858;border-radius:7px;min-width:0}
+.case-overview-kpis strong{display:block;font-size:22px;color:#86e4db}
+.case-overview-kpis small{font-size:12px;line-height:1.55}
+.case-overview-scroll{max-width:100%;overflow:auto;border:1px solid #33475b;border-radius:9px;margin-top:12px}
+.case-overview-table{min-width:1080px;width:100%;table-layout:fixed}
+.case-overview-table th,.case-overview-table td{overflow-wrap:anywhere;vertical-align:top}
+.case-overview-table th{position:sticky;top:0;background:#142c40;z-index:1}
+.case-overview-table td small{display:block}
+.case-overview-table tr.current-message{background:#123d43}
+.case-overview-table td .overview-code{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+.case-overview-table .details-cell{background:#11283b;padding:12px}
+.overview-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.overview-detail-grid>div{min-width:0;overflow-wrap:anywhere}
+.overview-detail-grid pre{max-height:240px;margin:4px 0;font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere}
+.case-overview-actions{display:flex;gap:6px;flex-wrap:wrap}
+.case-overview-actions button{font-size:12px;white-space:nowrap;padding:6px 8px}
+.case-overview-pages{display:flex;align-items:center;justify-content:flex-end;gap:9px;margin-top:10px;flex-wrap:wrap}
+.case-overview-pages button{flex:0 0 auto;min-width:76px}
+@media(max-width:880px){
+ .case-overview-tools{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .overview-detail-grid{grid-template-columns:minmax(0,1fr)}
+}
+@media(max-width:540px){.case-overview-tools{grid-template-columns:minmax(0,1fr)}}
+
 /* Provider settings must not inherit the five-column 170px generic grid. */
 [hidden]{display:none!important}
 .llm-settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 20px;align-items:start}
@@ -133,7 +162,25 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
 </div></section>
 <section id="vocab" class="page"><div class="panel"><h2>詞彙與語言先驗</h2><p class="muted">編輯會直接影響解碼候選與頻率分布；權重不是已驗證答案，範例句為 token 清單，一句一行，以空格區隔。</p>
 <div class="guide-callout settings-help"><strong>什麼是先驗權重？</strong> 在看這封密電的直接證據之前，研究員預先給詞組的偏好強度；例如「車隊＝5、橋梁＝2」只是讓其他條件相近時車隊比較容易被提議，不代表 5 倍正確率或 50% 信心。降低權重可做消融比較，確定明文只能由可靠逐碼明密文對建立。</div><div class="row"><div><label>領域</label><select id="profilePick"></select></div><div><label>搜尋詞彙</label><input id="wordSearch" type="text" placeholder="搜尋詞組"></div></div><div class="wrap compact"><table><thead><tr><th>詞組</th><th>先驗權重</th><th></th></tr></thead><tbody id="vocabTable"></tbody></table></div><div class="row"><input type="text" id="newWord" placeholder="新增詞組"><input type="number" id="newWeight" min="0" max="1000" value="3"><button id="addWord">新增</button></div><label>領域判定關鍵詞（逗號分隔）</label><textarea id="keywords"></textarea><label>範例句（每行一筆，詞組間以空格分隔）</label><textarea id="sentences" rows="5"></textarea><button id="saveProfile" class="primary">套用詞彙與範例句修改</button><hr><h3>LLM 自動提出候選詞庫（人工覆核）</h3><p class="muted">只把密文與可觀察情報送至設定的內網模型；不使用合成金標，回覆不會自動進入候選詞庫。</p><button id="askVocabulary">請內網 LLM 產生候選詞（需確認）</button><pre id="vocabProgress" class="muted"></pre><div id="vocabSuggestions" class="compact"></div></div></section>
-<section id="evidence" class="page"><div class="panel"><h2>電文與第三方情報</h2><p class="muted">第三方觀察可以記錄目擊者、目的地、活動、狀態、可信度；它只用於語意與領域推測，不會自動升格為明文對照。</p><div class="row"><div><label>選擇電文</label><select id="messagePick"></select></div><div><label>密碼組（可用空白分隔編輯）</label><textarea id="cipherEdit" rows="2"></textarea></div></div><div class="gridfield"><div><label>發送者</label><input id="sender" type="text"></div><div><label>接收者</label><input id="recipient" type="text"></div><div><label>收報日期時間（ISO 格式）</label><input id="received_at" type="text" placeholder="1942-05-03T16:00:00"></div><div><label>備註</label><input id="notes" type="text"></div><div><label>指定領域（非必填）</label><input id="domain" type="text"></div></div><label>新增第三方觀察（可逐項填寫）</label>
+<section id="evidence" class="page">
+<div class="panel"><h2>全案電文總覽</h2>
+<p class="muted">一次查看目前案例全部電文的密碼組、收發資訊、研究員明文對照與第三方觀察。這裡不會讀取或顯示模擬標準答案；逐碼對照是研究員記錄，並非破解準確率。</p>
+<div id="caseOverviewKpis" class="case-overview-kpis" aria-label="案例電文統計"></div>
+<div class="case-overview-tools">
+<div><label for="caseOverviewSearch">搜尋全部電文</label><input id="caseOverviewSearch" type="search" placeholder="電文 ID、碼組、收發者、明文、觀察或備註" autocomplete="off"></div>
+<div><label for="caseOverviewFilter">篩選</label><select id="caseOverviewFilter"><option value="all">全部電文</option><option value="aligned">有逐碼明文對照</option><option value="unaligned">有明文但尚未切段</option><option value="none">沒有明文對照</option><option value="observed">有第三方觀察</option><option value="no-observations">無第三方觀察</option><option value="missing-parties">收發者資訊不完整</option></select></div>
+<div><label for="caseOverviewSort">排序</label><select id="caseOverviewSort"><option value="original">案例原始順序</option><option value="id">電文 ID（自然順序）</option><option value="time">收報時間（由早至晚）</option><option value="codes">碼組數（由多至少）</option></select></div>
+<div><label for="caseOverviewPageSize">每頁筆數</label><select id="caseOverviewPageSize"><option value="25">25</option><option value="50" selected>50</option><option value="100">100</option></select></div>
+</div>
+<p class="muted" id="caseOverviewMatchCount" aria-live="polite"></p>
+<div class="case-overview-scroll" role="region" aria-label="電文總覽資料表" tabindex="0">
+<table class="case-overview-table"><colgroup><col style="width:12%"><col style="width:17%"><col style="width:12%"><col style="width:24%"><col style="width:14%"><col style="width:11%"><col style="width:10%"></colgroup>
+<thead><tr><th scope="col">電文 ID / 時間</th><th scope="col">收發單位</th><th scope="col">領域 / 備註</th><th scope="col">密碼組預覽</th><th scope="col">明文對照狀態</th><th scope="col">觀察紀錄</th><th scope="col">操作</th></tr></thead>
+<tbody id="caseOverviewBody"></tbody></table></div>
+<div class="case-overview-pages"><button id="caseOverviewPrev" type="button">上一頁</button><span id="caseOverviewPager" class="muted" aria-live="polite">—</span><button id="caseOverviewNext" type="button">下一頁</button></div>
+<p class="muted">按「展開全文」可檢查完整碼組、對照文字、逐碼對照與全部觀察內容；按「編輯此封」直接跳到下方電文編輯區。統計與清單只反映本頁已套用的資料；尚未儲存的原始檔案不會被修改。</p>
+</div>
+<div class="panel"><h2>電文與第三方情報</h2><p class="muted">第三方觀察可以記錄目擊者、目的地、活動、狀態、可信度；它只用於語意與領域推測，不會自動升格為明文對照。</p><div class="row"><div><label>選擇電文</label><select id="messagePick"></select></div><div><label>密碼組（可用空白分隔編輯）</label><textarea id="cipherEdit" rows="2"></textarea></div></div><div class="gridfield"><div><label>發送者</label><input id="sender" type="text"></div><div><label>接收者</label><input id="recipient" type="text"></div><div><label>收報日期時間（ISO 格式）</label><input id="received_at" type="text" placeholder="1942-05-03T16:00:00"></div><div><label>備註</label><input id="notes" type="text"></div><div><label>指定領域（非必填）</label><input id="domain" type="text"></div></div><label>新增第三方觀察（可逐項填寫）</label>
 <div class="gridfield"><div><label>情報來源</label><input id="obsSource" type="text" placeholder="目擊者或觀察報告"></div><div><label>觀察日期時間（ISO 格式）</label><input id="obsWhen" type="text" placeholder="1942-05-03 或完整時間"></div><div><label>觀察行為</label><input id="obsActivity" type="text" placeholder="例如裝載物資"></div><div><label>目的地</label><input id="obsDest" type="text" placeholder="例如補給處"></div><div><label>狀態</label><input id="obsStatus" type="text" placeholder="例如車隊已離開"></div><div><label>可信度 0~1</label><input id="obsConfidence" type="number" min="0" max="1" step="0.05" value="0.6"></div><div><label>補充內容</label><input id="obsNote" type="text"></div></div>
 <button id="addObservation">新增觀察至列表</button><div id="obsCards"></div>
 <label>進階：觀察資料 JSON（直接修改後按套用）</label><textarea id="observations" rows="9" spellcheck="false" placeholder='[{"source":"偵察員甲","observed_at":"1942-05-03","activity":"裝載貨物","destination":"糧食倉庫","status":"途中","confidence":0.7,"note":"車隊向補給處方向行進"}]'></textarea><button id="applyEvidence" class="primary">套用此封情報</button><h3>可能相關電文：時序交叉線索</h3><p class="muted">顯示日期距離與目擊可信度，不等於已破譯；每則保留「可能完全無關」。先套用編輯，再按下方按鈕。</p><button id="checkEvents">分析目擊與密電時序</button><div id="eventLinks" class="compact"></div><h3>已知明密文對（研究員逐筆管理，不會被 LLM 覆寫）</h3>
@@ -284,6 +331,8 @@ async function testLLMSettings(){
  el('llmSettingStatus').textContent=(result.connected?'基本連線檢查成功':'基本連線檢查未成功')+'\n'+(result.diagnostics||[]).join('\n')+'\n'+result.note;
 }
 function presentCase(){
+ overviewState.page=0;overviewState.expanded.clear();
+ el('caseOverviewSearch').value='';el('caseOverviewFilter').value='all';el('caseOverviewSort').value='original';
  alignmentReport=null;alignmentOrigin=null;alignmentChoice=null;
  el('alignmentCandidates').textContent='尚未產生候選';el('alignmentTyped').value='';
  invalidateOldJobs();priorResult=null;vocabCandidateRecord=[];
@@ -307,7 +356,7 @@ function addNewMessage(){if(!research)return;let id=prompt('新電文 ID（不�
  if(research.messages.some(m=>m.id===id)){notice('此電文 ID 已存在',true);return}
  let raw=prompt('輸入新電文數字碼組，以空白分隔','');if(!raw)return;let codes=raw.trim().split(/\s+/).filter(Boolean);
  if(!codes.length||codes.some(c=>!/^\d+$/.test(c))){notice('需輸入數字碼組，用空白分隔',true);return}
- research.messages.push({id,codes});el('messagePick').add(new Option(id,id));el('messagePick').value=id;loadEvidence();initializeMarks();notice('已建立 '+id+'，尚未存檔')}
+ research.messages.push({id,codes});el('messagePick').add(new Option(id,id));el('messagePick').value=id;loadEvidence();if(typeof renderMessageOverview==='function')renderMessageOverview();initializeMarks();notice('已建立 '+id+'，尚未存檔')}
 function deleteMessage(){let m=msg();if(!research||!m||research.messages.length<2){notice('至少須保留一封電文',true);return}
  if(!confirm('刪除 '+m.id+'？此動作只在本次未存檔研究案例中發生。'))return;
  research.messages=research.messages.filter(x=>x!==m);
@@ -337,7 +386,117 @@ function newProfile(){if(!research)return;let name=prompt('新語境領域名稱
 
 function loadProfile(){let p=profile();el('keywords').value=(p.keywords||[]).join(', ');el('sentences').value=(p.sentences||[]).map(a=>a.join(' ')).join('\n');renderVocab()}
 function renderVocab(){let p=profile(),q=el('wordSearch').value.trim();el('vocabTable').innerHTML=Object.entries(p.lexicon||{}).filter(([k])=>k.includes(q)).map(([w,n])=>`<tr><td>${esc(w)}</td><td><input type="number" data-word="${esc(w)}" min="0" max="10000" value="${esc(n)}"></td><td><button data-delete="${esc(w)}">刪除</button></td></tr>`).join('');el('vocabTable').querySelectorAll('[data-word]').forEach(inp=>inp.addEventListener('change',()=>{let v=Number(inp.value);if(!Number.isFinite(v)||v<0){notice('權重必須為非負數',true);return}p.lexicon[inp.dataset.word]=v}));el('vocabTable').querySelectorAll('[data-delete]').forEach(b=>b.addEventListener('click',()=>{delete p.lexicon[b.dataset.delete];renderVocab()}))}
-function loadEvidence(){let m=msg();if(!m)return;for(let k of ['sender','recipient','notes','domain','received_at'])el(k).value=m[k]||'';el('cipherEdit').value=m.codes.join('  ');el('observations').value=JSON.stringify(m.observations||[],null,2);renderObservations()}
+// Overview reads the currently loaded case only. Never load synthetic oracle/gold.
+const overviewState={page:0,expanded:new Set(),loadedMessageId:null};
+const overviewText=(v,n=70)=>String(v??'').length>n?String(v).slice(0,n)+'…':String(v??'');
+function overviewPairs(id){return (research?.known_pairs||[]).filter(p=>p.message_id===id)}
+function overviewPairStatus(m){
+ const pairs=overviewPairs(m.id);
+ return pairs.some(p=>Array.isArray(p.segments))?'aligned':pairs.length?'unaligned':'none';
+}
+function overviewStatusLabel(m){
+ const status=overviewPairStatus(m);
+ return status==='aligned'?'研究員逐碼對照':status==='unaligned'?'完整明文・待切段':'無明文對照';
+}
+function overviewSearchText(m){
+ const pairs=overviewPairs(m.id);
+ return [m.id,m.sender,m.recipient,m.received_at,m.domain,m.notes,
+         ...(m.codes||[]),...pairs.map(p=>p.plaintext??(p.segments||[]).join('')),
+         JSON.stringify(m.observations||[])].join(' ').toLowerCase();
+}
+function renderMessageOverview(){
+ if(!research)return;
+ const messages=research.messages||[], pairMessages=new Set((research.known_pairs||[]).map(p=>p.message_id));
+ const aligned=messages.filter(m=>overviewPairStatus(m)==='aligned').length;
+ const unaligned=messages.filter(m=>overviewPairStatus(m)==='unaligned').length;
+ const withObs=messages.filter(m=>Array.isArray(m.observations)&&m.observations.length).length;
+ const missing=messages.filter(m=>!m.sender||!m.recipient).length;
+ const kpis=[['電文總數',messages.length],['研究員逐碼對照',aligned],
+   ['完整明文待切段',unaligned],['有第三方觀察',withObs],
+   ['收發者不完整',missing]];
+ el('caseOverviewKpis').innerHTML=kpis.map(([label,count])=>
+   '<div><strong>'+count+'</strong><small>'+esc(label)+'</small></div>').join('');
+ const query=el('caseOverviewSearch').value.trim().toLowerCase(),
+       filter=el('caseOverviewFilter').value,sort=el('caseOverviewSort').value;
+ let items=messages.filter(m=>{
+   if(query&&!overviewSearchText(m).includes(query))return false;
+   const status=overviewPairStatus(m);
+   if(filter==='aligned'||filter==='unaligned'||filter==='none')return status===filter;
+   if(filter==='observed')return Array.isArray(m.observations)&&m.observations.length>0;
+   if(filter==='no-observations')return !Array.isArray(m.observations)||m.observations.length===0;
+   if(filter==='missing-parties')return !m.sender||!m.recipient;
+   return true;
+ });
+ if(sort==='id')items.sort((a,b)=>a.id.localeCompare(b.id,'zh-Hant',{numeric:true}));
+ if(sort==='time')items.sort((a,b)=>String(a.received_at||'').localeCompare(String(b.received_at||'')));
+ if(sort==='codes')items.sort((a,b)=>(b.codes||[]).length-(a.codes||[]).length);
+ const pageSize=Number(el('caseOverviewPageSize').value)||50;
+ const pages=Math.max(1,Math.ceil(items.length/pageSize));
+ overviewState.page=Math.max(0,Math.min(overviewState.page,pages-1));
+ const shown=items.slice(overviewState.page*pageSize,(overviewState.page+1)*pageSize);
+ el('caseOverviewMatchCount').textContent='符合條件 '+items.length+' / '+messages.length+
+    ' 封 · 本頁顯示 '+shown.length+' 封 · 明文對照不包含任何隱藏標準答案';
+ el('caseOverviewPager').textContent='第 '+(overviewState.page+1)+' / '+pages+' 頁';
+ el('caseOverviewPrev').disabled=overviewState.page===0;
+ el('caseOverviewNext').disabled=overviewState.page>=pages-1;
+ el('caseOverviewBody').innerHTML=shown.length?shown.map(m=>{
+   const pairs=overviewPairs(m.id),obs=Array.isArray(m.observations)?m.observations:[],
+         selected=m.id===overviewState.loadedMessageId?' current-message':'',
+         open=overviewState.expanded.has(m.id),codes=Array.isArray(m.codes)?m.codes:[],
+         firstCodes=codes.slice(0,9).join(' '),status=overviewStatusLabel(m);
+   const details=open?'<tr><td class="details-cell" colspan="7"><div class="overview-detail-grid">'+
+     '<div><strong>完整密碼組（'+codes.length+' 碼）</strong><pre>'+esc(codes.join(' '))+'</pre></div>'+
+     '<div><strong>全部已知明文對照（'+pairs.length+' 筆）</strong>'+
+       (pairs.length?pairs.map((p,i)=>'<pre>#'+(i+1)+' '+(Array.isArray(p.segments)?'研究員逐碼對齊':'完整明文未切段')+
+        '\n'+esc(p.plaintext??(p.segments||[]).join(''))+
+        (Array.isArray(p.segments)?'\n逐碼：'+esc(codes.map((c,j)=>c+' → '+p.segments[j]).join(' ｜ ')):'')+'</pre>').join(''):'<p class="muted">此封沒有研究員提供的明文對照。</p>')+
+     '</div><div><strong>第三方觀察全部內容（'+obs.length+' 筆）</strong>'+
+       (obs.length?'<pre>'+esc(JSON.stringify(obs,null,2))+'</pre>':'<p class="muted">尚未提供第三方觀察。</p>')+'</div>'+
+     '<div><strong>電文其他資訊</strong><pre>'+esc(JSON.stringify({
+       sender:m.sender??null,recipient:m.recipient??null,received_at:m.received_at??null,
+       domain:m.domain??null,notes:m.notes??null},null,2))+'</pre></div></div></td></tr>':'';
+   return '<tr class="'+selected+'"><td><strong>'+esc(m.id)+'</strong><small>'+esc(m.received_at||'未提供時間')+'</small></td>'+
+    '<td>'+esc(m.sender||'未填發送者')+' → '+esc(m.recipient||'未填接收者')+'</td>'+
+    '<td>'+esc(m.domain||'未指定')+'<small>'+esc(overviewText(m.notes,75))+'</small></td>'+
+    '<td><span class="overview-code">'+esc(firstCodes)+(codes.length>9?' …':'')+
+      '</span><small>共 '+codes.length+' 碼</small></td>'+
+    '<td>'+esc(status)+'<small>'+pairs.length+' 筆對照</small></td>'+
+    '<td>'+obs.length+' 筆<small>'+esc(overviewText(obs.map(x=>x.activity||x.source||'').join('、'),36))+'</small></td>'+
+    '<td><div class="case-overview-actions"><button type="button" data-overview-open="'+esc(m.id)+'">編輯此封</button>'+
+      '<button type="button" data-overview-expand="'+esc(m.id)+'" aria-expanded="'+open+'">'+(open?'收合':'展開全文')+'</button></div></td></tr>'+details;
+ }).join(''):'<tr><td colspan="7">找不到符合條件的電文，可清除搜尋或調整篩選。</td></tr>';
+ el('caseOverviewBody').querySelectorAll('[data-overview-expand]').forEach(b=>b.onclick=()=>{
+   const id=b.dataset.overviewExpand;
+   if(overviewState.expanded.has(id))overviewState.expanded.delete(id);else overviewState.expanded.add(id);
+   renderMessageOverview();
+ });
+ el('caseOverviewBody').querySelectorAll('[data-overview-open]').forEach(b=>b.onclick=()=>{
+   if(selectEvidenceMessage(b.dataset.overviewOpen))el('messagePick').scrollIntoView({behavior:'smooth',block:'center'});
+ });
+}
+function evidenceDraftChanged(){
+ if(!research||!overviewState.loadedMessageId)return false;
+ const m=research.messages.find(x=>x.id===overviewState.loadedMessageId);
+ if(!m)return false;
+ for(const k of ['sender','recipient','notes','domain','received_at'])
+   if(el(k).value.trim()!==(m[k]||''))return true;
+ if(el('cipherEdit').value.trim().split(/\s+/).filter(Boolean).join(' ')!==(m.codes||[]).join(' '))return true;
+ try{if(JSON.stringify(JSON.parse(el('observations').value))!==JSON.stringify(m.observations||[]))return true}
+ catch(_){return true}
+ return false;
+}
+function selectEvidenceMessage(id){
+ if(!research?.messages?.some(m=>m.id===id))return false;
+ // Already selected: NEVER reload controls and discard uncommitted research.
+ if(id===overviewState.loadedMessageId){el('messagePick').value=id;return true}
+ if(evidenceDraftChanged()&&
+    !confirm('目前電文有尚未套用的密文／情報修改，切換將放棄這些修改。仍要切換嗎？')){
+   el('messagePick').value=overviewState.loadedMessageId;return false;
+ }
+ el('messagePick').value=id;loadEvidence();renderMessageOverview();return true;
+}
+
+function loadEvidence(){let m=msg();if(!m)return;for(let k of ['sender','recipient','notes','domain','received_at'])el(k).value=m[k]||'';el('cipherEdit').value=m.codes.join('  ');el('observations').value=JSON.stringify(m.observations||[],null,2);overviewState.loadedMessageId=m.id;renderObservations()}
 function applyEvidence(){
  try{
   const m=msg();if(!m)throw Error('請先選擇電文');
@@ -395,7 +554,7 @@ function applyEvidence(){
    }
    initializeMarks();renderIdeas();
   }
-  renderObservations();
+  renderObservations();if(typeof renderMessageOverview==='function')renderMessageOverview();
   notice('已套用 '+m.id+' 的密文與情報'+(orphaned.length?'；已清理 '+orphaned.length+' 個不再出現的碼組及歷史':'')+'（尚未保存到磁碟）');
  }catch(e){notice(e.message,true)}
 }
@@ -481,6 +640,7 @@ function renderKnownPairs(){
  el('knownPairs').querySelectorAll('[data-known-edit]').forEach(btn=>btn.onclick=()=>openKnownRowEditor(Number(btn.dataset.knownEdit)));
  el('knownPairs').querySelectorAll('[data-known-delete]').forEach(btn=>btn.onclick=()=>deleteKnownRow(Number(btn.dataset.knownDelete)));
  el('knownEdit').value=JSON.stringify(pairs,null,2);
+ if(typeof renderMessageOverview==='function')renderMessageOverview();
 }
 function closeKnownRowEditor(){knownEditorIndex=null;knownEditorOrigin=null;el('knownRowEditor').hidden=true;el('knownRowVerified').checked=false;}
 function knownJsonIsSynced(){
@@ -1106,5 +1266,11 @@ el('llmModelChoices').onchange=()=>{if(el('llmModelChoices').value)el('llmModel'
 el('llmModel').oninput=()=>{const pick=el('llmModelChoices');pick.value=[...pick.options].some(x=>x.value===el('llmModel').value)?el('llmModel').value:''};
 el('refreshLLMModels').onclick=()=>refreshLLMModels();
 el('saveLLM').onclick=()=>saveLLMSettings().catch(e=>notice(e.message,true));el('testLLM').onclick=()=>testLLMSettings().catch(e=>notice(e.message,true));
-el('loadCase').onclick=()=>loadCase().catch(e=>notice(e.message,true));el('profilePick').onchange=loadProfile;el('messagePick').onchange=loadEvidence;el('wordSearch').oninput=renderVocab;el('addWord').onclick=()=>{let w=el('newWord').value.trim(),n=Number(el('newWeight').value);if(w&&Number.isFinite(n)&&n>=0){profile().lexicon[w]=n;el('newWord').value='';renderVocab()}};el('saveProfile').onclick=saveProfile;el('applyEvidence').onclick=applyEvidence;el('addObservation').onclick=addObservation;el('applyKnown').onclick=applyKnown;el('knownAdd').onclick=()=>openKnownRowEditor(null);el('knownRowSave').onclick=saveKnownRow;el('knownRowCancel').onclick=closeKnownRowEditor;el('knownRowMessage').onchange=renderKnownWordFields;el('previewAlignment').onclick=previewAlignmentCandidates;el('confirmAlignment').onclick=confirmAlignmentCandidate;el('run').onclick=start;el('save').onclick=save;el('runBenchmark').onclick=startBenchmark;el('loadBenchmark').onclick=()=>api('/api/benchmark').then(renderBenchmark).catch(e=>notice(e.message,true));listCases().then(loadCase).catch(e=>notice(e.message,true));
+el('caseOverviewSearch').oninput=()=>{overviewState.page=0;renderMessageOverview()};
+el('caseOverviewFilter').onchange=()=>{overviewState.page=0;renderMessageOverview()};
+el('caseOverviewSort').onchange=()=>{overviewState.page=0;renderMessageOverview()};
+el('caseOverviewPageSize').onchange=()=>{overviewState.page=0;renderMessageOverview()};
+el('caseOverviewPrev').onclick=()=>{overviewState.page--;renderMessageOverview()};
+el('caseOverviewNext').onclick=()=>{overviewState.page++;renderMessageOverview()};
+el('loadCase').onclick=()=>loadCase().catch(e=>notice(e.message,true));el('profilePick').onchange=loadProfile;el('messagePick').onchange=()=>selectEvidenceMessage(el('messagePick').value);el('wordSearch').oninput=renderVocab;el('addWord').onclick=()=>{let w=el('newWord').value.trim(),n=Number(el('newWeight').value);if(w&&Number.isFinite(n)&&n>=0){profile().lexicon[w]=n;el('newWord').value='';renderVocab()}};el('saveProfile').onclick=saveProfile;el('applyEvidence').onclick=applyEvidence;el('addObservation').onclick=addObservation;el('applyKnown').onclick=applyKnown;el('knownAdd').onclick=()=>openKnownRowEditor(null);el('knownRowSave').onclick=saveKnownRow;el('knownRowCancel').onclick=closeKnownRowEditor;el('knownRowMessage').onchange=renderKnownWordFields;el('previewAlignment').onclick=previewAlignmentCandidates;el('confirmAlignment').onclick=confirmAlignmentCandidate;el('run').onclick=start;el('save').onclick=save;el('runBenchmark').onclick=startBenchmark;el('loadBenchmark').onclick=()=>api('/api/benchmark').then(renderBenchmark).catch(e=>notice(e.message,true));listCases().then(loadCase).catch(e=>notice(e.message,true));
 </script></body></html>

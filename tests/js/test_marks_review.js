@@ -7,8 +7,9 @@ const script=html.split('<script>')[1].split('</script>')[0];
 const grab=(a,b)=>{let i=script.indexOf(a),j=script.indexOf(b);assert(i>=0&&j>i,'function not found '+a);return script.slice(i,j)};
 const elData={knownEdit:{value:''},knownPairs:{innerHTML:'',querySelectorAll:()=>[]},knownRowEditor:{hidden:true},knownRowVerified:{checked:false},alignmentCandidates:{textContent:''},alignmentTyped:{value:''}};
 const research={messages:[{id:'a',codes:['001','002']}],known_pairs:[],hypothesis_marks:{'001':{preferred:'甲',pinned:true,excluded:[],note:'trial'}}};
-const notices=[];
+const notices=[];let overviewRefreshes=0;
 const ctx={research,el:(id)=>elData[id]||(elData[id]={}),esc:s=>String(s),confirm:()=>true,notice:(s,b)=>notices.push({s,b}),initializeMarks:()=>{},
+  renderMessageOverview:()=>{overviewRefreshes++},
   Blob,markSnapshots:[{'001':{preferred:'甲',pinned:true,excluded:[],note:'trial'}},{}],markActions:['original','cleared'],markCursor:1,copyMarks:(x)=>JSON.parse(JSON.stringify(x))};
 vm.createContext(ctx);
 vm.runInContext(grab('function persistMarkHistory()', 'function initializeMarks()'),ctx);
@@ -22,6 +23,7 @@ delete research.hypothesis_marks['001'];
 ctx.applyKnown();
 assert.strictEqual(research.known_pairs.length,1,'non-conflicting known pair did not apply');
 assert.strictEqual(notices.at(-1).b,undefined,'successful edit reported as error');
+assert(overviewRefreshes>0,'known-pair edit updates the case overview');
 assert(ctx.markSnapshots.every(snapshot=>!('001' in snapshot)), 'old marks for newly verified code resurrect through undo');
 const snapshots=[];
 const words=Array.from({length:60},(_,i)=>String(i).padStart(3,'0'));

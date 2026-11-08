@@ -14,7 +14,7 @@ for(const id of ['knownPairs','knownAdd','knownRowEditor','knownRowMessage',
 }
 assert(source.includes('el(\'knownAdd\').onclick'));
 assert(source.includes('el(\'knownRowSave\').onclick'));
-let records=[],ask=true,fields=[],dom={};
+let records=[],ask=true,fields=[],dom={},overviewRefreshes=0;
 function el(id){
  if(!dom[id]){
   dom[id]={value:'',innerHTML:'',textContent:'',checked:false,hidden:true,
@@ -34,6 +34,7 @@ const context={
  notice:(s,bad=false)=>records.push({s,bad}),confirm:()=>ask,
  copyMarks:x=>JSON.parse(JSON.stringify(x||{})),
  persistMarkHistory:()=>{},initializeMarks:()=>{},renderBoldHypotheses:()=>{},
+ renderMessageOverview:()=>{overviewRefreshes++},
 };
 vm.createContext(context);
 context.initialCase=textCase;
@@ -46,6 +47,7 @@ const errors=()=>records.filter(x=>x.bad).map(x=>x.s);
 const setFields=words=>{fields=words.map(value=>({value}));};
 context.renderKnownPairs();
 assert(el('knownPairs').innerHTML.includes('目前沒有明密文對'));
+assert(overviewRefreshes>0,'overview is refreshed after known-plaintext changes');
 context.openKnownRowEditor(null);
 assert.strictEqual(el('knownRowEditor').hidden,false);
 el('knownRowMessage').value='m1';

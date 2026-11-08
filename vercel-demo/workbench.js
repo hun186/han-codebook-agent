@@ -135,6 +135,8 @@ function addNewMessage(){if(!research)return;let id=prompt('新電文 ID（不�
  if(research.messages.some(m=>m.id===id)){notice('此電文 ID 已存在',true);return}
  let raw=prompt('輸入新電文數字碼組，以空白分隔','');if(!raw)return;let codes=raw.trim().split(/\s+/).filter(Boolean);
  if(!codes.length||codes.some(c=>!/^\d+$/.test(c))){notice('需輸入數字碼組，用空白分隔',true);return}
+ // Adding a message switches the editor; do not silently discard this draft.
+ if(evidenceDraftChanged()&&!confirm('目前電文有尚未套用的密文／情報修改，新增電文會放棄這些修改。仍要新增嗎？'))return;
  research.messages.push({id,codes});el('messagePick').add(new Option(id,id));el('messagePick').value=id;loadEvidence();if(typeof renderMessageOverview==='function')renderMessageOverview();initializeMarks();notice('已建立 '+id+'，尚未存檔')}
 function deleteMessage(){let m=msg();if(!research||!m||research.messages.length<2){notice('至少須保留一封電文',true);return}
  if(!confirm('刪除 '+m.id+'？此動作只在本次未存檔研究案例中發生。'))return;

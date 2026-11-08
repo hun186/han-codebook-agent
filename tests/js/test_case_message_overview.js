@@ -103,6 +103,6 @@ el('messagePick').add=()=>{};
 new vm.Script(js.slice(addBegin,addEnd),{filename:'add-message.js'}).runInContext(context);
 run('addNewMessage()');
 assert.equal(context.research.messages.length,1001);
-assert.match(el('caseOverviewMatchCount').textContent,/1001 \\/ 1001/);
+assert.match(el('caseOverviewMatchCount').textContent,/1001 \/ 1001/);
 assert.match(el('caseOverviewKpis').innerHTML,/1001/);
 console.log('Case overview offline smoke PASS: 100/1000/1001 rows, paging, filters, full plaintext, no gold, dirty-navigation guard, add refresh');

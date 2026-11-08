@@ -1,5 +1,5 @@
 const el=id=>document.getElementById(id);let research=null,lastJob=null,poll=null,markSnapshots=[],markCursor=-1,markActions=[],priorResult=null,ideaSnapshots=[],ideaCursor=-1,lastLLMEntries=[];
-let caseGeneration=0,lastLLMOrigin=null,vocabOrigin=null,vocabTimer=null;
+let caseGeneration=0,caseLoadRequestSerial=0,lastLLMOrigin=null,vocabOrigin=null,vocabTimer=null;
 let alignmentReport=null,alignmentOrigin=null,alignmentChoice=null;
 let knownEditorIndex=null,knownEditorOrigin=null;
 let vocabRequestSerial=0,vocabActiveJobId=null,analysisRequestSerial=0,activeHumanReviewJobId=null;
@@ -121,11 +121,12 @@ function presentCase(){
 async function loadCase(){
  // Keep the current editor and running jobs intact if loading fails or the
  // researcher declines to discard an uncommitted evidence form draft.
+ const requestSerial=++caseLoadRequestSerial;
  const requestGeneration=caseGeneration, previousCase=research;
  const wanted=el('caseList').value;
  const loaded=await api('/api/case?id='+encodeURIComponent(wanted));
  // A newer case selection/create action takes priority over this response.
- if(requestGeneration!==caseGeneration||research!==previousCase)return;
+ if(requestSerial!==caseLoadRequestSerial||requestGeneration!==caseGeneration||research!==previousCase)return;
  if(evidenceDraftChanged()&&!confirm('目前電文有尚未套用的密文／情報修改，載入其他案例將放棄這些修改。仍要載入嗎？')){
   notice('已保留目前電文草稿，沒有切換案例');return;
  }

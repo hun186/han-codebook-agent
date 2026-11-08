@@ -16,7 +16,7 @@ const el=id=>{
 const original={case_id:'ORIGINAL',messages:[{id:'M1',codes:['123']}]};
 let dirty=true,allow=false,cancelledJobs=0,presentations=0,requests=0,confirms=0;
 const ctx={
- research:original,caseGeneration:0,el,
+ research:original,caseGeneration:0,caseLoadRequestSerial:0,el,
  api:async()=>{requests++;return {case_id:'LOADED',messages:[]}},
  invalidateOldJobs:()=>{cancelledJobs++;ctx.caseGeneration++},
  presentCase:()=>{presentations++;ctx.invalidateOldJobs()},
@@ -74,5 +74,22 @@ el('caseList').value='other-case';
  assert.equal(ctx.research.case_id,'NEW_RESEARCH');
  assert.equal(ctx.research.messages.length,1);
  assert.equal(presentations,2);
- console.log('Case transition guard PASS: load/new cancel, late response, mid-flight draft and confirmed creation');
+ // Two overlapping loads must select the LAST requested case, even when the
+ // earlier request returns first. A plain caseGeneration check is insufficient.
+ dirty=false;allow=false;
+ const beforeRace=ctx.research;
+ const resolves=[];
+ ctx.api=()=>new Promise(resolve=>resolves.push(resolve));
+ const loadA=run('loadCase()');
+ const loadB=run('loadCase()');
+ assert.equal(resolves.length,2);
+ resolves[0]({case_id:'OLDER_A',messages:[]});
+ await loadA;
+ assert.equal(ctx.research,beforeRace);
+ assert.equal(presentations,2);
+ resolves[1]({case_id:'LATEST_B',messages:[]});
+ await loadB;
+ assert.equal(ctx.research.case_id,'LATEST_B');
+ assert.equal(presentations,3);
+ console.log('Case transition guard PASS: load/new cancel, stale response, mid-flight draft, concurrent latest-request-wins');
 })().catch(error=>{console.error(error);process.exitCode=1});

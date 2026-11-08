@@ -1,5 +1,10 @@
 # Project memory
 
+## 2026-11-08 — PR #57 Codex P2 concurrent case-load ordering (fixed, pending review)
+- Codex formal review of initial `7cb67d563d7ef12d67a3b69f11ff724896740519` found a valid P2: delaying caseGeneration invalidation lets concurrent case loads share the same generation, so an older response can preempt the most recent request.
+- Fix introduces independent monotonic `caseLoadRequestSerial`; each `loadCase()` increments it before fetching and only the newest request can commit. Existing caseGeneration and research-identity checks remain, and cancellation still preserves the active editor and jobs. Offline browser-VM test now races A/B requests with A completing first and verifies B wins. Hosted CI and **new formal latest-HEAD Codex review** are PENDING; do not resolve the thread or merge based on old review.
+
+
 ## 2026-11-08 — PR #56 merged; case-transition draft protection pending
 - PR #56 safely guards add-message editor transitions and merged as `e03dfa044ed5ddea545e5d89158d47c7588068d5` after HEAD `deb5637586ac05ced42a0d82644f35ec521d3fbc` passed 8/8 Hosted CI and formal Codex Completed/No Findings (0 unresolved threads). No live workstation or paid inference test is claimed.
 - Current branch `fix/case-transition-draft-guard-20261108`: protects **unapplied editor form edits**, not every unsaved in-memory research-case change, when loading a different case or creating a new blank case. An aborted/failed load keeps current job/editor state; an asynchronous older load is discarded after a newer case transition. Node VM and Python unittest wrapper test canceled loads, draft edits arriving during fetch, stale responses, and confirmed new-case creation. Canonical GUI and Vercel browser-only Mock JS remain synchronized.

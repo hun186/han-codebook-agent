@@ -220,7 +220,7 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
 <section id="benchmark" class="page"><div class="panel"><h2>離線基準評測與統計圖</h2><p>使用獨立金標評估候選碼本，包含錯誤元數據與長格式虛構電文。金標只在求解完成後評分，**不送入 LLM**。測試依照固定運算預算執行，可能花較長時間。</p><button id="runBenchmark" class="primary">執行完整 8 組離線基準（不呼叫 LLM）</button><button id="loadBenchmark">載入上一次評分</button><pre id="benchmarkProgress">尚未執行</pre><div id="benchmarkCharts"></div></div></section>
 </main><script>
 const el=id=>document.getElementById(id);let research=null,lastJob=null,poll=null,markSnapshots=[],markCursor=-1,markActions=[],priorResult=null,ideaSnapshots=[],ideaCursor=-1,lastLLMEntries=[];
-let caseGeneration=0,lastLLMOrigin=null,vocabOrigin=null,vocabTimer=null;
+let caseGeneration=0,caseLoadRequestSerial=0,lastLLMOrigin=null,vocabOrigin=null,vocabTimer=null;
 let alignmentReport=null,alignmentOrigin=null,alignmentChoice=null;
 let knownEditorIndex=null,knownEditorOrigin=null;
 let vocabRequestSerial=0,vocabActiveJobId=null,analysisRequestSerial=0,activeHumanReviewJobId=null;
@@ -342,11 +342,12 @@ function presentCase(){
 async function loadCase(){
  // Keep the current editor and running jobs intact if loading fails or the
  // researcher declines to discard an uncommitted evidence form draft.
+ const requestSerial=++caseLoadRequestSerial;
  const requestGeneration=caseGeneration, previousCase=research;
  const wanted=el('caseList').value;
  const loaded=await api('/api/case?id='+encodeURIComponent(wanted));
  // A newer case selection/create action takes priority over this response.
- if(requestGeneration!==caseGeneration||research!==previousCase)return;
+ if(requestSerial!==caseLoadRequestSerial||requestGeneration!==caseGeneration||research!==previousCase)return;
  if(evidenceDraftChanged()&&!confirm('目前電文有尚未套用的密文／情報修改，載入其他案例將放棄這些修改。仍要載入嗎？')){
   notice('已保留目前電文草稿，沒有切換案例');return;
  }

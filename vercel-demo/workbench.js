@@ -43,6 +43,7 @@ let savedLLMProvider='local';
 function updateLLMProviderUI(){
  const deep=el('llmPreset').value==='deepinfra';
  el('llmAllowLANWrap').hidden=deep; el('llmAllowLAN').disabled=deep;
+ el('llmLANHelp').hidden=deep; el('llmDeepInfraHelp').hidden=!deep;
  el('llmAllowExternalWrap').hidden=!deep; el('llmAllowExternal').disabled=!deep;
  el('llmUrl').readOnly=deep;
  el('llmOutputTokenWrap').hidden=!deep; el('llmMaxOutputTokens').disabled=!deep;

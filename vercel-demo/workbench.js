@@ -266,7 +266,9 @@ function evidenceDraftChanged(){
 }
 function selectEvidenceMessage(id){
  if(!research?.messages?.some(m=>m.id===id))return false;
- if(id!==overviewState.loadedMessageId&&evidenceDraftChanged()&&
+ // Already selected: NEVER reload controls and discard uncommitted research.
+ if(id===overviewState.loadedMessageId){el('messagePick').value=id;return true}
+ if(evidenceDraftChanged()&&
     !confirm('目前電文有尚未套用的密文／情報修改，切換將放棄這些修改。仍要切換嗎？')){
    el('messagePick').value=overviewState.loadedMessageId;return false;
  }

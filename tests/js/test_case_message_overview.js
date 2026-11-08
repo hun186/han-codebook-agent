@@ -72,6 +72,10 @@ assert.match(el('caseOverviewBody').innerHTML,/完整密碼組/);
 assert.ok(run('selectEvidenceMessage("M025")'));
 assert.equal(loadCalls,1);
 el('notes').value='未套用的修改';
+// Opening the currently selected row must NOT discard the active draft.
+assert.equal(run('selectEvidenceMessage("M025")'),true);
+assert.equal(loadCalls,1);
+assert.equal(el('notes').value,'未套用的修改');
 assert.equal(run('selectEvidenceMessage("M026")'),false);
 assert.equal(el('messagePick').value,'M025');
 assert.equal(loadCalls,1);

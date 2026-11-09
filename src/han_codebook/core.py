@@ -417,12 +417,20 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
             "alternatives": [{"term": w, "relative_score": round(s - scores[0][0], 4)} for s, w in scores[:5]],
             "evidence": "Metadata-conditioned lexical frequencies and phrase transitions; must be independently checked"
         }
+    from .hypothesis_quality import mark_presentation_uncertainty
+    hypothesis_quality = mark_presentation_uncertainty(proposals, len(choices))
     decoded = []
     for m, d in tagged:
         pieces = [proposals[c]["term"] for c in m["codes"]]
+        cautious = [
+            f"[{c}:待判]" if proposals[c].get("presentation_abstained")
+            else proposals[c]["term"]
+            for c in m["codes"]
+        ]
         decoded.append({
             "id": m["id"], "domain_inferred": d, "codes": m["codes"],
             "suggested_segments": pieces, "reading": "".join(pieces),
+            "cautious_segments": cautious, "cautious_reading": "".join(cautious),
             "verified_codes": sum(c in anchors for c in m["codes"]),
             "total_codes": len(m["codes"]),
             "warning": "Any segment not grounded in an explicit known pair is a hypothesis."
@@ -442,6 +450,7 @@ def analyze(case: dict[str, Any], use_metadata: bool = True, llm_hints: dict[str
         "unknown_code_count": len(unknown_codes),
         "objective_score": round(best_score, 5),
         "proposals": proposals,
+        "hypothesis_quality": hypothesis_quality,
         "decoded_messages": decoded,
         "limitations": [
             "No reliable mapping from code group count to Chinese character count is assumed.",

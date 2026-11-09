@@ -812,6 +812,14 @@ function renderJob(j){const origin=arguments.length>1?arguments[1]:null;if(origi
  if(origin&&!matchesOrigin(origin))return;
  lastLLMEntries=(j.events||[]).filter(x=>x.stage==='llm_proposals_unverified').flatMap(x=>x.payload.accepted||[]);
  lastLLMOrigin=origin;let result=j.result,proposals=Object.entries(result.proposals),anchored=proposals.filter(([,p])=>p.status==='verified_alignment').length;el('summary').innerHTML=`<div class="kpi"><div><small>分析電文</small><strong>${result.decoded_messages.length}</strong></div><div><small>已驗證碼組</small><strong>${anchored}</strong></div><div><small>待驗證碼組</small><strong>${proposals.length-anchored}</strong></div><div><small>完成 LLM 回合</small><strong>${result.agent_rounds_completed}</strong></div></div><p class="alert">候選排名與分數不等於破解成功率。必須使用獨立金標資料評估。</p>`;
+const quality=result.hypothesis_quality;
+if(quality&&quality.presentation_abstained_code_count>0){
+ el('summary').innerHTML+='<div class="message"><strong>⚠ 推論資訊不足：'+
+  esc(quality.presentation_abstained_code_count)+' 個未驗證碼組僅顯示待判</strong> · '+
+  '近似同分 '+esc(quality.near_tied_unverified_code_count)+
+  ' 個 · 最大重複候選涵蓋 '+esc(quality.dominant_unverified_term_code_count)+
+  ' 個碼組。這是呈現警示，非破譯正確率；點選待判碼組仍可檢視原始候選。</div>';
+}
 const apiQuality=result.llm_api_metrics;
 if(apiQuality && apiQuality.attempts>0){
  const r=apiQuality.json_completeness_rate;
@@ -830,7 +838,7 @@ if(apiQuality && apiQuality.attempts>0){
 }
 
 let domCounts={};for(let m of result.decoded_messages)domCounts[m.domain_inferred||'未知']=(domCounts[m.domain_inferred||'未知']||0)+1;el('reportLink').innerHTML=`<a href="/api/jobs/${esc(j.id)}/report.docx" download style="color:#4bd0bc">下載研究分析報告（Word）</a>　｜　<a href="/api/jobs/${esc(j.id)}/report.md" download style="color:#4bd0bc">下載 Markdown</a>`;el('bars').innerHTML=chartBar('錨點占比',anchored/proposals.length,1)+chartBar('待驗證占比',(proposals.length-anchored)/proposals.length,1)+'<h3>電文領域分布</h3>'+Object.entries(domCounts).map(([k,n])=>chartBar(k,n,result.decoded_messages.length)).join('');
-el('readings').innerHTML='<table><thead><tr><th>電文</th><th>每個碼組的目前候選（點選可標註）</th><th>確定碼組</th></tr></thead><tbody>'+result.decoded_messages.map(x=>`<tr><td>${esc(x.id)}<br><small>${esc(x.domain_inferred||'未知')}</small></td><td>${x.codes.map((c,i)=>`<button class="hypo-read ${research?.bold_hypotheses?.[c]?'bold-code':result.proposals[c]?.status==='verified_alignment'?'verified-code':''}" data-readcode="${esc(c)}" title="${research?.bold_hypotheses?.[c]?'紫紅：大膽指定未驗證假說，原始明文仍保留':result.proposals[c]?.status==='verified_alignment'?'綠色：已有可信逐碼明文，點選可記錄反對假說':'藍色：未驗證候選'}">${esc(research?.bold_hypotheses?.[c]?.term||x.suggested_segments[i])}${research?.bold_hypotheses?.[c]?'<small>⚡大膽假說</small>':''}<small>${esc(c)}</small></button>`).join('')}</td><td>${x.verified_codes}/${x.total_codes}</td></tr>`).join('')+'</tbody></table>';
+el('readings').innerHTML='<table><thead><tr><th>電文</th><th>每個碼組的目前候選（點選可標註）</th><th>確定碼組</th></tr></thead><tbody>'+result.decoded_messages.map(x=>`<tr><td>${esc(x.id)}<br><small>${esc(x.domain_inferred||'未知')}</small></td><td>${x.codes.map((c,i)=>`<button class="hypo-read ${research?.bold_hypotheses?.[c]?'bold-code':result.proposals[c]?.status==='verified_alignment'?'verified-code':''}" data-readcode="${esc(c)}" title="${research?.bold_hypotheses?.[c]?'紫紅：大膽指定未驗證假說，原始明文仍保留':result.proposals[c]?.status==='verified_alignment'?'綠色：已有可信逐碼明文，點選可記錄反對假說':'藍色：未驗證候選'}">${esc(research?.bold_hypotheses?.[c]?.term||(x.cautious_segments?.[i]??x.suggested_segments[i]))}${research?.bold_hypotheses?.[c]?'<small>⚡大膽假說</small>':''}<small>${esc(c)}</small></button>`).join('')}</td><td>${x.verified_codes}/${x.total_codes}</td></tr>`).join('')+'</tbody></table>';
 el('readings').querySelectorAll('[data-readcode]').forEach(b=>b.onclick=()=>{openMark(b.dataset.readcode);if(!el('markWord').value)el('markWord').value=result.proposals[b.dataset.readcode]?.term||''});renderPriorComparison(result);priorResult=JSON.parse(JSON.stringify(result));
 
 }

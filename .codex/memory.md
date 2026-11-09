@@ -1,5 +1,15 @@
 # Project memory
 
+## 2026-11-09 — PR #58 formal Codex P2 Word report consistency (fixed, re-review pending)
+- Codex found the initial guarded GUI/Markdown missed independent Word renderer `report_docx.investigation_docx`; new changes apply `cautious_reading` (legacy fallback) and include uncertainty warning in Word. Synthetic DOCX round-trip test preserves raw Top-1 in the candidate table but not misleading message text. Await latest HEAD CI and Codex re-review; original P2 thread remains open until verified.
+
+
+## 2026-11-09 — Case09 collapse-aware display guard (review/CI PENDING)
+- User's six private Case09 diagnostic ZIPs were assessed locally, NOT committed. Cold static 1 round reached 1/217 Top-1 and concentrated most unknown codes onto a single term. This identifies candidate-space and ranking failure, NOT historical decryption.
+- This branch adds **presentation-only** uncertainty: near-tied scores or one term assigned to >=25% of >=10 unknown codes trigger a visible '待判' reading, while original solver `term`, Top-5, scoring, verified anchors and evidence remain untouched. Reports/UI display warning and raw hypotheses remain accessible for researcher inspection.
+- Completely independent synthetic no-oracle regressions exercise collapse, ties, preserved anchors and unmodified ranking. This patch **does not claim accuracy improvement** and does not run DeepInfra. It cannot be merged without exact-head Hosted CI and completed Codex review.
+
+
 ## 2026-11-08 — PR #57 Codex P2 concurrent case-load ordering (fixed, pending review)
 - Codex formal review of initial `7cb67d563d7ef12d67a3b69f11ff724896740519` found a valid P2: delaying caseGeneration invalidation lets concurrent case loads share the same generation, so an older response can preempt the most recent request.
 - Fix introduces independent monotonic `caseLoadRequestSerial`; each `loadCase()` increments it before fetching and only the newest request can commit. Existing caseGeneration and research-identity checks remain, and cancellation still preserves the active editor and jobs. Offline browser-VM test now races A/B requests with A completing first and verifies B wins. Hosted CI and **new formal latest-HEAD Codex review** are PENDING; do not resolve the thread or merge based on old review.
@@ -679,6 +689,7 @@
 - `fix/holdout-report-create-only-20261102` updates existing `han_codebook.holdout_verification` CLI to reject `--out` that aliases `--case` and create new report files only via OS exclusive create (`O_CREAT|O_EXCL`, POSIX requested 0600). Existing reports, source cases and symlink targets must remain byte-for-byte unchanged.
 - Unit regression verifies first new output succeeds, second attempt refuses overwrite, source alias refuses overwrite, symlink target remains intact, no LLM call and owner-only permissions on POSIX.
 - No solver, scoring semantics, candidate prior, web, Vercel or oracle data changed. Real LAN LLM experiments remain explicitly deferred. At commit time: Hosted CI, exact-HEAD Codex Review and Auto-Merge v2 **PENDING**.
+
 
 
 ## 2026-11-09 — Candidate-specific adopted vocabulary hints (Hosted CI/Codex pending)

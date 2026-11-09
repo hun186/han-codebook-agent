@@ -22,6 +22,12 @@ def investigation_report(result: dict[str, Any], events: list[dict[str, Any]]) -
         f"- 已確定錨點：{verified} 組；待驗證：{len(entries)-verified} 組",
         f"- LLM 回合數：{result['agent_rounds_completed']}；啟用元數據：{result['metadata_used']}",
         f"- 相較離線 Baseline，第一順位變更：{changed} 組（**不是**正確率）", '',
+        '## 推論不確定性（呈現保護，非破解正確率）', '',
+        f"- 目前猜測涉及的不同詞組：{result.get('hypothesis_quality', {}).get('distinct_top_terms', '未量測')}。",
+        f"- 不易區分的碼組：{result.get('hypothesis_quality', {}).get('near_tied_unverified_code_count', '未量測')}；"
+        f"避免直接展示的碼組：{result.get('hypothesis_quality', {}).get('presentation_abstained_code_count', '未量測')}。",
+        "- 若某詞大量重複或候選近似同分，保留原始 Top-N 供研究，但在下方閱讀欄標記待判。",
+        "- 此項純屬啟發式呈現保護，不能推導正確率、可信度或已破譯。", '',
         '## 逐輪變化', '',
         '| 回合 | 合法候選碼組 | 被拒絕候選 | 第一順位變動 | 目標分數 |',
         '|---|---:|---:|---:|---:|',
@@ -79,7 +85,7 @@ def investigation_report(result: dict[str, Any], events: list[dict[str, Any]]) -
             lines.append(f"- 供應商回報成本估值（若有）：{metrics['estimated_cost_reported']}。")
     lines += ['', '## 電文候選明文', '', '| 電文 | 領域推測 | 候選明文 | 已確定碼組 |', '|---|---|---|---|']
     for m in result['decoded_messages']:
-        lines.append(f"| `{m['id']}` | {m['domain_inferred'] or '未知'} | {m['reading']} | {m['verified_codes']}/{m['total_codes']} |")
+        lines.append(f"| `{m['id']}` | {m['domain_inferred'] or '未知'} | {m.get('cautious_reading', m['reading'])} | {m['verified_codes']}/{m['total_codes']} |")
     lines += ['', '## 研究限制', '',
               '- 目前僅支援固定分隔之數字碼組，不含第二層加數密碼求解。',
               '- 詞彙及範例句是事先提供的語言先驗；不代表無資訊盲解。',

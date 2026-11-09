@@ -1,5 +1,9 @@
 # Project memory
 
+## 2026-11-09 — PR #58 formal Codex P2 Word report consistency (fixed, re-review pending)
+- Codex found the initial guarded GUI/Markdown missed independent Word renderer `report_docx.investigation_docx`; new changes apply `cautious_reading` (legacy fallback) and include uncertainty warning in Word. Synthetic DOCX round-trip test preserves raw Top-1 in the candidate table but not misleading message text. Await latest HEAD CI and Codex re-review; original P2 thread remains open until verified.
+
+
 ## 2026-11-09 — Case09 collapse-aware display guard (review/CI PENDING)
 - User's six private Case09 diagnostic ZIPs were assessed locally, NOT committed. Cold static 1 round reached 1/217 Top-1 and concentrated most unknown codes onto a single term. This identifies candidate-space and ranking failure, NOT historical decryption.
 - This branch adds **presentation-only** uncertainty: near-tied scores or one term assigned to >=25% of >=10 unknown codes trigger a visible '待判' reading, while original solver `term`, Top-5, scoring, verified anchors and evidence remain untouched. Reports/UI display warning and raw hypotheses remain accessible for researcher inspection.

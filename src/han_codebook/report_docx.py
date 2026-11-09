@@ -81,6 +81,19 @@ def investigation_docx(result: dict[str, Any], events: list[dict[str, Any]]) -> 
                           "沒有可靠單價時不推算節省金額。")
         doc.add_paragraph("完整率只反映 API JSON 結構完整，並非密文破解正確率。"
                           "Token 用量缺漏不能視為零消耗；重試同樣可能計費。")
+    quality = result.get("hypothesis_quality")
+    if isinstance(quality, dict) and quality.get("presentation_abstained_code_count", 0) > 0:
+        doc.add_heading("推論不確定性（不是破解正確率）", level=1)
+        doc.add_paragraph(
+            "部分碼組候選近似同分，或過多不同碼組被配成同一詞組。"
+            "為避免誤認已破解，逐封電文閱讀欄以「[碼組:待判]」標記這些位置，"
+            "但下方碼組候選表仍完整保留原始 Top-1 假說供研究。"
+        )
+        doc.add_paragraph(
+            f"待判碼組：{quality.get('presentation_abstained_code_count')}；"
+            f"近似同分：{quality.get('near_tied_unverified_code_count')}；"
+            f"最大重複詞組涵蓋：{quality.get('dominant_unverified_term_code_count')} 個碼組。"
+        )
     baseline = next((e.get("payload", {}).get("mapping", {}) for e in events if e.get("stage") == "statistical_baseline"), {})
     scores = next((e.get("payload", {}).get("score", "") for e in events if e.get("stage") == "statistical_baseline"), "")
     round_rows = [["Round 0 (統計基線)", "—", "—", "—", str(scores)]]
@@ -114,7 +127,7 @@ def investigation_docx(result: dict[str, Any], events: list[dict[str, Any]]) -> 
         ])
     doc.add_heading("四、逐封電文候選解讀", level=1)
     _table(doc, ["電文", "推測領域", "目前候選明文", "已驗證碼組"], [
-        [str(m.get("id", "")), str(m.get("domain_inferred") or "未知"), str(m.get("reading", "")),
+        [str(m.get("id", "")), str(m.get("domain_inferred") or "未知"), str(m.get("cautious_reading", m.get("reading", ""))),
          f"{m.get('verified_codes',0)}/{m.get('total_codes',0)}"]
         for m in result.get("decoded_messages", [])
     ])

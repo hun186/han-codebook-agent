@@ -584,6 +584,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         checkpoint_reviews: list[dict[str, Any]] = []
         vocab_zero_streak = 0
         vocabulary_calls = 0
+        targeted_vocabulary_hint_pairs = 0
         vocabulary_skip_rounds: list[int] = []
         stalled_streak = 0
         early_stopped = False
@@ -661,8 +662,14 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                     on_metrics=lambda item: record_api_metrics("vocabulary", num, item))
                 if cancel_check:
                     cancel_check()
-                log_event(conn, num, "vocabulary_candidates_unverified", record)
                 vocab.update(record["approved"])
+                from .adaptive_vocabulary import link_adopted_targeted_hints
+                linked_count = link_adopted_targeted_hints(
+                    record, trusted_anchors=anchors, hints=hints,
+                    seen_pairs=seen_hint_pairs)
+                targeted_vocabulary_hint_pairs += linked_count
+                record["targeted_code_hint_count"] = linked_count
+                log_event(conn, num, "vocabulary_candidates_unverified", record)
                 vocabulary_calls += 1
                 accepted_vocab_this_round = len(record["approved"])
                 vocab_zero_streak = (0 if record["approved"]
@@ -898,6 +905,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         # as a verified anchor, and never replace immutable known plaintext.
         from .bold_hypotheses import normalize_bold_hypotheses
         current["bold_hypotheses"] = normalize_bold_hypotheses(case, current["verified_anchors"])
+        current["targeted_vocabulary_hint_pairs"] = targeted_vocabulary_hint_pairs
         current["llm_api_metrics"] = summarize_llm_api_metrics(api_metrics)
         current["agent_rounds_completed"] = len(round_history)
         current["agent_rounds_requested"] = rounds

@@ -1,5 +1,10 @@
 # Project memory
 
+## 2026-11-09 — PR #60 Codex P2 late corpus starvation fixed (latest gates pending)
+- Initial review at `a8b2afc65d026b2ae7fba1954d69e61736449e8a` correctly found remaining sample slots were filled from the beginning of the fixed 100-point grid and could stop before any tail evidence when many target-code occurrences were early.
+- Changed sampler to cap target-stratum slots and compute a NEW even grid based on the remaining slots across the full corpus; duplicate overlaps are filled from evenly distributed unused indices. Regression now puts 15 focus codes exclusively in the first 45 of 1000 messages and asserts last/middle coverage and exact bound. Old CI/review are superseded; exact-head CI and formal re-review PENDING.
+
+
 ## 2026-11-09 — PR #58 merged; bounded corpus-wide LLM context (CI/review pending)
 - PR #58 `feat/uncertainty-aware-decoding-20261109` was merged as `54639fe0bbfaeb5697e1353e5d089a5afb366efd` after exact-head 8/8 CI and formal Codex completed with no findings, fixing earlier Word/GUI/Markdown inconsistency.
 - Case09 400/1000-message agent previously sent only `case["messages"][:100]` in general LLM evidence, while selected-code cross-message context already considered the entire corpus. New `sample_corpus_messages` deterministically samples first/middle/last occurrences of target codes and evenly spaced remaining messages across the full corpus, with a hard <=100-message request bound and no additional API calls. Both code-level and adaptive-vocabulary packets use the same oracle-free helper. Input metadata is still sent only through the established `safe_llm_message` whitelist.

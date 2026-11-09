@@ -21,27 +21,33 @@ def sample_corpus_messages(messages: list[dict], *,
     chosen: set[int] = set()
     # Three strata per target across the full corpus. Avoid wasting slots on
     # dozens of repeated occurrences of the same popular code at the start.
-    for code in dict.fromkeys(focus_codes):
+    # Reserve space for entire-corpus sampling even if target codes are
+    # concentrated early. The caller targets <=15 codes; limit also guards
+    # direct uses of this helper with a larger supplied focus list.
+    for code in list(dict.fromkeys(focus_codes))[:min(15, limit // 4)]:
         indices = [i for i, m in enumerate(messages) if code in m["codes"]]
         if not indices:
             continue
         for i in (indices[0], indices[len(indices)//2], indices[-1]):
             chosen.add(i)
-            if len(chosen) >= limit:
-                break
-        if len(chosen) >= limit:
-            break
-    # Evenly spread remaining slots over all messages, including late ones.
     n = len(messages)
-    for j in range(limit):
-        i = (j * (n - 1)) // max(1, limit - 1)
-        chosen.add(i)
-        if len(chosen) >= limit:
-            break
-    # Safety net for duplicate indices with pathological small/large limits.
+    remaining = limit - len(chosen)
+    # The earlier implementation used the first 'remaining' points of a
+    # 100-point grid, which accidentally removed late messages. Build a fresh
+    # grid for the *remaining* number of slots across [0, n-1].
+    if remaining == 1:
+        chosen.add(n - 1)
+    elif remaining > 1:
+        for j in range(remaining):
+            chosen.add((j * (n - 1)) // (remaining - 1))
     if len(chosen) < limit:
-        for i in range(n):
-            chosen.add(i)
-            if len(chosen) == limit:
-                break
-    return [messages[i] for i in sorted(chosen)[:limit]]
+        # Target strata may overlap with the even grid. Fill those gaps by
+        # sampling the still-unused indices over the ENTIRE corpus.
+        available = [i for i in range(n) if i not in chosen]
+        count = limit - len(chosen)
+        if count == 1:
+            chosen.add(available[len(available) // 2])
+        else:
+            for j in range(count):
+                chosen.add(available[(j * (len(available) - 1)) // (count - 1)])
+    return [messages[i] for i in sorted(chosen)]

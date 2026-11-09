@@ -31,6 +31,22 @@ class FullCorpusContextTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 sample_corpus_messages(messages, focus_codes=[], limit=invalid)
 
+    def test_concentrated_target_codes_cannot_starve_corpus_tail(self):
+        # 15 different focus codes appear only in the FIRST 45 messages.
+        # The rest of the corpus must still contribute evidence.
+        focus = [str(500 + i) for i in range(15)]
+        messages = [
+            {"id": f"M{i:04d}", "codes": [
+                focus[i//3] if i < 45 else "999"
+            ]} for i in range(1000)
+        ]
+        chosen = sample_corpus_messages(messages, focus_codes=focus, limit=100)
+        indices = [int(m["id"][1:]) for m in chosen]
+        self.assertEqual(len(indices), 100)
+        self.assertIn(999, indices)
+        self.assertTrue(any(i > 900 for i in indices))
+        self.assertTrue(any(450 < i < 550 for i in indices))
+
     def test_adaptive_packet_samples_late_corpus_without_gold(self):
         messages = [{"id": f"M{i:04d}", "codes": ["111"],
                      "sender": "A", "ground_truth": {"111": "秘密"}}

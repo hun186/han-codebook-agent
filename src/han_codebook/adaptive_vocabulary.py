@@ -20,6 +20,35 @@ MAX_AUTO_ADOPT_WITH_CONTEXT_PER_ROUND = 8
 MAX_DYNAMIC_TERMS = 128
 MAX_CONTEXT_MESSAGES = 100
 
+def link_adopted_targeted_hints(
+    record: dict, *, trusted_anchors: dict[str, str],
+    hints: dict[str, dict[str, float]], seen_pairs: set[tuple[str, str]],
+) -> int:
+    """Weakly associate an adopted novel term with its cited cipher code.
+
+    Only the existing validated code/contrast/message gate is eligible. This
+    remains an unverified LLM hint in the solver; never an immutable anchor.
+    Repeated model opinions do not accumulate weight across rounds.
+    """
+    adopted = set(record.get("approved", []))
+    linked = 0
+    for proposal in record.get("proposed", []):
+        if not isinstance(proposal, dict):
+            continue
+        code, term = proposal.get("target_code"), proposal.get("term")
+        if (not isinstance(code, str) or code in trusted_anchors
+                or not isinstance(term, str) or term not in adopted
+                or not proposal.get("existing_candidate_contrast_traceable")
+                or not proposal.get("context_reference_traceable")
+                or not proposal.get("automatic_adoption_eligible")
+                or (code, term) in seen_pairs):
+            continue
+        hints.setdefault(code, {})[term] = max(hints.get(code, {}).get(term, 0.0), 0.15)
+        seen_pairs.add((code, term))
+        linked += 1
+    return linked
+
+
 
 def vocabulary_packet(case: dict, *, round_number: int, metadata: bool,
                       current: dict | None, vocabulary: set[str]) -> dict:

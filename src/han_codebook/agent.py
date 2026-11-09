@@ -718,6 +718,9 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 "prior_attempts": {code: requested_codes[code] - 1 for code in selected},
             })
             from .code_context import cross_message_context, check_evidence_refs
+            from .corpus_sampling import sample_corpus_messages
+            sampled_messages = sample_corpus_messages(
+                case["messages"], focus_codes=selected, limit=100)
             packet = {
                 "policy": "Propose dictionary-constrained hypotheses only; you have no decoding oracle.",
                 "verified_anchors": anchors,
@@ -727,7 +730,13 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 "available_vocabulary": sorted(vocab),
                 "profiles": {name: {"keywords": p.get("keywords", []), "lexicon": p.get("lexicon", {})}
                              for name, p in case["profiles"].items()},
-                "messages": [safe_llm_message(m, metadata=metadata) for m in case["messages"][:100]],
+                "messages": [safe_llm_message(m, metadata=metadata) for m in sampled_messages],
+                "corpus_context_sampling": {
+                    "total_messages": len(case["messages"]),
+                    "sampled_messages": len(sampled_messages),
+                    "strategy": "target_code_strata_then_even_full_corpus",
+                    "not_all_messages_shown": len(sampled_messages) < len(case["messages"]),
+                },
                 "unresolved": unresolved,
                 "cross_message_context": cross_message_context(
                     case, selected=selected, anchors=anchors,

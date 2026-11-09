@@ -125,10 +125,13 @@ class RoundStateCoverageTests(unittest.TestCase):
         # Initial baseline; vocab1 before code1; code1; vocab2 before code2; code2.
         self.assertEqual(len(observed), 5)
         self.assertEqual(observed[0], {})
-        self.assertEqual(observed[1], {})
-        self.assertEqual(observed[2]["100"]["甲"], 0.25)
-        self.assertEqual(observed[3]["100"]["甲"], 0.25)
-        self.assertEqual(observed[4]["100"]["甲"], 0.25)
+        # Traceable new terms now enter as weak, unverified hints BEFORE the
+        # code LLM request; each round preserves older hints and code opinions.
+        self.assertEqual(observed[1], {"100": {"第1詞": 0.15}})
+        self.assertEqual(observed[2]["100"], {"第1詞": 0.15, "甲": 0.25})
+        self.assertEqual(observed[3]["100"],
+                         {"第1詞": 0.15, "第2詞": 0.15, "甲": 0.25})
+        self.assertEqual(observed[4]["100"], observed[3]["100"])
 
 
 if __name__ == "__main__":

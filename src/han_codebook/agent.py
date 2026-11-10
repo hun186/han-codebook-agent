@@ -865,6 +865,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
             stalled_streak = diagnosis["consecutive_stalled_rounds"]
             snapshot = {
                 "round": num, "target_code_count": len(selected),
+                "sampled_main_message_count": len(sampled_messages),
                 "unasked_code_count": sum(
                     requested_codes[code] == 0 for code in all_unresolved),
                 "fresh_hint_pairs": fresh_hint_count,
@@ -929,6 +930,19 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
             "per_round_target_cap": 15,
             "code_requests_only": True,
             "accuracy_measure": False,
+        }
+        # Main messages[] only. Separate cross_message_context may contain
+        # additional excerpts; the sampled count is not all model evidence.
+        current["code_llm_message_context"] = {
+            "total_case_messages": len(case["messages"]),
+            "per_round_main_message_cap": 100,
+            "code_level_rounds": [
+                {"round": snapshot["round"],
+                 "sampled_main_messages": snapshot["sampled_main_message_count"]}
+                for snapshot in round_history
+            ],
+            "main_messages_field_only": True,
+            "other_cross_message_context_possible": True,
         }
         current["targeted_vocabulary_hint_pairs"] = targeted_vocabulary_hint_pairs
         current["llm_api_metrics"] = summarize_llm_api_metrics(api_metrics)

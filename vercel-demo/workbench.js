@@ -264,7 +264,7 @@ function renderMessageOverview(){
  });
 }
 function evidenceDraftChanged(){
- if(observationFormHasDraft())return true;
+ if(typeof observationFormHasDraft==='function'&&observationFormHasDraft())return true;
  if(!research||!overviewState.loadedMessageId)return false;
  const m=research.messages.find(x=>x.id===overviewState.loadedMessageId);
  if(!m)return false;
@@ -290,7 +290,7 @@ function loadEvidence(){let m=msg();if(!m)return;for(let k of ['sender','recipie
 function applyEvidence(){
  try{
   const m=msg();if(!m)throw Error('請先選擇電文');
-  if(observationFormHasDraft())throw Error('第三方觀察表單仍有未加入／未儲存的內容，請先儲存觀察修改或取消編輯');
+  if(typeof observationFormHasDraft==='function'&&observationFormHasDraft())throw Error('第三方觀察表單仍有未加入／未儲存的內容，請先儲存觀察修改或取消編輯');
   const staged={...m};
   for(const k of ['sender','recipient','notes','domain','received_at']){
    const value=el(k).value.trim();if(value)staged[k]=value;else delete staged[k];
@@ -355,7 +355,7 @@ let observationEditState=null;
 const observationFields=['obsSource','obsWhen','obsActivity','obsDest','obsStatus','obsNote'];
 function observationFormHasDraft(){
  return observationEditState!==null||observationFields.some(id=>el(id).value.trim()!=='')||
-        String(el('obsConfidence').value)!=='0.6';
+        (String(el('obsConfidence').value).trim()!==''&&String(el('obsConfidence').value)!=='0.6');
 }
 function resetObservationEditor(){
  observationEditState=null;

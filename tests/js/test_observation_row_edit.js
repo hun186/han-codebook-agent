@@ -20,8 +20,8 @@ function el(id){
  if(!elements[id]){
   elements[id]={value:'',innerHTML:'',textContent:'',hidden:true,checked:false,
    querySelectorAll(selector){
-    const attr=selector==='[data-editobs]'?'editobs':'removeobs';
-    const matches=Array.from(this.innerHTML.matchAll(new RegExp('data-'+attr+'="([0-9]+)"','g')));
+    const attr=selector==='[data-editobs]'?'editobs':selector==='[data-event-message]'?'event-message':'removeobs';
+    const matches=Array.from(this.innerHTML.matchAll(new RegExp('data-'+attr+'="([^"]+)"','g')));
     const controls=matches.map(match=>({dataset:{[attr]:match[1]},onclick:null}));
     buttons[selector]=controls;
     return controls;
@@ -109,4 +109,37 @@ ask=true;
 assert.equal(run("selectEvidenceMessage('m2')"),true);
 assert.equal(el('obsNote').value,'');
 assert.equal(el('messagePick').value,'m2');
-console.log('observation add/edit/note/cancel/stale JSON/nav guard PASS');
+// Event-link buttons must take the SAME draft-protected route as message inventory.
+const eventBegin=script.indexOf('async function previewEventLinks(){');
+const eventEnd=script.indexOf('let vocabCandidateRecord=[];',eventBegin);
+assert(eventBegin>0&&eventEnd>eventBegin,'event-link navigation handler missing');
+ctx.captureOrigin=()=>({});
+ctx.matchesOrigin=()=>true;
+ctx.api=async()=>({events:[{
+ source:'report',observed_at:'2018-09-02',activity:'test',status:'未確認',
+ confidence:0.5,event_id:'E1',candidates:[
+  {message_id:'m2',score:0.4,basis:'possible'},
+  {message_id:'m1',score:0.2,basis:'possible'}
+ ]
+}]});
+vm.runInContext(script.slice(eventBegin,eventEnd),ctx,{filename:'event-navigation.js'});
+async function checkEventNavigation(){
+ el('obsNote').value='事件切換不可丟失的草稿';
+ await run('previewEventLinks()');
+ assert.equal(buttons['[data-event-message]'].length,2);
+ ask=false;
+ // Clicking the currently selected message must NOT reload and wipe the form.
+ buttons['[data-event-message]'][0].onclick();
+ assert.equal(el('obsNote').value,'事件切換不可丟失的草稿');
+ // Clicking a different message should ask the researcher before discard.
+ buttons['[data-event-message]'][1].onclick();
+ assert.equal(el('messagePick').value,'m2');
+ assert.equal(el('obsNote').value,'事件切換不可丟失的草稿');
+ ask=true;
+ buttons['[data-event-message]'][1].onclick();
+ assert.equal(el('messagePick').value,'m1');
+ assert.equal(el('obsNote').value,'');
+}
+checkEventNavigation().then(()=>{
+ console.log('observation add/edit/note/cancel/stale JSON/nav and event-link guard PASS');
+}).catch(e=>{console.error(e);process.exitCode=1});

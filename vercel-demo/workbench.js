@@ -264,6 +264,7 @@ function renderMessageOverview(){
  });
 }
 function evidenceDraftChanged(){
+ if(typeof observationFormHasDraft==='function'&&observationFormHasDraft())return true;
  if(!research||!overviewState.loadedMessageId)return false;
  const m=research.messages.find(x=>x.id===overviewState.loadedMessageId);
  if(!m)return false;
@@ -285,10 +286,11 @@ function selectEvidenceMessage(id){
  el('messagePick').value=id;loadEvidence();renderMessageOverview();return true;
 }
 
-function loadEvidence(){let m=msg();if(!m)return;for(let k of ['sender','recipient','notes','domain','received_at'])el(k).value=m[k]||'';el('cipherEdit').value=m.codes.join('  ');el('observations').value=JSON.stringify(m.observations||[],null,2);overviewState.loadedMessageId=m.id;renderObservations()}
+function loadEvidence(){let m=msg();if(!m)return;for(let k of ['sender','recipient','notes','domain','received_at'])el(k).value=m[k]||'';el('cipherEdit').value=m.codes.join('  ');el('observations').value=JSON.stringify(m.observations||[],null,2);overviewState.loadedMessageId=m.id;resetObservationEditor();renderObservations()}
 function applyEvidence(){
  try{
   const m=msg();if(!m)throw Error('請先選擇電文');
+  if(typeof observationFormHasDraft==='function'&&observationFormHasDraft())throw Error('第三方觀察表單仍有未加入／未儲存的內容，請先儲存觀察修改或取消編輯');
   const staged={...m};
   for(const k of ['sender','recipient','notes','domain','received_at']){
    const value=el(k).value.trim();if(value)staged[k]=value;else delete staged[k];
@@ -347,8 +349,92 @@ function applyEvidence(){
   notice('已套用 '+m.id+' 的密文與情報'+(orphaned.length?'；已清理 '+orphaned.length+' 個不再出現的碼組及歷史':'')+'（尚未保存到磁碟）');
  }catch(e){notice(e.message,true)}
 }
-function renderObservations(){let data=[];try{data=JSON.parse(el('observations').value)||[]}catch(e){}el('obsCards').innerHTML=Array.isArray(data)?data.map((o,i)=>`<div class="message"><strong>觀察 ${i+1}</strong>：${esc(o.source||'未知來源')} · ${esc(o.activity||'')} · ${esc(o.destination||'')} · 可信度 ${esc(o.confidence??0.5)}　<button data-removeobs="${i}">移除</button></div>`).join(''):'';el('obsCards').querySelectorAll('[data-removeobs]').forEach(b=>b.onclick=()=>{let a=JSON.parse(el('observations').value);a.splice(Number(b.dataset.removeobs),1);el('observations').value=JSON.stringify(a,null,2);renderObservations()})}
-function addObservation(){try{let data=JSON.parse(el('observations').value);if(!Array.isArray(data))throw Error('觀察資料不是陣列');let source=el('obsSource').value.trim(),n=Number(el('obsConfidence').value);if(!source||!Number.isFinite(n)||n<0||n>1)throw Error('來源不能空白，可信度須介於 0~1');data.push({source,observed_at:el('obsWhen').value.trim(),activity:el('obsActivity').value.trim(),destination:el('obsDest').value.trim(),status:el('obsStatus').value.trim(),confidence:n,note:el('obsNote').value.trim()});el('observations').value=JSON.stringify(data,null,2);renderObservations();notice('觀察已加入；按「套用此封情報」才納入分析')}catch(e){notice(e.message,true)}}
+// The form is a draft; only the JSON textarea stages observations for Apply,
+// and only the workbench's separate Save writes a case file.
+let observationEditState=null;
+const observationFields=['obsSource','obsWhen','obsActivity','obsDest','obsStatus','obsNote'];
+function observationFormHasDraft(){
+ return observationEditState!==null||observationFields.some(id=>el(id).value.trim()!=='')||
+        (String(el('obsConfidence').value).trim()!==''&&String(el('obsConfidence').value)!=='0.6');
+}
+function resetObservationEditor(){
+ observationEditState=null;
+ for(const id of observationFields)el(id).value='';
+ el('obsConfidence').value='0.6';
+ el('addObservation').textContent='新增觀察至列表';
+ el('cancelObservationEdit').hidden=true;
+}
+function readObservationRows(){
+ const rows=JSON.parse(el('observations').value);
+ if(!Array.isArray(rows))throw Error('觀察資料 JSON 必須為陣列');
+ return rows;
+}
+function observationFormValue(){
+ const source=el('obsSource').value.trim(),confidence=Number(el('obsConfidence').value);
+ if(!source||!el('obsConfidence').value.trim()||!Number.isFinite(confidence)||
+    confidence<0||confidence>1)throw Error('來源不能空白，可信度須介於 0～1');
+ return {source,observed_at:el('obsWhen').value.trim(),
+         activity:el('obsActivity').value.trim(),destination:el('obsDest').value.trim(),
+         status:el('obsStatus').value.trim(),confidence,note:el('obsNote').value.trim()};
+}
+function editObservation(index){
+ try{
+  const data=readObservationRows();
+  if(!Number.isInteger(index)||index<0||index>=data.length)throw Error('觀察紀錄不存在');
+  if(observationFormHasDraft()&&!confirm('目前觀察表單有未儲存的內容，放棄後改編輯另一筆？'))return;
+  const o=data[index];if(!o||typeof o!=='object'||Array.isArray(o))throw Error('觀察資料格式不正確');
+  el('obsSource').value=o.source||'';el('obsWhen').value=o.observed_at||'';
+  el('obsActivity').value=o.activity||'';el('obsDest').value=o.destination||'';
+  el('obsStatus').value=o.status||'';el('obsConfidence').value=String(o.confidence??0.5);
+  el('obsNote').value=o.note||'';
+  observationEditState={index,messageId:overviewState.loadedMessageId,jsonBefore:el('observations').value};
+  el('addObservation').textContent='儲存觀察修改（尚未套用）';
+  el('cancelObservationEdit').hidden=false;
+ }catch(e){notice(e.message,true)}
+}
+function renderObservations(){
+ let rows;
+ try{rows=readObservationRows()}
+ catch(e){el('obsCards').textContent='觀察資料 JSON 無法解析：'+e.message;return}
+ el('obsCards').innerHTML=rows.map((o,i)=>
+  '<div class="message"><strong>觀察 '+(i+1)+'</strong>：'+
+  esc(o?.source||'未知來源')+' · '+esc(o?.activity||'')+' · '+
+  esc(o?.destination||'')+' · 可信度 '+esc(o?.confidence??0.5)+
+  (o?.note?' · 補充：'+esc(String(o.note).slice(0,120)):'')+
+  '　<button type="button" data-editobs="'+i+'">編輯</button>'+
+  ' <button type="button" data-removeobs="'+i+'">移除</button></div>'
+ ).join('');
+ el('obsCards').querySelectorAll('[data-editobs]').forEach(b=>b.onclick=()=>
+  editObservation(Number(b.dataset.editobs)));
+ el('obsCards').querySelectorAll('[data-removeobs]').forEach(b=>b.onclick=()=>{
+  try{
+   const i=Number(b.dataset.removeobs),data=readObservationRows();
+   if(!Number.isInteger(i)||i<0||i>=data.length)throw Error('觀察紀錄不存在');
+   if(observationFormHasDraft()&&!confirm('有未儲存的觀察表單內容，確定放棄並移除此筆？'))return;
+   data.splice(i,1);el('observations').value=JSON.stringify(data,null,2);
+   resetObservationEditor();renderObservations();
+   notice('觀察已自待套用列表移除；仍須套用此封情報並另存案例');
+  }catch(e){notice(e.message,true)}
+ });
+}
+function addObservation(){
+ try{
+  const data=readObservationRows(),value=observationFormValue();
+  if(observationEditState!==null){
+   const edit=observationEditState;
+   if(edit.messageId!==overviewState.loadedMessageId||
+      edit.jsonBefore!==el('observations').value||
+      edit.index<0||edit.index>=data.length)
+    throw Error('觀察清單已被其他修改更新，請取消編輯後重新選取，不覆寫進階 JSON');
+   // Keep archival/unknown fields intact; update only visible, whitelisted keys.
+   data[edit.index]={...data[edit.index],...value};
+  }else data.push(value);
+  el('observations').value=JSON.stringify(data,null,2);
+  const wasEditing=observationEditState!==null;
+  resetObservationEditor();renderObservations();
+  notice(wasEditing?'觀察修改已加入待套用列表；按「套用此封情報」':'觀察已加入待套用列表；按「套用此封情報」');
+ }catch(e){notice(e.message,true)}
+}
 // Alignment confirmation must preserve even Undo/Redo-only changes during async
 // requests. Ordinary jobs deliberately ignore mark-history churn, but acceptance
 // replaces the ENTIRE case: never let an old response discard newer snapshots.
@@ -392,6 +478,7 @@ async function previewAlignmentCandidates(){
 }
 async function confirmAlignmentCandidate(){
  if(!research||!alignmentReport||!alignmentChoice||!alignmentOrigin)return notice('請先產生並選擇一個候選',true);
+ if(typeof evidenceDraftChanged==='function'&&evidenceDraftChanged())return notice('密電／觀察表單仍有未套用的草稿，請先完成觀察修改並套用此封情報，再重新預覽候選',true);
  if(!matchesAlignmentOrigin(alignmentOrigin))return notice('研究資料已變更，請重新產生候選',true);
  let segments;
  try{
@@ -406,6 +493,7 @@ async function confirmAlignmentCandidate(){
    candidate_rank:alignmentChoice.rank,confirmed_segments:segments,confirmed:true
   });
   if(!matchesAlignmentOrigin(origin))return notice('資料在確認期間已變更；未套用舊結果，請重新預覽',true);
+  if(typeof evidenceDraftChanged==='function'&&evidenceDraftChanged())return notice('確認期間又有未套用的密電／觀察草稿，未套用伺服器結果；請保存草稿後重新預覽',true);
   if(!result||result.saved!==false||result.status!=='researcher_confirmed_not_saved'||!result.case)
    throw Error('伺服器未回傳安全的未存檔確認結果');
   research=result.case;presentCase();
@@ -679,7 +767,7 @@ async function previewEventLinks(){
  ' · '+esc(c.basis)+'</div>').join('')+'</div>').join('')||'<p class="muted">目前尚無第三方目擊紀錄。</p>';
  el('eventLinks').querySelectorAll('[data-event-message]').forEach(b=>b.onclick=()=>{
  if(!matchesOrigin(origin)){notice('事件關聯建議已不屬於目前案例，請重新分析',true);return}
- el('messagePick').value=b.dataset.eventMessage;loadEvidence();notice('已切換電文；這只是時間相關候選，不等於確認連結')});
+ if(selectEvidenceMessage(b.dataset.eventMessage))notice('已切換電文；這只是時間相關候選，不等於確認連結')});
  }catch(e){notice('事件時序分析失敗：'+e.message,true)}}
 let vocabCandidateRecord=[];
 function renderVocabularyIdeas(){
@@ -1069,4 +1157,4 @@ el('caseOverviewSort').onchange=()=>{overviewState.page=0;renderMessageOverview(
 el('caseOverviewPageSize').onchange=()=>{overviewState.page=0;renderMessageOverview()};
 el('caseOverviewPrev').onclick=()=>{overviewState.page--;renderMessageOverview()};
 el('caseOverviewNext').onclick=()=>{overviewState.page++;renderMessageOverview()};
-el('loadCase').onclick=()=>loadCase().catch(e=>notice(e.message,true));el('profilePick').onchange=loadProfile;el('messagePick').onchange=()=>selectEvidenceMessage(el('messagePick').value);el('wordSearch').oninput=renderVocab;el('addWord').onclick=()=>{let w=el('newWord').value.trim(),n=Number(el('newWeight').value);if(w&&Number.isFinite(n)&&n>=0){profile().lexicon[w]=n;el('newWord').value='';renderVocab()}};el('saveProfile').onclick=saveProfile;el('applyEvidence').onclick=applyEvidence;el('addObservation').onclick=addObservation;el('applyKnown').onclick=applyKnown;el('knownAdd').onclick=()=>openKnownRowEditor(null);el('knownRowSave').onclick=saveKnownRow;el('knownRowCancel').onclick=closeKnownRowEditor;el('knownRowMessage').onchange=renderKnownWordFields;el('previewAlignment').onclick=previewAlignmentCandidates;el('confirmAlignment').onclick=confirmAlignmentCandidate;el('run').onclick=start;el('save').onclick=save;el('runBenchmark').onclick=startBenchmark;el('loadBenchmark').onclick=()=>api('/api/benchmark').then(renderBenchmark).catch(e=>notice(e.message,true));listCases().then(loadCase).catch(e=>notice(e.message,true));
+el('loadCase').onclick=()=>loadCase().catch(e=>notice(e.message,true));el('profilePick').onchange=loadProfile;el('messagePick').onchange=()=>selectEvidenceMessage(el('messagePick').value);el('wordSearch').oninput=renderVocab;el('addWord').onclick=()=>{let w=el('newWord').value.trim(),n=Number(el('newWeight').value);if(w&&Number.isFinite(n)&&n>=0){profile().lexicon[w]=n;el('newWord').value='';renderVocab()}};el('saveProfile').onclick=saveProfile;el('applyEvidence').onclick=applyEvidence;el('addObservation').onclick=addObservation;el('cancelObservationEdit').onclick=()=>{resetObservationEditor();notice('已取消觀察表單編輯，清單未更動')};el('applyKnown').onclick=applyKnown;el('knownAdd').onclick=()=>openKnownRowEditor(null);el('knownRowSave').onclick=saveKnownRow;el('knownRowCancel').onclick=closeKnownRowEditor;el('knownRowMessage').onchange=renderKnownWordFields;el('previewAlignment').onclick=previewAlignmentCandidates;el('confirmAlignment').onclick=confirmAlignmentCandidate;el('run').onclick=start;el('save').onclick=save;el('runBenchmark').onclick=startBenchmark;el('loadBenchmark').onclick=()=>api('/api/benchmark').then(renderBenchmark).catch(e=>notice(e.message,true));listCases().then(loadCase).catch(e=>notice(e.message,true));

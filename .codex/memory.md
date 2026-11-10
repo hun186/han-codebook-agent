@@ -1,5 +1,25 @@
 # Project memory
 
+## 2026-11-10 — PR #63 Codex P2 alignment acceptance draft loss (fixed, re-review pending)
+- Formal Codex review on `67af5281460f0ef0c7885fbcde1aa522d73360d6` found alignment acceptance called `presentCase()` and reset observation form regardless of unapplied edits, including edits typed during `/api/unaligned/accept` in flight. This was a genuine silent-draft-loss risk.
+- Guard alignment confirmation with `evidenceDraftChanged()` before sending the request and again after awaiting the response, before mutating `research`. Return an explicit warning and preserve old case/form on both paths. The VM alignment regression now simulates a draft before confirmation and one typed during pending network response. Existing trusted-anchor strict acceptance remains unchanged.
+- An earlier PR #63 review on `c107bff` also identified a test-DOM stub `dataset.eventMessage` mismatch; fixed by `67af528`. Latest HEAD CI + Codex re-review MUST be re-obtained before resolving 3 old P2 threads or merging.
+
+
+## 2026-11-10 — PR #63 formal Codex P2 event-link navigation (fixed, re-review pending)
+- Original formal Codex review on `5cd280ffcee115ec2f6a1ca4c914582774cfc072` identified a valid P2: event-link candidate buttons bypassed `selectEvidenceMessage`, called `loadEvidence` directly, and could discard a new observation's unsaved `note` silently even when selecting the current message.
+- Fix routes event-link button actions through guarded `selectEvidenceMessage(id)`, preserving same-message drafts and requiring confirmation for different-message transitions. Added browser VM regression exercising both paths against canonical and Mock scripts. Previous CI/Review must NOT authorize merge. Await latest HEAD CI, formal re-review, then resolve thread only after independently verifying fix.
+
+
+## 2026-11-10 — PR #63 initial Hosted CI P2 legacy VM regression; fix pending fresh gates
+- Initial PR HEAD `5cd280ffcee115ec2f6a1ca4c914582774cfc072` failed Python 3.12 legacy UI VM subsets (case overview, cipher editing, P2 apply) because those isolated snippets did not include new `observationFormHasDraft`; unrelated Docker/Windows checks passed. Do NOT use previous CI/Review for merge.
+- Follow-up uses a `typeof observationFormHasDraft === 'function'` guard in the existing draft detection and Apply paths for standalone legacy function-fragment tests, while the full UI still always defines the helper. Empty legacy mock confidence controls are not mistaken for a new observation draft. New explicit observation editor VM tests still exercise the helper and the real draft guards. Canonical local and public Mock parity preserved. Latest HEAD Hosted CI and Codex Review **PENDING**.
+
+## 2026-11-10 — Observation row editor (new PR, CI/Review pending)
+- #62 confirmed MERGED from exact reviewed HEAD `12194f7ed01fd2a9ac8a86695c9aaddb09123227` as `da0ceb3559d526e6d98301d0aeb2bd25f342b612`; 4/4 Hosted PR checks passed, formal Codex Completed/No Findings, no open threads. Postmerge main CI not separately verified.
+- Active `feat/observation-row-edit-20261110`: existing third-party observations get Edit + Remove; edit backfills source, observed_at, activity, destination, status, confidence and `note`, updates original indexed row rather than adding duplicate. Preserves unrecognized archival keys; rejects editing if advanced JSON changed while row was open. New/edited drafts must be committed to JSON, then applied to the message and separately saved to disk. Explicit cancellation and navigation draft guards protect uncommitted notes. Canonical UI / public Mock HTML/JS parity maintained, no external-model calls. Offline browser VM tests run against both UIs. Hosted CI, Codex review, merge **PENDING** at authoring; human Windows visual acceptance not claimed.
+
+
 ## 2026-11-10 — PR #61 merged; main-message sample reporting in progress
 - PR #61 `feat/llm-code-request-coverage-report-20261110` **MERGED** at squash `a1b396fd12811f1f44de609ab311697cf6162d14` from formally reviewed HEAD `b9674da2578f3621f6fe9451437d3e29456e7d35`. All four Hosted PR jobs passed, Codex Completed/No Findings and no outstanding review threads. The research result plus Word/Markdown distinguish unknown code counts directly requested of LLM from solver-generated unverified candidates. A submitted request is not proof of correct interpretation.
 - Active `feat/llm-main-message-sample-report-20261110`: report actual per-code-LLM-round main `messages[]` sample size (e.g. 100/120) separately from total input messages; caveat that `cross_message_context` may contain other excerpts and adaptive vocabulary has a separate LLM stage. Numeric-only diagnostics, no oracle and no extra paid calls. Mocked 120-message and zero-round regressions. Hosted CI, formal Codex Review and Merge **PENDING** at authoring. No live workstation/DeepInfra quality test performed.

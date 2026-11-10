@@ -64,6 +64,11 @@ def vocabulary_packet(case: dict, *, round_number: int, metadata: bool,
         for code, p in sorted(proposals.items())
         if p.get("status") == "hypothesis_unverified"
     ][:80]
+    from .corpus_sampling import sample_corpus_messages
+    focus = set(row["code"] for row in unverified)
+    focus_codes = sorted(focus or freq, key=lambda c: (-freq[c], c))[:15]
+    sampled_messages = sample_corpus_messages(
+        case["messages"], focus_codes=focus_codes, limit=MAX_CONTEXT_MESSAGES)
     verified = [
         {"code": code, "term": p["term"]}
         for code, p in sorted(proposals.items())
@@ -75,7 +80,7 @@ def vocabulary_packet(case: dict, *, round_number: int, metadata: bool,
     if current is not None:
         for hypothesis in unverified:
             source_ids = [
-                message["id"] for message in case["messages"][:MAX_CONTEXT_MESSAGES]
+                message["id"] for message in sampled_messages
                 if hypothesis["code"] in message["codes"]
             ]
             if source_ids:
@@ -100,7 +105,13 @@ def vocabulary_packet(case: dict, *, round_number: int, metadata: bool,
         },
         "metadata_enabled": metadata,
         "messages": [safe_llm_message(m, metadata=metadata)
-                     for m in case["messages"][:MAX_CONTEXT_MESSAGES]],
+                     for m in sampled_messages],
+        "corpus_context_sampling": {
+            "total_messages": len(case["messages"]),
+            "sampled_messages": len(sampled_messages),
+            "strategy": "target_code_strata_then_even_full_corpus",
+            "not_all_messages_shown": len(sampled_messages) < len(case["messages"]),
+        },
         "temporal_event_link_hypotheses": suggest_event_links(case)[:24] if metadata else [],
         "current_hypotheses_unverified": unverified,
         "verified_anchors": verified,

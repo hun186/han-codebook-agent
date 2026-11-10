@@ -138,6 +138,53 @@ class RoundStateCoverageTests(unittest.TestCase):
                     solver_iterations=1, solver_restarts=1)
         self.assertEqual(result["code_llm_coverage"]["queried_distinct_code_count"], 0)
         self.assertEqual(result["code_llm_coverage"]["not_queried_code_count"], 27)
+        self.assertEqual(result["code_llm_message_context"]["code_level_rounds"], [])
+
+    def test_report_counts_actual_main_message_sample_not_all_evidence(self):
+        case = case_with_unknowns(27)
+        case["messages"] = [
+            {"id": f"m{i:04d}", "codes": [str(100 + i % 27)]}
+            for i in range(120)
+        ]
+        original = deepcopy(case)
+        packets = []
+
+        def no_answers(_url, _model, packet, **kwargs):
+            packets.append(deepcopy(packet))
+            return {"hypotheses": []}
+
+        with TemporaryDirectory() as td:
+            with patch("han_codebook.agent.analyze", side_effect=synthetic_solver), \
+                 patch("han_codebook.agent.query_local_llm", side_effect=no_answers):
+                result = run_agent(
+                    case, rounds=1, db_path=str(Path(td) / "audit.sqlite"),
+                    solver_iterations=1, solver_restarts=1)
+        self.assertEqual(case, original)
+        self.assertEqual(len(packets), 1)
+        self.assertEqual(len(packets[0]["messages"]), 100)
+        self.assertEqual(packets[0]["corpus_context_sampling"]["total_messages"], 120)
+        self.assertIn("m0119", [m["id"] for m in packets[0]["messages"]])
+        sample = result["code_llm_message_context"]
+        self.assertEqual(sample["total_case_messages"], 120)
+        self.assertEqual(sample["per_round_main_message_cap"], 100)
+        self.assertEqual(sample["code_level_rounds"],
+                         [{"round": 1, "sampled_main_messages": 100}])
+        self.assertTrue(sample["other_cross_message_context_possible"])
+        self.assertEqual(result["round_progress_summary"][0]["sampled_main_message_count"], 100)
+        report_result = {
+            **result, "case_id": case["case_id"],
+            "decoded_messages": [], "metadata_used": False,
+        }
+        md = investigation_report(report_result, [])
+        self.assertIn("主訊息清單抽樣 100／120 封", md)
+        self.assertIn("跨電文片段", md)
+        doc = Document(BytesIO(investigation_docx(report_result, [])))
+        doc_text = "\n".join(
+            [paragraph.text for paragraph in doc.paragraphs]
+            + [cell.text for table in doc.tables for row in table.rows for cell in row.cells]
+        )
+        self.assertIn("100／120", doc_text)
+        self.assertIn("動態詞彙階段", doc_text)
 
     def test_repeated_proposals_are_not_independent_evidence(self):
         case = case_with_unknowns(1)

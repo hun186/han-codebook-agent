@@ -96,6 +96,23 @@ def investigation_docx(result: dict[str, Any], events: list[dict[str, Any]]) -> 
             "未被直接請求的碼組仍可能有統計候選；曾被請求不代表模型"
             "正確解讀或取得可信明文。每回合的抽樣電文不是全部原始語料。"
         )
+    main_messages = result.get("code_llm_message_context")
+    if isinstance(main_messages, dict):
+        doc.add_heading("LLM 主訊息清單抽樣（僅碼組推論階段）", level=1)
+        sample_rows = [
+            [f"Round {sample['round']}",
+             f"{sample['sampled_main_messages']}／{main_messages['total_case_messages']}"]
+            for sample in main_messages["code_level_rounds"]
+        ]
+        _table(doc, ["碼組推論回合", "主訊息清單抽樣／案例電文"], (
+            sample_rows if sample_rows else [["0 回合，未呼叫碼組 LLM", "—"]]
+        ))
+        doc.add_paragraph(
+            f"案例總共 {main_messages['total_case_messages']} 封；"
+            f"每回合主訊息清單最多 {main_messages['per_round_main_message_cap']} 封。"
+            "本數字不包含另外提供的跨電文片段，也不包含動態詞彙階段的獨立抽樣；"
+            "不是模型全部證據涵蓋率，更不是破譯正確率。"
+        )
     quality = result.get("hypothesis_quality")
     if isinstance(quality, dict) and quality.get("presentation_abstained_code_count", 0) > 0:
         doc.add_heading("推論不確定性（不是破解正確率）", level=1)

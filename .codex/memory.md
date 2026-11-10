@@ -1,9 +1,28 @@
 # Project memory
 
-## 2026-11-10 — LLM probe tests must use saved endpoint (new PR, gates pending)
-- User entered `http://192.168.0.134:11434` but GUI TCP diagnostics showed `192.168.0.134:80`. Verified code path: the browser's Test button reads persisted `/api/settings/test`, not unsaved form edits; the backend correctly parses explicit ports. Evidence of an unsaved/mismatched persisted URL, not proof of Ollama downtime or a failure of Python port parsing. The user's remote endpoint has not been contacted from Hosted CI.
-- Active branch `fix/llm-saved-endpoint-diagnostics-20261110`: front-end snapshots saved LLM form + nonsecret confirmation receipt; refuses unsaved edits and stale-tab mismatches before starting TCP/models probe; confirmation and diagnostics show actual persisted base URL and effective default/explicit port. Backend returns nonsecret `tested_base_url` in diagnostic result. Existing RFC1918 exact-allowlist and DeepInfra separate consent unchanged. Synthetic browser VM checks stale no-port HTTP 80 vs saved :11434 and cross-tab change; loopback web API test verifies backend probe gets saved :11434. No live Ollama chat or paid API call. Canonical UI and Vercel Mock parity updated.
-- Observation editor #63 is in parallel CI/Codex review on separate branch; before merging this PR, reconcile the latest main changes and rerun exact-head gates if needed. Hosted CI, official Codex Review and Merge **PENDING** at authoring.
+## 2026-11-10 — PR #63 merged; #64 rebased onto canonical observation UI
+- PR #63 observation row note editing and draft protection **MERGED** as `2b53fab4dd2b81b2b9251dbf6a2e3add590d1537` after 4/4 exact-head Hosted CI PASS and formal latest-head Codex Completed/No Findings on `c987b1b35d79d6068fe54d5e1366870528f598bd`, three previous P2 review threads resolved. Post-merge main CI separate verification not claimed.
+- PR #64 saved local Ollama test URL diagnostics has been reconciled with #63 on a two-parent merge tree from the latest main. Canonical source and Vercel browser-only Mock each retain **both** observation edit/draft guards and saved-LLM-URL/port display. Original #64 CI and Codex findings about mock numeric values and valid trailing slash fixed, but original results are superseded; fresh Hosted CI, formal latest-head Codex Review, threads and conflict-free gate required. No real LAN or paid LLM test.
+
+
+## 2026-11-10 — PR #63 Codex P2 alignment acceptance draft loss (fixed, re-review pending)
+- Formal Codex review on `67af5281460f0ef0c7885fbcde1aa522d73360d6` found alignment acceptance called `presentCase()` and reset observation form regardless of unapplied edits, including edits typed during `/api/unaligned/accept` in flight. This was a genuine silent-draft-loss risk.
+- Guard alignment confirmation with `evidenceDraftChanged()` before sending the request and again after awaiting the response, before mutating `research`. Return an explicit warning and preserve old case/form on both paths. The VM alignment regression now simulates a draft before confirmation and one typed during pending network response. Existing trusted-anchor strict acceptance remains unchanged.
+- An earlier PR #63 review on `c107bff` also identified a test-DOM stub `dataset.eventMessage` mismatch; fixed by `67af528`. Latest HEAD CI + Codex re-review MUST be re-obtained before resolving 3 old P2 threads or merging.
+
+
+## 2026-11-10 — PR #63 formal Codex P2 event-link navigation (fixed, re-review pending)
+- Original formal Codex review on `5cd280ffcee115ec2f6a1ca4c914582774cfc072` identified a valid P2: event-link candidate buttons bypassed `selectEvidenceMessage`, called `loadEvidence` directly, and could discard a new observation's unsaved `note` silently even when selecting the current message.
+- Fix routes event-link button actions through guarded `selectEvidenceMessage(id)`, preserving same-message drafts and requiring confirmation for different-message transitions. Added browser VM regression exercising both paths against canonical and Mock scripts. Previous CI/Review must NOT authorize merge. Await latest HEAD CI, formal re-review, then resolve thread only after independently verifying fix.
+
+
+## 2026-11-10 — PR #63 initial Hosted CI P2 legacy VM regression; fix pending fresh gates
+- Initial PR HEAD `5cd280ffcee115ec2f6a1ca4c914582774cfc072` failed Python 3.12 legacy UI VM subsets (case overview, cipher editing, P2 apply) because those isolated snippets did not include new `observationFormHasDraft`; unrelated Docker/Windows checks passed. Do NOT use previous CI/Review for merge.
+- Follow-up uses a `typeof observationFormHasDraft === 'function'` guard in the existing draft detection and Apply paths for standalone legacy function-fragment tests, while the full UI still always defines the helper. Empty legacy mock confidence controls are not mistaken for a new observation draft. New explicit observation editor VM tests still exercise the helper and the real draft guards. Canonical local and public Mock parity preserved. Latest HEAD Hosted CI and Codex Review **PENDING**.
+
+## 2026-11-10 — Observation row editor (new PR, CI/Review pending)
+- #62 confirmed MERGED from exact reviewed HEAD `12194f7ed01fd2a9ac8a86695c9aaddb09123227` as `da0ceb3559d526e6d98301d0aeb2bd25f342b612`; 4/4 Hosted PR checks passed, formal Codex Completed/No Findings, no open threads. Postmerge main CI not separately verified.
+- Active `feat/observation-row-edit-20261110`: existing third-party observations get Edit + Remove; edit backfills source, observed_at, activity, destination, status, confidence and `note`, updates original indexed row rather than adding duplicate. Preserves unrecognized archival keys; rejects editing if advanced JSON changed while row was open. New/edited drafts must be committed to JSON, then applied to the message and separately saved to disk. Explicit cancellation and navigation draft guards protect uncommitted notes. Canonical UI / public Mock HTML/JS parity maintained, no external-model calls. Offline browser VM tests run against both UIs. Hosted CI, Codex review, merge **PENDING** at authoring; human Windows visual acceptance not claimed.
 
 
 ## 2026-11-10 — PR #61 merged; main-message sample reporting in progress

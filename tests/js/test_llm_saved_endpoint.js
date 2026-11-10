@@ -64,11 +64,19 @@ const run=expression=>vm.runInContext(expression,context);
  assert.equal(tests,2);
  assert.match(confirmationText,/TCP Port 11434/);
  assert.match(el('llmSettingStatus').textContent,/後端實際測試：http:\/\/192\.168\.0\.134:11434/);
+ // An explicitly supported /v1/ trailing-slash URL must not be rejected.
+ persisted={...persisted,base_url:'http://192.168.0.134:11434/v1/',
+            endpoint:'http://192.168.0.134:11434/v1/',
+            confirmation_token:'slash-config'};
+ await run('loadLLMSettings()');
+ await run('testLLMSettings()');
+ assert.equal(tests,3,'trailing /v1/ should still be a valid saved endpoint');
+ assert.match(el('llmSettingStatus').textContent,/11434\/v1\//);
  // Another tab saving a new endpoint invalidates the local receipt.
  persisted={...persisted,base_url:'http://192.168.0.134:19999',
             confirmation_token:'other-tab-config'};
  await run('testLLMSettings()');
- assert.equal(tests,2,'stale browser tab sent an unexpected connection test');
+ assert.equal(tests,3,'stale browser tab sent an unexpected connection test');
  assert.match(el('llmSettingStatus').textContent,/後端已儲存的 LLM 設定與目前畫面不同/);
  console.log('LLM saved-vs-unsaved endpoint and TCP port smoke PASS');
 })().catch(error=>{console.error(error);process.exitCode=1});

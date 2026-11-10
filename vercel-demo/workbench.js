@@ -120,7 +120,7 @@ async function testLLMSettings(){
  // Re-read to prevent silently testing a configuration changed by another tab.
  const fresh=await api('/api/settings');
  if(!fresh.confirmation_token||fresh.confirmation_token!==savedLLMConfirmationToken||
-    fresh.base_url!==el('llmUrl').value.trim().replace(/\/+$/,'')||
+    String(fresh.base_url||'').replace(/\/+$/,'')!==el('llmUrl').value.trim().replace(/\/+$/,'')||
     fresh.provider!==(savedLLMProvider==='deepinfra'?'deepinfra':'local')){
   el('llmSettingStatus').textContent='後端已儲存的 LLM 設定與目前畫面不同，不能測試舊設定。後端網址：'+
     (fresh.base_url||'未知')+'。請重新載入設定並確認。';

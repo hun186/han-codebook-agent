@@ -81,6 +81,21 @@ def investigation_docx(result: dict[str, Any], events: list[dict[str, Any]]) -> 
                           "沒有可靠單價時不推算節省金額。")
         doc.add_paragraph("完整率只反映 API JSON 結構完整，並非密文破解正確率。"
                           "Token 用量缺漏不能視為零消耗；重試同樣可能計費。")
+    coverage = result.get("code_llm_coverage")
+    if isinstance(coverage, dict):
+        doc.add_heading("LLM 碼組請求涵蓋（不是破解正確率）", level=1)
+        _table(doc, ["項目", "數量"], [
+            ["未驗證碼組", str(coverage["unverified_code_count"])],
+            ["至少曾被送交 LLM 的不同碼組",
+             str(coverage["queried_distinct_code_count"])],
+            ["從未作為 LLM 目標的碼組",
+             str(coverage["not_queried_code_count"])],
+            ["每回合直接請求上限", str(coverage["per_round_target_cap"])],
+        ])
+        doc.add_paragraph(
+            "未被直接請求的碼組仍可能有統計候選；曾被請求不代表模型"
+            "正確解讀或取得可信明文。每回合的抽樣電文不是全部原始語料。"
+        )
     quality = result.get("hypothesis_quality")
     if isinstance(quality, dict) and quality.get("presentation_abstained_code_count", 0) > 0:
         doc.add_heading("推論不確定性（不是破解正確率）", level=1)

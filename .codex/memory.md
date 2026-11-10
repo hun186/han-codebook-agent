@@ -1,5 +1,11 @@
 # Project memory
 
+## 2026-11-10 — PR #63 Codex P2 alignment acceptance draft loss (fixed, re-review pending)
+- Formal Codex review on `67af5281460f0ef0c7885fbcde1aa522d73360d6` found alignment acceptance called `presentCase()` and reset observation form regardless of unapplied edits, including edits typed during `/api/unaligned/accept` in flight. This was a genuine silent-draft-loss risk.
+- Guard alignment confirmation with `evidenceDraftChanged()` before sending the request and again after awaiting the response, before mutating `research`. Return an explicit warning and preserve old case/form on both paths. The VM alignment regression now simulates a draft before confirmation and one typed during pending network response. Existing trusted-anchor strict acceptance remains unchanged.
+- An earlier PR #63 review on `c107bff` also identified a test-DOM stub `dataset.eventMessage` mismatch; fixed by `67af528`. Latest HEAD CI + Codex re-review MUST be re-obtained before resolving 3 old P2 threads or merging.
+
+
 ## 2026-11-10 — PR #63 formal Codex P2 event-link navigation (fixed, re-review pending)
 - Original formal Codex review on `5cd280ffcee115ec2f6a1ca4c914582774cfc072` identified a valid P2: event-link candidate buttons bypassed `selectEvidenceMessage`, called `loadEvidence` directly, and could discard a new observation's unsaved `note` silently even when selecting the current message.
 - Fix routes event-link button actions through guarded `selectEvidenceMessage(id)`, preserving same-message drafts and requiring confirmation for different-message transitions. Added browser VM regression exercising both paths against canonical and Mock scripts. Previous CI/Review must NOT authorize merge. Await latest HEAD CI, formal re-review, then resolve thread only after independently verifying fix.

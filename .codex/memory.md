@@ -1,5 +1,10 @@
 # Project memory
 
+## 2026-11-10 — PR #63 formal Codex P2 event-link navigation (fixed, re-review pending)
+- Original formal Codex review on `5cd280ffcee115ec2f6a1ca4c914582774cfc072` identified a valid P2: event-link candidate buttons bypassed `selectEvidenceMessage`, called `loadEvidence` directly, and could discard a new observation's unsaved `note` silently even when selecting the current message.
+- Fix routes event-link button actions through guarded `selectEvidenceMessage(id)`, preserving same-message drafts and requiring confirmation for different-message transitions. Added browser VM regression exercising both paths against canonical and Mock scripts. Previous CI/Review must NOT authorize merge. Await latest HEAD CI, formal re-review, then resolve thread only after independently verifying fix.
+
+
 ## 2026-11-10 — PR #63 initial Hosted CI P2 legacy VM regression; fix pending fresh gates
 - Initial PR HEAD `5cd280ffcee115ec2f6a1ca4c914582774cfc072` failed Python 3.12 legacy UI VM subsets (case overview, cipher editing, P2 apply) because those isolated snippets did not include new `observationFormHasDraft`; unrelated Docker/Windows checks passed. Do NOT use previous CI/Review for merge.
 - Follow-up uses a `typeof observationFormHasDraft === 'function'` guard in the existing draft detection and Apply paths for standalone legacy function-fragment tests, while the full UI still always defines the helper. Empty legacy mock confidence controls are not mistaken for a new observation draft. New explicit observation editor VM tests still exercise the helper and the real draft guards. Canonical local and public Mock parity preserved. Latest HEAD Hosted CI and Codex Review **PENDING**.

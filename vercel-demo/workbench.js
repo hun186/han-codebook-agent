@@ -44,7 +44,7 @@ let savedLLMFormSnapshot=null,savedLLMConfirmationToken=null;
 function llmFormSnapshot(){
  const fields=['llmPreset','llmModel','llmUrl','llmTimeout','llmKeyEnv','llmMaxOutputTokens'];
  return JSON.stringify([
-  ...fields.map(id=>el(id).value.trim()),
+  ...fields.map(id=>String(el(id).value??'').trim()),
   el('llmAllowLAN').checked,el('llmAllowExternal').checked
  ]);
 }

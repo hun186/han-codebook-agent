@@ -37,6 +37,18 @@ def investigation_report(result: dict[str, Any], events: list[dict[str, Any]]) -
     for e in rounds:
         proposals = next((p['payload'] for p in llm_proposals if p['round']==e['round']), {})
         lines.append(f"| {e['round']} | {len(proposals.get('accepted',[]))} | {proposals.get('rejected_count',0)} | {e['payload'].get('changed_count',0)} | {e['payload'].get('score')} |")
+    coverage = result.get("code_llm_coverage")
+    if isinstance(coverage, dict):
+        lines += [
+            '', '## LLM 碼組請求涵蓋（不是破解正確率）', '',
+            f"- 未驗證碼組：{coverage['unverified_code_count']} 組；"
+            f"至少曾送交 LLM：{coverage['queried_distinct_code_count']} 組；"
+            f"從未作為 LLM 目標：{coverage['not_queried_code_count']} 組。",
+            f"- 每回合直接請求上限：{coverage['per_round_target_cap']} 組。"
+            "其餘碼組仍可能有統計候選，但並未逐碼送交 LLM 研究。",
+            "- 「送交 LLM」只表示提出研究請求，不表示模型回覆、候選合理、"
+            "已解密或正確率提高；抽樣電文並不等於已讀取全部原始電文。",
+        ]
     lines += ['', '## 碼組候選比較', '',
               '| 密碼組 | 狀態 | Baseline | 最後候選 | 改變 |',
               '|---|---|---|---|---|']

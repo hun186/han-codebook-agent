@@ -22,7 +22,7 @@ function el(id){
    querySelectorAll(selector){
     const attr=selector==='[data-editobs]'?'editobs':selector==='[data-event-message]'?'event-message':'removeobs';
     const matches=Array.from(this.innerHTML.matchAll(new RegExp('data-'+attr+'="([^"]+)"','g')));
-    const controls=matches.map(match=>({dataset:{[attr]:match[1]},onclick:null}));
+    const controls=matches.map(match=>({dataset:attr==='event-message'?{eventMessage:match[1]}:{[attr]:match[1]},onclick:null}));
     buttons[selector]=controls;
     return controls;
    }};

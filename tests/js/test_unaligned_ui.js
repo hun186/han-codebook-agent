@@ -105,5 +105,39 @@ el('alignmentCandidates').querySelectorAll=()=>[{dataset:{alignmentPair:'0',alig
  el('alignmentTyped').value='["補給","車隊"]';
  await context.confirmAlignmentCandidate();
  assert(requests.every(x=>x.path!=='/api/unaligned/accept'));
+ // Observation form edits must not be discarded by a trusted-alignment
+ // response (before submission OR while an async acceptance is in flight).
+ let observationDraft=true;
+ context.evidenceDraftChanged=()=>observationDraft;
+ allowed=true;requests=[];accepted=false;
+ const protectedCase={...caseData,messages:[{...caseData.messages[0]}]};
+ context.research=protectedCase;
+ vm.runInContext('research=globalThis.research;',context);
+ await context.previewAlignmentCandidates();click();
+ el('alignmentTyped').value='["補給","車隊"]';
+ await context.confirmAlignmentCandidate();
+ assert(!accepted,'unsaved observation form replaced during alignment accept');
+ assert(requests.every(x=>x.path!=='/api/unaligned/accept'),'draft must block POST');
+ observationDraft=false;requests=[];
+ await context.previewAlignmentCandidates();click();
+ el('alignmentTyped').value='["補給","車隊"]';
+ let release;
+ const priorApi=context.api;
+ context.api=(path,data)=>{
+  if(path!=='/api/unaligned/accept')return priorApi(path,data);
+  requests.push({path,data});
+  return new Promise(resolve=>{release=()=>resolve({
+   case:{...data.case,known_pairs:[{...data.case.known_pairs[0],segments:['補給','車隊']}]},
+   saved:false,status:'researcher_confirmed_not_saved'
+  })});
+ };
+ const awaiting=context.confirmAlignmentCandidate();
+ assert.equal(typeof release,'function','alignment accept was not submitted');
+ observationDraft=true; // User typed a third-party note after request was sent.
+ release();await awaiting;
+ assert(!accepted,'response discarded newly typed observation note');
+ assert.strictEqual(context.research,protectedCase,'research case must remain unchanged');
+ assert(notices.some(x=>x[0].includes('確認期間又有未套用')),'must explain pending draft');
+ context.api=priorApi;delete context.evidenceDraftChanged;
  console.log('Browser manual alignment review regression passed');
 })().catch(e=>{console.error(e);process.exitCode=1});

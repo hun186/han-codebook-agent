@@ -1,5 +1,10 @@
 # Project memory
 
+## 2026-11-10 — PR #60 merged; direct code-request coverage reports in progress
+- PR #60 (bounded full-corpus LLM message sampling) **MERGED** on 2026-11-10 as squash `142742cadb3e0d120a31ddc607739da086636027`, reviewed HEAD `71f080e4e348aefc7fdb69e83481e7a741bed3d6`: PR-triggered Hosted CI four jobs SUCCESS (Python 3.10/3.12, Windows, Docker); formal Codex latest-HEAD code review Completed/No Findings and original P2 thread resolved. This remains an evidence-sampling improvement, not demonstrated historical decryption accuracy. The #59 branch was merged before #60; GitHub confirmed conflict-free merge.
+- Active branch `feat/llm-code-request-coverage-report-20261110`: expose distinct unverified cipher-code *direct model target* coverage separately from statistical estimates, in run result plus Markdown/Word reports. Do not mistake a submitted target for a successful response, correct mapping, or full-corpus reading; count-only diagnostics, no oracle, no additional LLM calls. Synthetic mocked 27-code (15 asked, 12 not asked) and offline zero-round regressions. Hosted CI, formal Codex Review and Merge are **PENDING** at authoring. Local real Case09 or paid DeepInfra validation NOT performed.
+
+
 ## 2026-11-09 — PR #60 Codex P2 late corpus starvation fixed (latest gates pending)
 - Initial review at `a8b2afc65d026b2ae7fba1954d69e61736449e8a` correctly found remaining sample slots were filled from the beginning of the fixed 100-point grid and could stop before any tail evidence when many target-code occurrences were early.
 - Changed sampler to cap target-stratum slots and compute a NEW even grid based on the remaining slots across the full corpus; duplicate overlaps are filled from evenly distributed unused indices. Regression now puts 15 focus codes exclusively in the first 45 of 1000 messages and asserts last/middle coverage and exact bound. Old CI/review are superseded; exact-head CI and formal re-review PENDING.

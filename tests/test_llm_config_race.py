@@ -74,6 +74,19 @@ class LLMConfigRaceTests(unittest.TestCase):
             "api_key_env": "",
         }
 
+    def test_connection_probe_reports_exact_persisted_base_url(self):
+        """Saved :11434 is actually passed to the probe; no case/secret is sent."""
+        stored = self.post(
+            "/api/settings/llm", self.settings("approved-model", 11434)
+        )
+        self.assertEqual(stored["base_url"], "http://127.0.0.1:11434")
+        with patch("han_codebook.agent.probe_llm_service", return_value=True) as probe:
+            response = self.post("/api/settings/test", {"confirmed": True})
+        self.assertEqual(response["tested_base_url"], "http://127.0.0.1:11434")
+        self.assertEqual(probe.call_args.args[0], "http://127.0.0.1:11434")
+        self.assertTrue(response["connected"])
+        self.assertNotIn("case", response)
+
     def wait_completed(self, job_id):
         deadline = time.monotonic() + 6
         while time.monotonic() < deadline:

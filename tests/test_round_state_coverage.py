@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from io import BytesIO
 import json
 from pathlib import Path
 import sqlite3
@@ -9,7 +10,11 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
+from docx import Document
+
 from han_codebook.agent import run_agent
+from han_codebook.report import investigation_report
+from han_codebook.report_docx import investigation_docx
 
 
 def case_with_unknowns(count=27):
@@ -72,6 +77,67 @@ class RoundStateCoverageTests(unittest.TestCase):
         self.assertEqual(result["round_progress_summary"][1]["unasked_code_count"], 0)
         self.assertGreater(summaries[1]["repeated_hint_pairs"], 0)
         self.assertEqual(result["verified_anchors"], {})
+
+    def test_direct_llm_request_coverage_is_counted_not_confused_with_accuracy(self):
+        case = case_with_unknowns(27)
+        original = deepcopy(case)
+        packets = []
+
+        def no_code_answers(_url, _model, packet, **kwargs):
+            packets.append(deepcopy(packet))
+            return {"hypotheses": []}
+
+        with TemporaryDirectory() as td:
+            with patch("han_codebook.agent.analyze", side_effect=synthetic_solver), \
+                 patch("han_codebook.agent.query_local_llm",
+                       side_effect=no_code_answers):
+                result = run_agent(
+                    case, rounds=1, db_path=str(Path(td) / "audit.sqlite"),
+                    solver_iterations=1, solver_restarts=1)
+        self.assertEqual(case, original)
+        self.assertEqual(len(packets), 1)
+        self.assertEqual(len(packets[0]["unresolved"]), 15)
+        self.assertEqual(result["code_llm_coverage"], {
+            "unverified_code_count": 27,
+            "queried_distinct_code_count": 15,
+            "not_queried_code_count": 12,
+            "per_round_target_cap": 15,
+            "code_requests_only": True,
+            "accuracy_measure": False,
+        })
+        self.assertEqual(result["round_progress_summary"][0]["unasked_code_count"], 12)
+        report_result = {
+            **result,
+            "case_id": case["case_id"],
+            "decoded_messages": [],
+            "metadata_used": False,
+        }
+        md = investigation_report(report_result, [])
+        self.assertIn("至少曾送交 LLM：15 組", md)
+        self.assertIn("從未作為 LLM 目標：12 組", md)
+        self.assertIn("不是破解正確率", md)
+        doc = Document(BytesIO(investigation_docx(report_result, [])))
+        word_text = "\\n".join(
+            [p.text for p in doc.paragraphs]
+            + [cell.text for table in doc.tables for row in table.rows
+               for cell in row.cells]
+        )
+        self.assertIn("至少曾被送交 LLM 的不同碼組", word_text)
+        self.assertIn("從未作為 LLM 目標的碼組", word_text)
+        self.assertIn("12", word_text)
+        self.assertIn("15", word_text)
+
+    def test_offline_round_zero_has_no_direct_code_requests(self):
+        case = case_with_unknowns(27)
+        with TemporaryDirectory() as td:
+            with patch("han_codebook.agent.analyze", side_effect=synthetic_solver), \
+                 patch("han_codebook.agent.query_local_llm",
+                       side_effect=AssertionError("unexpected paid call")):
+                result = run_agent(
+                    case, rounds=0, db_path=str(Path(td) / "audit.sqlite"),
+                    solver_iterations=1, solver_restarts=1)
+        self.assertEqual(result["code_llm_coverage"]["queried_distinct_code_count"], 0)
+        self.assertEqual(result["code_llm_coverage"]["not_queried_code_count"], 27)
 
     def test_repeated_proposals_are_not_independent_evidence(self):
         case = case_with_unknowns(1)

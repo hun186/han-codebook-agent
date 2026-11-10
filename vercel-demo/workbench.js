@@ -765,7 +765,7 @@ async function previewEventLinks(){
  ' · '+esc(c.basis)+'</div>').join('')+'</div>').join('')||'<p class="muted">目前尚無第三方目擊紀錄。</p>';
  el('eventLinks').querySelectorAll('[data-event-message]').forEach(b=>b.onclick=()=>{
  if(!matchesOrigin(origin)){notice('事件關聯建議已不屬於目前案例，請重新分析',true);return}
- el('messagePick').value=b.dataset.eventMessage;loadEvidence();notice('已切換電文；這只是時間相關候選，不等於確認連結')});
+ if(selectEvidenceMessage(b.dataset.eventMessage))notice('已切換電文；這只是時間相關候選，不等於確認連結')});
  }catch(e){notice('事件時序分析失敗：'+e.message,true)}}
 let vocabCandidateRecord=[];
 function renderVocabularyIdeas(){

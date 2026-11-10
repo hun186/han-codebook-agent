@@ -699,6 +699,7 @@ async function previewAlignmentCandidates(){
 }
 async function confirmAlignmentCandidate(){
  if(!research||!alignmentReport||!alignmentChoice||!alignmentOrigin)return notice('請先產生並選擇一個候選',true);
+ if(typeof evidenceDraftChanged==='function'&&evidenceDraftChanged())return notice('密電／觀察表單仍有未套用的草稿，請先完成觀察修改並套用此封情報，再重新預覽候選',true);
  if(!matchesAlignmentOrigin(alignmentOrigin))return notice('研究資料已變更，請重新產生候選',true);
  let segments;
  try{
@@ -713,6 +714,7 @@ async function confirmAlignmentCandidate(){
    candidate_rank:alignmentChoice.rank,confirmed_segments:segments,confirmed:true
   });
   if(!matchesAlignmentOrigin(origin))return notice('資料在確認期間已變更；未套用舊結果，請重新預覽',true);
+  if(typeof evidenceDraftChanged==='function'&&evidenceDraftChanged())return notice('確認期間又有未套用的密電／觀察草稿，未套用伺服器結果；請保存草稿後重新預覽',true);
   if(!result||result.saved!==false||result.status!=='researcher_confirmed_not_saved'||!result.case)
    throw Error('伺服器未回傳安全的未存檔確認結果');
   research=result.case;presentCase();

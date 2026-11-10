@@ -49,6 +49,24 @@ def investigation_report(result: dict[str, Any], events: list[dict[str, Any]]) -
             "- 「送交 LLM」只表示提出研究請求，不表示模型回覆、候選合理、"
             "已解密或正確率提高；抽樣電文並不等於已讀取全部原始電文。",
         ]
+    main_messages = result.get("code_llm_message_context")
+    if isinstance(main_messages, dict):
+        lines += ['', '## LLM 主訊息清單抽樣（僅碼組推論階段）', '',
+                  f"- 案例原始電文：{main_messages['total_case_messages']} 封；"
+                  f"每回合主訊息清單上限：{main_messages['per_round_main_message_cap']} 封。"]
+        if main_messages["code_level_rounds"]:
+            for sample in main_messages["code_level_rounds"]:
+                lines.append(
+                    f"- Round {sample['round']}：主訊息清單抽樣 "
+                    f"{sample['sampled_main_messages']}／{main_messages['total_case_messages']} 封。"
+                )
+        else:
+            lines.append("- 本次為 0 回合，沒有碼組 LLM 主訊息清單抽樣。")
+        lines.append(
+            "- 此數字只計算碼組 LLM 的 messages 主清單；"
+            "另有獨立的跨電文片段欄位，動態詞彙階段亦可能另行抽樣。"
+            "不能將此比值當作模型所有證據的涵蓋率，更不是破譯正確率。"
+        )
     lines += ['', '## 碼組候選比較', '',
               '| 密碼組 | 狀態 | Baseline | 最後候選 | 改變 |',
               '|---|---|---|---|---|']

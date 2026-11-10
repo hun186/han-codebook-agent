@@ -914,6 +914,22 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         # as a verified anchor, and never replace immutable known plaintext.
         from .bold_hypotheses import normalize_bold_hypotheses
         current["bold_hypotheses"] = normalize_bold_hypotheses(case, current["verified_anchors"])
+        # Count only codes actually submitted as code-level LLM targets, not
+        # codes inferred by the local solver or merely visible in a prompt.
+        # Counts expose incomplete research coverage without leaking case text.
+        unverified_codes = {
+            code for code, proposal in current["proposals"].items()
+            if proposal["status"] == "hypothesis_unverified"
+        }
+        queried_codes = unverified_codes.intersection(requested_codes)
+        current["code_llm_coverage"] = {
+            "unverified_code_count": len(unverified_codes),
+            "queried_distinct_code_count": len(queried_codes),
+            "not_queried_code_count": len(unverified_codes - queried_codes),
+            "per_round_target_cap": 15,
+            "code_requests_only": True,
+            "accuracy_measure": False,
+        }
         current["targeted_vocabulary_hint_pairs"] = targeted_vocabulary_hint_pairs
         current["llm_api_metrics"] = summarize_llm_api_metrics(api_metrics)
         current["agent_rounds_completed"] = len(round_history)

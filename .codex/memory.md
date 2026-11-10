@@ -1,5 +1,10 @@
 # Project memory
 
+## 2026-11-10 — PR #63 merged; #64 rebased onto canonical observation UI
+- PR #63 observation row note editing and draft protection **MERGED** as `2b53fab4dd2b81b2b9251dbf6a2e3add590d1537` after 4/4 exact-head Hosted CI PASS and formal latest-head Codex Completed/No Findings on `c987b1b35d79d6068fe54d5e1366870528f598bd`, three previous P2 review threads resolved. Post-merge main CI separate verification not claimed.
+- PR #64 saved local Ollama test URL diagnostics has been reconciled with #63 on a two-parent merge tree from the latest main. Canonical source and Vercel browser-only Mock each retain **both** observation edit/draft guards and saved-LLM-URL/port display. Original #64 CI and Codex findings about mock numeric values and valid trailing slash fixed, but original results are superseded; fresh Hosted CI, formal latest-head Codex Review, threads and conflict-free gate required. No real LAN or paid LLM test.
+
+
 ## 2026-11-10 — PR #63 Codex P2 alignment acceptance draft loss (fixed, re-review pending)
 - Formal Codex review on `67af5281460f0ef0c7885fbcde1aa522d73360d6` found alignment acceptance called `presentCase()` and reset observation form regardless of unapplied edits, including edits typed during `/api/unaligned/accept` in flight. This was a genuine silent-draft-loss risk.
 - Guard alignment confirmation with `evidenceDraftChanged()` before sending the request and again after awaiting the response, before mutating `research`. Return an explicit warning and preserve old case/form on both paths. The VM alignment regression now simulates a draft before confirmation and one typed during pending network response. Existing trusted-anchor strict acceptance remains unchanged.

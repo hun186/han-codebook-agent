@@ -147,7 +147,7 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
      <small id="llmModelCatalogStatus" class="muted" aria-live="polite">只查詢供應商模型名稱，不傳送密電或執行付費推論；查詢失敗時仍可手動輸入模型 ID。</small>
    </div>
  </div>
- <div><label for="llmUrl">API Base URL</label><input type="text" id="llmUrl" placeholder="http://127.0.0.1:11434"></div>
+ <div><label for="llmUrl">API Base URL</label><input type="text" id="llmUrl" placeholder="http://127.0.0.1:11434"><small class="muted">Ollama 常用 Port 11434，例如 http://192.168.0.134:11434。修改後請先按「儲存設定」，再測試已儲存的端點；未指定 Port 的 HTTP 會連到 80。</small></div>
  <div><label for="llmKeyEnv">API Key 環境變數名稱（勿貼金鑰）</label><input type="text" id="llmKeyEnv" autocomplete="off" placeholder="HAN_CODEBOOK_LLM_API_KEY"><small class="muted">填入環境變數名稱，不是 API Key 本身。</small></div>
  <div><label for="llmTimeout">等待秒數（1～600）</label><input type="number" id="llmTimeout" min="1" max="600" step="1" value="90"></div>
  <div id="llmOutputTokenWrap" hidden><label for="llmMaxOutputTokens">DeepInfra 每次最大輸出 tokens（1,024～16,384）</label><input type="number" id="llmMaxOutputTokens" min="1024" max="16384" step="1024" value="8192"><small class="muted">預設 8,192。只限制單次輸出，不是上下文或帳戶花費上限；截斷時最多重試一次，可能增加費用。</small></div>

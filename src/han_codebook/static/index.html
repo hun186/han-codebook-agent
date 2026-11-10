@@ -147,7 +147,7 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
      <small id="llmModelCatalogStatus" class="muted" aria-live="polite">只查詢供應商模型名稱，不傳送密電或執行付費推論；查詢失敗時仍可手動輸入模型 ID。</small>
    </div>
  </div>
- <div><label for="llmUrl">API Base URL</label><input type="text" id="llmUrl" placeholder="http://127.0.0.1:11434"></div>
+ <div><label for="llmUrl">API Base URL</label><input type="text" id="llmUrl" placeholder="http://127.0.0.1:11434"><small class="muted">Ollama 常用 Port 11434，例如 http://192.168.0.134:11434。修改後請先按「儲存設定」，再測試已儲存的端點；未指定 Port 的 HTTP 會連到 80。</small></div>
  <div><label for="llmKeyEnv">API Key 環境變數名稱（勿貼金鑰）</label><input type="text" id="llmKeyEnv" autocomplete="off" placeholder="HAN_CODEBOOK_LLM_API_KEY"><small class="muted">填入環境變數名稱，不是 API Key 本身。</small></div>
  <div><label for="llmTimeout">等待秒數（1～600）</label><input type="number" id="llmTimeout" min="1" max="600" step="1" value="90"></div>
  <div id="llmOutputTokenWrap" hidden><label for="llmMaxOutputTokens">DeepInfra 每次最大輸出 tokens（1,024～16,384）</label><input type="number" id="llmMaxOutputTokens" min="1024" max="16384" step="1024" value="8192"><small class="muted">預設 8,192。只限制單次輸出，不是上下文或帳戶花費上限；截斷時最多重試一次，可能增加費用。</small></div>
@@ -261,6 +261,14 @@ async function listCases(){
  await loadLLMSettings();
 }
 let savedLLMProvider='local';
+let savedLLMFormSnapshot=null,savedLLMConfirmationToken=null;
+function llmFormSnapshot(){
+ const fields=['llmPreset','llmModel','llmUrl','llmTimeout','llmKeyEnv','llmMaxOutputTokens'];
+ return JSON.stringify([
+  ...fields.map(id=>String(el(id).value??'').trim()),
+  el('llmAllowLAN').checked,el('llmAllowExternal').checked
+ ]);
+}
 function updateLLMProviderUI(){
  const deep=el('llmPreset').value==='deepinfra';
  el('llmAllowLANWrap').hidden=deep; el('llmAllowLAN').disabled=deep;
@@ -284,6 +292,7 @@ async function loadLLMSettings(){
  el('llmKeyEnv').value=cfg.api_key_env||'';
  el('modelInfo').textContent=(savedLLMProvider==='deepinfra'?'DeepInfra':'本機／區網')+' · '+cfg.model+' · '+cfg.endpoint;
  updateLLMProviderUI();
+ savedLLMFormSnapshot=llmFormSnapshot();savedLLMConfirmationToken=cfg.confirmation_token||null;
 }
 async function refreshLLMModels(){
  if(el('llmPreset').value!=='deepinfra')return;
@@ -324,11 +333,39 @@ async function saveLLMSettings(){
  await loadLLMSettings();
 }
 async function testLLMSettings(){
- const host=savedLLMProvider==='deepinfra'?'DeepInfra 外部 HTTPS':'本機／區網';
- if(!confirm('測試已儲存的 '+host+' TCP／模型清單（使用環境變數金鑰，不傳研究案例）？'))return;
- el('llmSettingStatus').textContent='正在測試已儲存的模型端點...';
+ // A form edit is not a saved target. Reject before any TCP/model probe.
+ if(savedLLMFormSnapshot===null||llmFormSnapshot()!==savedLLMFormSnapshot){
+  el('llmSettingStatus').textContent='目前畫面的 LLM 網址／模型／授權與已儲存設定不同。請先按「儲存設定」，再測試；未儲存的網址不會拿來連線。';
+  return;
+ }
+ // Re-read to prevent silently testing a configuration changed by another tab.
+ const fresh=await api('/api/settings');
+ if(!fresh.confirmation_token||fresh.confirmation_token!==savedLLMConfirmationToken||
+    String(fresh.base_url||'').replace(/\/+$/,'')!==el('llmUrl').value.trim().replace(/\/+$/,'')||
+    fresh.provider!==(savedLLMProvider==='deepinfra'?'deepinfra':'local')){
+  el('llmSettingStatus').textContent='後端已儲存的 LLM 設定與目前畫面不同，不能測試舊設定。後端網址：'+
+    (fresh.base_url||'未知')+'。請重新載入設定並確認。';
+  return;
+ }
+ const base=fresh.base_url;
+ let portHint='';
+ try{
+  const u=new URL(base);
+  const p=u.port||(u.protocol==='https:'?'443':'80');
+  portHint='（TCP Port '+p+(u.port?'':'；URL 未指定 Port，使用預設值')+'）';
+ }catch(_){portHint='（請檢查網址格式）'}
+ const host=fresh.provider==='deepinfra'?'DeepInfra 外部 HTTPS':'本機／區網';
+ if(!confirm('測試已儲存的 '+host+' 端點：'+base+' '+portHint+
+             '。僅 TCP 與模型清單，不傳送研究案例或執行 chat completions。確定？'))return;
+ el('llmSettingStatus').textContent='正在檢查已儲存端點：'+base+' '+portHint+' ...';
  const result=await api('/api/settings/test',{confirmed:true});
- el('llmSettingStatus').textContent=(result.connected?'基本連線檢查成功':'基本連線檢查未成功')+'\n'+(result.diagnostics||[]).join('\n')+'\n'+result.note;
+ const actual=result.tested_base_url||base;
+ const changed=actual!==base;
+ el('llmSettingStatus').textContent=
+  (result.connected?'基本連線檢查成功':'基本連線檢查未成功')+
+  '\n[設定] 後端實際測試：'+actual+
+  (changed?'\n[警告] 測試期間設定已改變，請重新載入後再測一次。':'')+
+  '\n'+(result.diagnostics||[]).join('\n')+'\n'+(result.note||'');
 }
 function presentCase(){
  overviewState.page=0;overviewState.expanded.clear();

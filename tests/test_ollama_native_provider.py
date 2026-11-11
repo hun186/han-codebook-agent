@@ -42,7 +42,7 @@ class NativeOllamaTests(unittest.TestCase):
                     "done": True, "done_reason": "stop",
                     "prompt_eval_count": 1024, "eval_count": 80}
         events, metrics = [], []
-        with patch("han_codebook.agent.request.urlopen", return_value=FakeResponse(response)) as http:
+        with patch("han_codebook.agent._urlopen_llm", return_value=FakeResponse(response)) as http:
             result = query_local_llm(BASE, "qwen3.8:latest-128k",
                 {"task": "generate_vocabulary", "messages": [{"id": "M1"}]},
                 reasoning_effort="none", response_format="json_object",
@@ -67,7 +67,7 @@ class NativeOllamaTests(unittest.TestCase):
                     "thinking": '{"vocabulary":[{"term":"不可以拿來當正式資料"}]}'},
                     "done": True, "done_reason": "stop",
                     "prompt_eval_count": 100, "eval_count": 3304}
-        with patch("han_codebook.agent.request.urlopen", return_value=FakeResponse(response)):
+        with patch("han_codebook.agent._urlopen_llm", return_value=FakeResponse(response)):
             with self.assertRaisesRegex(CaseError, r"empty final content .*reasoning_only=True.*3304"):
                 query_local_llm(BASE, "qwen3.8:latest-128k",
                     {"task": "generate_vocabulary"}, **LAN)
@@ -81,7 +81,7 @@ class NativeOllamaTests(unittest.TestCase):
                 with self.assertRaisesRegex(CaseError, "LLM output not valid expected JSON"):
                     query_local_llm(BASE, "mock", {"task": "generate_vocabulary"}, **LAN)
         incomplete = {"message": {"content": '{"vocabulary":[]}'}, "done": False}
-        with patch("han_codebook.agent.request.urlopen", return_value=FakeResponse(incomplete)):
+        with patch("han_codebook.agent._urlopen_llm", return_value=FakeResponse(incomplete)):
             with self.assertRaisesRegex(CaseError, "incomplete"):
                 query_local_llm(BASE, "mock", {"task": "generate_vocabulary"}, **LAN)
 
@@ -89,7 +89,7 @@ class NativeOllamaTests(unittest.TestCase):
         logs = []
         response = {"models": [{"name": "qwen3.8:latest-128k"}]}
         with patch("han_codebook.agent.socket.create_connection", return_value=FakeSocket()) as tcp, \
-             patch("han_codebook.agent.request.urlopen", return_value=FakeResponse(response)) as http:
+             patch("han_codebook.agent._urlopen_llm", return_value=FakeResponse(response)) as http:
             ok = probe_llm_service(BASE, report=logs.append, **LAN)
         self.assertTrue(ok)
         self.assertEqual(tcp.call_args.args[0], (HOST, 11434))
@@ -126,6 +126,62 @@ class NativeOllamaTests(unittest.TestCase):
             with self.assertRaisesRegex(CaseError, "External API consent"):
                 save_model_settings(path, payload)
             self.assertEqual(load_settings(path)["llm"]["allow_external_api"], False)
+
+
+    def test_native_redirect_never_forwards_case_or_authorization(self):
+        """Both native chat and native tags fail closed on cross-origin 302."""
+        import os
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        received = []
+
+        class Receiver(BaseHTTPRequestHandler):
+            def do_GET(self): self.capture()
+            def do_POST(self): self.capture()
+            def capture(self):
+                received.append((self.path, self.headers.get("Authorization")))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"{}")
+            def log_message(self, *args): pass
+
+        destination = ThreadingHTTPServer(("127.0.0.1", 0), Receiver)
+        location = f"http://127.0.0.1:{destination.server_port}/unapproved"
+
+        class Redirector(BaseHTTPRequestHandler):
+            def do_GET(self): self.redirect()
+            def do_POST(self): self.redirect()
+            def redirect(self):
+                self.send_response(302)
+                self.send_header("Location", location)
+                self.end_headers()
+            def log_message(self, *args): pass
+
+        origin = ThreadingHTTPServer(("127.0.0.1", 0), Redirector)
+        threads = []
+        for server in (destination, origin):
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            threads.append(thread)
+        try:
+            url = f"http://127.0.0.1:{origin.server_port}"
+            with patch.dict(os.environ, {"HAN_NATIVE_OLLAMA_TEST_TOKEN": "not_for_other_hosts"}):
+                with self.assertRaisesRegex(CaseError, "LLM HTTP 302"):
+                    query_local_llm(url, "mock", {"task": "generate_vocabulary"},
+                                    provider="ollama", api_key_env="HAN_NATIVE_OLLAMA_TEST_TOKEN")
+                logs = []
+                self.assertFalse(probe_llm_service(
+                    url, provider="ollama", api_key_env="HAN_NATIVE_OLLAMA_TEST_TOKEN",
+                    report=logs.append))
+                self.assertTrue(any("/api/tags HTTP 302" in line for line in logs))
+            self.assertEqual(received, [], "native redirect leaked a request to unapproved destination")
+        finally:
+            for server in (origin, destination):
+                server.shutdown()
+                server.server_close()
+            for thread in threads: thread.join(timeout=3)
+
 
 
 if __name__ == "__main__":

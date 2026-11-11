@@ -1,5 +1,11 @@
 # Project memory
 
+## 2026-11-11 — PR #65 Codex P1 redirect containment fixed; review pending
+- Formal Codex Review at old HEAD `0fab4defc92ba0cdb40c82c006801220db30d122` found a genuine P1: native Ollama `urllib` redirects would leave the allowlisted origin and could forward configured Authorization headers and research context to another host.
+- Fixed `_urlopen_llm` to reject all redirects when `provider=ollama` (as previously done for DeepInfra), covering both `/api/chat` and `/api/tags` probes. Added deterministic two-loopback-server regression asserting that neither POST/GET redirected traffic nor its Bearer auth reaches an unapproved receiver.
+- Old CI/Review superseded. Re-run required latest HEAD full Hosted CI and formal Codex re-review; do NOT resolve P1 or merge based on old review.
+
+
 ## 2026-11-11 — PR #65 initial Hosted CI public Mock safety-string regression, fixed (gates pending)
 - Initial HEAD `0fab4defc92ba0cdb40c82c006801220db30d122`: Python 3.10 Hosted CI completed with 1 failure in existing static Mock safety test, because canonical GUI instructional text literally contained the forbidden OpenAI chat-completions path. All 6 new native Ollama Python contract cases passed; Windows and Docker passed, Python 3.12 cancelled by fail-fast. This did NOT indicate any real network traffic from Mock.
 - Edited only the on-screen help wording to avoid the literal API route in the public Mock document while preserving native/provider distinctions, and re-synchronized canonical GUI / Mock. Repeat required latest-head Hosted CI and formal Codex review before merge. No paid model and no actual LAN Qwen run.

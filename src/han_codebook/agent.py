@@ -100,7 +100,10 @@ class _RejectRedirects(request.HTTPRedirectHandler):
 
 
 def _urlopen_llm(req: request.Request, *, timeout: int, provider: str):
-    if provider == "deepinfra":
+    # A private/LAN IP allowlist is meaningless if urllib follows a 302 to
+    # another host. Reject redirects on native Ollama as well as DeepInfra,
+    # including read-only /api/tags probes that can include a Bearer header.
+    if provider in ("deepinfra", "ollama"):
         return request.build_opener(_RejectRedirects()).open(req, timeout=timeout)
     return request.urlopen(req, timeout=timeout)
 

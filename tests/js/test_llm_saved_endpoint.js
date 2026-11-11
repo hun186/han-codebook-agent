@@ -17,7 +17,7 @@ let persisted={
  provider:'local',base_url:'http://192.168.0.134',endpoint:'http://192.168.0.134',
  model:'test-ollama',timeout_seconds:90,max_output_tokens:8192,
  allow_private_network:true,allow_external_api:false,api_key_env:'',
- confirmation_token:'old-config'
+ confirmation_token:'old-config',supported_providers:['local','ollama','deepinfra']
 };
 let tests=0,settingsReads=0,settingsWrites=0,confirmationText='';
 const api=async (route,payload)=>{
@@ -56,7 +56,15 @@ const run=expression=>vm.runInContext(expression,context);
  await run('testLLMSettings()');
  assert.equal(tests,1,'unsaved form launched a TCP probe');
  assert.match(el('llmSettingStatus').textContent,/請先按「儲存設定」/);
- // Saving updates the backend receipt; fresh test checks the exact saved port.
+ // Legacy backend: native Ollama must NOT send a rejected write request.
+ persisted.supported_providers=['local','deepinfra'];
+ let oldError=null;
+ try{await run('saveLLMSettings()')}catch(error){oldError=error}
+ assert.match(oldError?.message||'',/Python 後端不支援 Ollama 原生 API/);
+ assert.equal(settingsWrites,0,'legacy backend should receive no settings write');
+ assert.match(el('llmSettingStatus').textContent,/Ctrl\+C/);
+ // Reloading actual new Python backend allows explicit provider selection.
+ persisted.supported_providers=['local','ollama','deepinfra'];
  await run('saveLLMSettings()');
  assert.equal(settingsWrites,1);
  assert.equal(persisted.base_url,'http://192.168.0.134:11434');

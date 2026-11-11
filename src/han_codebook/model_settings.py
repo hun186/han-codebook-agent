@@ -18,6 +18,7 @@ from .config import load_settings
 from .core import CaseError
 
 MAX_LLM_ROUNDS = 20
+SUPPORTED_LLM_PROVIDERS = ("local", "ollama", "deepinfra")
 
 # This is a freshness receipt for NONSECRET model settings, not authentication.
 # It must be compared while the job-admission/settings-write lock is held.
@@ -56,6 +57,7 @@ def model_settings(path: Path) -> dict:
     return {
         "base_url": llm.get("base_url", "http://127.0.0.1:11434"),
         "provider": llm.get("provider", "local"),
+        "supported_providers": list(SUPPORTED_LLM_PROVIDERS),
         "allow_external_api": llm.get("allow_external_api", False),
         "model": llm.get("model", "qwen3:14b"),
         "max_output_tokens": llm.get("max_output_tokens", DEEPINFRA_DEFAULT_MAX_OUTPUT_TOKENS),
@@ -84,7 +86,7 @@ def save_model_settings(path: Path, raw: dict) -> dict:
             DEEPINFRA_DEFAULT_MAX_OUTPUT_TOKENS if cap is None else cap)
     elif cap is not None:
         raise CaseError("max_output_tokens applies to DeepInfra only")
-    if type(provider) is not str or provider not in ("local", "ollama", "deepinfra"):
+    if type(provider) is not str or provider not in SUPPORTED_LLM_PROVIDERS:
         raise CaseError("Provider must be local, ollama or deepinfra")
     if type(external) is not bool or (provider != "deepinfra" and external):
         raise CaseError("External API consent only applies to DeepInfra")

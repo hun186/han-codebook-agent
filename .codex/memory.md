@@ -1,5 +1,11 @@
 # Project memory
 
+## 2026-11-11 — Model-transport preflight prevents repeated wrong API mode (new PR; gates pending)
+- An actual private diagnostic ZIP for a 2026-11-11 failed Case09 round-1 vocabulary run contains `vocabulary_llm_request.url=http://192.168.0.134:11434/v1/chat/completions` and `llm_api_metrics.provider=local`, despite #65 native Ollama code already merged. `content=""`, `reasoning` repeated and 2018 completion tokens; no valid final JSON. This confirms **the run used local/OpenAI-compatible, not native**, but does not prove whether local config was unsaved or local executable was out of date. User case data and full raw LLM contents remain private; do not commit them.
+- Add a nonsecret transport summary in the LLM settings header, saved/test receipts, and **before any analysis sends case material**: actual provider label and computed chat API URL. Explicit warning when `provider=local` is used on port 11434; do not change or auto-switch valid compatible gateways. Block analysis if the on-screen provider settings are unsaved or local confirmation token is stale; continue to require consent and same-origin admission token.
+- Run-start audit adds provider and route only (no case, host, key or raw prompt). Canonical GUI and browser-only Vercel Mock parity required; offline VM and Hosted CI + formal latest-head review pending. Backend transport and inference behavior unchanged.
+
+
 ## 2026-11-11 — Trace prompt/raw-response copy controls (new PR, gates pending)
 - Scope: in the existing 05 逐輪分析／Prompt request/response details, add one icon-only accessible button next to each `送往 LLM 的訊息` / `API 原始回覆` heading. Click copies the *corresponding displayed* escaped `<pre>`. Disabled when no corresponding captured body; no secret or raw prompt embedded in HTML data attributes.
 - Toast `已複製` sits next to the icon; auto-dismiss after 3000ms or any subsequent page click. Async clipboard with legacy local/LAN fallback; only explicit researcher click can copy. Delegated click handling supports multiple rounds and repeated renders.

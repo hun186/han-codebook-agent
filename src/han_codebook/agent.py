@@ -600,7 +600,18 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         vocab.update(idea_vocabulary(case))
         events = suggest_event_links(case) if metadata else []
         domains = list(case["profiles"])
-        log_event(conn, 0, "run_started", {"run_id": run_id, "model": model if rounds else None, "rounds_requested": rounds, "capture_llm_io": capture_llm_io})
+        log_event(conn, 0, "run_started", {
+            "run_id": run_id, "model": model if rounds else None,
+            "rounds_requested": rounds, "capture_llm_io": capture_llm_io,
+            # Include nonsecret provider and API path so even safe diagnostic
+            # exports can distinguish native Ollama from OpenAI-compatible.
+            "llm_provider": llm_provider if rounds else None,
+            "chat_api_path": (
+                "/api/chat" if llm_provider == "ollama"
+                else "/v1/openai/chat/completions" if llm_provider == "deepinfra"
+                else "/v1/chat/completions"
+            ) if rounds else None,
+        })
         if marks:
             log_event(conn, 0, "researcher_hypotheses_unverified", {"marks": marks, "verified": False})
         log_event(conn, 0, "preflight", {"messages": len(case["messages"]), "known_anchors": len(anchors),

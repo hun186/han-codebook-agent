@@ -1,5 +1,10 @@
 # Project memory
 
+## 2026-11-11 — PR #65 initial Hosted CI public Mock safety-string regression, fixed (gates pending)
+- Initial HEAD `0fab4defc92ba0cdb40c82c006801220db30d122`: Python 3.10 Hosted CI completed with 1 failure in existing static Mock safety test, because canonical GUI instructional text literally contained the forbidden OpenAI chat-completions path. All 6 new native Ollama Python contract cases passed; Windows and Docker passed, Python 3.12 cancelled by fail-fast. This did NOT indicate any real network traffic from Mock.
+- Edited only the on-screen help wording to avoid the literal API route in the public Mock document while preserving native/provider distinctions, and re-synchronized canonical GUI / Mock. Repeat required latest-head Hosted CI and formal Codex review before merge. No paid model and no actual LAN Qwen run.
+
+
 ## 2026-11-11 — Native Ollama JSON transport to address reasoning-only failure (PR pending)
 - User's live Qwen/Ollama vocabulary run failed on round 1/3 with `empty final content (reasoning_only=True, finish_reason=stop, completion_tokens=3304)`. This is a transport/output failure, **not** verified decipherment and not a TCP failure.
 - Observed code uses OpenAI-compatible `/v1/chat/completions` even when GUI preset reads Ollama. Explicit native `llm.provider: ollama` now selects same-root `/api/chat` with `stream:false`, `format:json`, `think:false` by default. Legacy `local` OpenAI-compatible and DeepInfra remain unchanged; no automatic retry or paid fallback. Native `/api/tags` check is read-only metadata.

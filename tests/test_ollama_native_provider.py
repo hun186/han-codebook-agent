@@ -77,7 +77,7 @@ class NativeOllamaTests(unittest.TestCase):
             reply = {"message": {"content": output},
                      "done": True, "done_reason": "stop", "eval_count": 5}
             with self.subTest(output=output), patch(
-                "han_codebook.agent.request.urlopen", return_value=FakeResponse(reply)):
+                "han_codebook.agent._urlopen_llm", return_value=FakeResponse(reply)):
                 with self.assertRaisesRegex(CaseError, "LLM output not valid expected JSON"):
                     query_local_llm(BASE, "mock", {"task": "generate_vocabulary"}, **LAN)
         incomplete = {"message": {"content": '{"vocabulary":[]}'}, "done": False}

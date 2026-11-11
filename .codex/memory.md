@@ -1,5 +1,11 @@
 # Project memory
 
+## 2026-11-11 — Trace prompt/raw-response copy controls (new PR, gates pending)
+- Scope: in the existing 05 逐輪分析／Prompt request/response details, add one icon-only accessible button next to each `送往 LLM 的訊息` / `API 原始回覆` heading. Click copies the *corresponding displayed* escaped `<pre>`. Disabled when no corresponding captured body; no secret or raw prompt embedded in HTML data attributes.
+- Toast `已複製` sits next to the icon; auto-dismiss after 3000ms or any subsequent page click. Async clipboard with legacy local/LAN fallback; only explicit researcher click can copy. Delegated click handling supports multiple rounds and repeated renders.
+- Canonical loopback GUI and Vercel browser-only Mock kept synchronized. No backend, endpoint, model request, benchmark or research scoring changes. Node browser VM and Hosted CI should validate behavior; no live model or case calls. CI / formal Codex Review / merge status **PENDING** at authoring.
+
+
 ## 2026-11-11 — PR #65 later Codex P2 test-only HTTP interception fixed; re-review pending
 - Formal Codex Review at `a7399ba38d8f8eb6b2b03a899f4d6d78452bb53f` found a valid P2: the invalid-JSON subtest still patched `request.urlopen` while provider=ollama uses `_urlopen_llm` with `build_opener`, so two purportedly offline invalid-JSON tests attempted a real LAN request with *synthetic test-only data*. No real user case was sent by this test.
 - Fixed the remaining mock to intercept `han_codebook.agent._urlopen_llm`; all native synthetic API responses now use the same transport boundary. Prior CI/Review do NOT authorize merge. Fresh exact-head Hosted CI + completed formal Codex re-review, plus resolution of P1/P2 valid findings required.

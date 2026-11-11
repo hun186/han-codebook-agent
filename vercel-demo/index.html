@@ -86,6 +86,16 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
  .llm-model-picker{grid-template-columns:minmax(0,1fr)}
  .llm-model-picker button{width:100%}
 }
+/* Trace prompts may contain sensitive research material: copy ONLY visible <pre> text. */
+.exchange-copy-block{min-width:0;margin:8px 0 14px}
+.exchange-copy-heading{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.exchange-copy-heading h3{margin:8px 0}
+.exchange-copy-action{display:inline-flex;align-items:center;position:relative}
+button.exchange-copy-button{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:5px;border-radius:7px;line-height:1}
+.exchange-copy-button svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.exchange-copy-button:focus-visible{outline:2px solid #91c5fb;outline-offset:2px}
+.exchange-copy-toast{position:absolute;left:calc(100% + 8px);top:50%;transform:translateY(-50%);padding:5px 10px;border-radius:7px;background:#e9f5ee;color:#173b2b;border:1px solid #89c8a4;white-space:nowrap;box-shadow:0 3px 10px #0004;z-index:5;font-size:13px;font-weight:600;pointer-events:none}
+.exchange-copy-toast[hidden]{display:none!important}
 </style></head><body><header><h1>Han Codebook Agent　中文詞組密電研究工作台</h1><small>公開 MOCK LLM 展示版 · 與本機相同的研究工作台介面 · 全部為公開合成資料、絕不呼叫真實模型</small></header><main>
 <div class="panel"><p class="alert" role="status">【公開 Mock 展示】這裡與本機研究版共用相同的 GUI 及操作流程；計算、LLM 候選、時序分析與報告由純瀏覽器合成資料模擬。沒有連接真實模型、沒有歷史破譯結論，也不會把輸入資料送出網頁。編輯與另存只在目前頁面有效，重新整理即消失。</p><div class="row"><div><label for="caseList">研究案例</label><select id="caseList" style="width:100%"></select></div><button id="loadCase">載入案例</button><button id="newCase">＋ 建立空白案例</button><button id="addMessage">＋ 新增電文</button><button id="delMessage">刪除目前電文</button><button id="newProfile">＋ 新增語境領域</button><div><label>模型服務</label><div id="modelInfo" class="muted">載入中…</div></div></div><p id="notice" class="muted" aria-live="polite"></p></div><div id="toast" role="alert" aria-live="assertive" hidden title="點選可關閉"></div>
 <aside class="workspace-sidebar" aria-label="研究工作台導航"><h2>研究導航</h2><nav class="tabs" id="tabs" aria-label="工作流程與功能">

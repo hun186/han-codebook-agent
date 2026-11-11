@@ -967,6 +967,64 @@ el('readings').innerHTML='<table><thead><tr><th>電文</th><th>每個碼組的�
 el('readings').querySelectorAll('[data-readcode]').forEach(b=>b.onclick=()=>{openMark(b.dataset.readcode);if(!el('markWord').value)el('markWord').value=result.proposals[b.dataset.readcode]?.term||''});renderPriorComparison(result);priorResult=JSON.parse(JSON.stringify(result));
 
 }
+let activeExchangeCopyToast=null;
+let exchangeCopyToastTimer=null;
+let exchangeCopySequence=0;
+function hideExchangeCopyToast(){
+ if(exchangeCopyToastTimer!==null)clearTimeout(exchangeCopyToastTimer);
+ exchangeCopyToastTimer=null;
+ if(activeExchangeCopyToast)activeExchangeCopyToast.hidden=true;
+ activeExchangeCopyToast=null;
+ document.removeEventListener('click',hideExchangeCopyToast);
+}
+function traceCopySection(title,content,kind,available=true){
+ // Keep research strings in escaped <pre>, never in button attributes.
+ return '<div class="exchange-copy-block"><div class="exchange-copy-heading"><h3>'+esc(title)+
+  '</h3><span class="exchange-copy-action"><button type="button" class="exchange-copy-button" '+
+  'data-copy-exchange="'+kind+'" aria-label="複製'+esc(title)+'" title="複製'+esc(title)+'"'+
+  (available?'':' disabled')+'>'+
+  '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/>'+
+  '<path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>'+
+  '</button><span class="exchange-copy-toast" role="status" aria-live="polite" hidden>已複製</span>'+
+  '</span></div><pre>'+esc(content)+'</pre></div>';
+}
+async function writeExchangeClipboard(text){
+ if(typeof navigator!=='undefined'&&navigator.clipboard&&typeof navigator.clipboard.writeText==='function'){
+  try{await navigator.clipboard.writeText(text);return}
+  catch(_){/* HTTP LAN or permission denial: try legacy user-gesture copy. */}
+ }
+ const input=document.createElement('textarea');
+ input.value=text;
+ input.setAttribute('readonly','');
+ input.style.position='fixed';input.style.left='-9999px';
+ document.body.appendChild(input);
+ try{
+  input.select();
+  if(typeof document.execCommand!=='function'||!document.execCommand('copy'))
+   throw Error('Clipboard API unavailable');
+ }finally{input.remove()}
+}
+async function onTraceCopyClick(event){
+ const button=event.target.closest('button[data-copy-exchange]');
+ if(!button||button.disabled||!el('exchanges').contains(button))return;
+ event.preventDefault();event.stopPropagation();
+ const pre=button.closest('.exchange-copy-block')?.querySelector('pre');
+ if(!pre)return;
+ const sequence=++exchangeCopySequence;
+ try{
+  await writeExchangeClipboard(pre.textContent);
+  if(sequence!==exchangeCopySequence)return;
+  hideExchangeCopyToast();
+  const toast=button.parentElement.querySelector('.exchange-copy-toast');
+  if(!toast)return;
+  toast.hidden=false;
+  activeExchangeCopyToast=toast;
+  exchangeCopyToastTimer=setTimeout(hideExchangeCopyToast,3000);
+  document.addEventListener('click',hideExchangeCopyToast);
+ }catch(_){
+  if(sequence===exchangeCopySequence)notice('複製失敗，請手動選取文字複製',true);
+ }
+}
 function renderTrace(j){let failedNotice=j.status==='failed'?'<p class="alert">分析失敗；以下為失敗前已取得的部分稽核事件，並非已完成的破譯。</p>':'';let events=j.events||[];let rounds=events.filter(x=>x.stage==='statistical_baseline'||x.stage==='rescore');el('roundChart').innerHTML=failedNotice+lineChart(rounds.map(x=>({score:x.payload.score})))+rounds.map(x=>`<div class="message"><strong>${x.stage==='statistical_baseline'?'Baseline':'Round '+x.round}</strong>　內部目標分數：${esc(x.payload.score)}<br><small>相較上一輪變更：${x.payload.changed_count??'—'} 碼</small></div>`).join('')+'<small>目標分數不是機率，不適合跨不同資料集直接比較。</small>';
 el('changes').innerHTML=events.filter(x=>x.stage==='rescore').map(x=>`<details><summary>Round ${x.round}: ${Object.keys(x.payload.changes||{}).length} 個變更</summary><pre>${esc(JSON.stringify(x.payload.changes||{},null,2))}</pre></details>`).join('');
 let phases=[
@@ -990,8 +1048,8 @@ el('exchanges').innerHTML=vocabRounds.map(x=>
  const v=x.response||{};
  return `<details><summary>Round ${x.round} · ${esc(x.phase)}：完整請求與回覆</summary>
  <p class="muted">HTTP ${esc(v.http_status??200)} · API ${esc((Number(v.elapsed_ms||0)/1000).toFixed(1))} 秒 · token：${esc(JSON.stringify(v.usage||'未提供'))}</p>
- <h3>送往 LLM 的訊息</h3><pre>${esc(JSON.stringify(x.payload.body,null,2))}</pre>
- <h3>API 原始回覆</h3><pre>${esc(v.response||'尚無對應回覆')}</pre></details>`;
+ ${traceCopySection('送往 LLM 的訊息',JSON.stringify(x.payload.body,null,2),'request',x.payload.body!==undefined)}
+ ${traceCopySection('API 原始回覆',v.response||'尚無對應回覆','response',typeof v.response==='string'&&v.response.length>0)}</details>`;
 }).join('');
 if(!requestRecords.length)el('exchanges').innerHTML+='<p class="muted">尚無完整 Prompt 擷取資料（可能未啟用，或此次尚未呼叫模型）。</p>';
 }
@@ -1187,6 +1245,7 @@ el('llmPreset').onchange=()=>{
 el('llmModelChoices').onchange=()=>{if(el('llmModelChoices').value)el('llmModel').value=el('llmModelChoices').value};
 el('llmModel').oninput=()=>{const pick=el('llmModelChoices');pick.value=[...pick.options].some(x=>x.value===el('llmModel').value)?el('llmModel').value:''};
 el('refreshLLMModels').onclick=()=>refreshLLMModels();
+el('exchanges').addEventListener('click',onTraceCopyClick);
 el('saveLLM').onclick=()=>saveLLMSettings().catch(e=>notice(e.message,true));el('testLLM').onclick=()=>testLLMSettings().catch(e=>notice(e.message,true));
 el('caseOverviewSearch').oninput=()=>{overviewState.page=0;renderMessageOverview()};
 el('caseOverviewFilter').onchange=()=>{overviewState.page=0;renderMessageOverview()};

@@ -48,6 +48,19 @@ function llmFormSnapshot(){
   el('llmAllowLAN').checked,el('llmAllowExternal').checked
  ]);
 }
+function llmTransportSummary(cfg){
+ const provider=cfg?.provider||'local',base=String(cfg?.base_url||'').replace(/\/+$/,'');
+ const apiRoot=provider==='ollama'?base+'/api':
+    (provider==='deepinfra'||base.endsWith('/v1')?base:base+'/v1');
+ const endpoint=apiRoot+(provider==='ollama'?'/chat':'/chat/completions');
+ const label=provider==='ollama'?'Ollama 原生 API（預設不啟用思考）':
+    provider==='deepinfra'?'DeepInfra 外部 API':'本機／區網 OpenAI-compatible';
+ let ollamaPort=false;
+ try{ollamaPort=new URL(base).port==='11434'}catch(_){}
+ const warning=provider==='local'&&ollamaPort?
+  '注意：目前雖然使用 Ollama 常見的 Port 11434，但 Provider 仍是 local（OpenAI-compatible），並未使用 Ollama 原生 /api/chat。若要關閉思考並要求 JSON，請到 LLM 端點設定切換「Ollama 原生 API」並儲存。':'';
+ return {provider,label,endpoint,warning};
+}
 function updateLLMProviderUI(){
  const deep=el('llmPreset').value==='deepinfra';
  el('llmAllowLANWrap').hidden=deep; el('llmAllowLAN').disabled=deep;
@@ -69,7 +82,8 @@ async function loadLLMSettings(){
  el('llmAllowLAN').checked=cfg.allow_private_network===true;
  el('llmAllowExternal').checked=cfg.allow_external_api===true;
  el('llmKeyEnv').value=cfg.api_key_env||'';
- el('modelInfo').textContent=(savedLLMProvider==='deepinfra'?'DeepInfra':savedLLMProvider==='ollama'?'Ollama 原生':'本機／區網 OpenAI-compatible')+' · '+cfg.model+' · '+cfg.endpoint;
+ const transport=llmTransportSummary(cfg);
+ el('modelInfo').textContent=transport.label+' · '+cfg.model+' · '+transport.endpoint;
  updateLLMProviderUI();
  savedLLMFormSnapshot=llmFormSnapshot();savedLLMConfirmationToken=cfg.confirmation_token||null;
 }
@@ -108,7 +122,8 @@ async function saveLLMSettings(){
     api_key_env:el('llmKeyEnv').value.trim()};
  if(deep)setting.max_output_tokens=budget;
  const cfg=await api('/api/settings/llm',setting);
- el('llmSettingStatus').textContent='設定已儲存：'+cfg.model+' · '+cfg.base_url;
+ const transport=llmTransportSummary(cfg);
+ el('llmSettingStatus').textContent='設定已儲存：'+cfg.model+' · '+transport.label+'\n實際對話 API：'+transport.endpoint+(transport.warning?'\n'+transport.warning:'');
  await loadLLMSettings();
 }
 async function testLLMSettings(){
@@ -142,7 +157,7 @@ async function testLLMSettings(){
  const changed=actual!==base;
  el('llmSettingStatus').textContent=
   (result.connected?'基本連線檢查成功':'基本連線檢查未成功')+
-  '\n[設定] 後端實際測試：'+actual+
+  '\n[設定] 後端實際測試：'+actual+'\n[傳輸模式] '+llmTransportSummary(fresh).label+'\n[對話路徑] '+llmTransportSummary(fresh).endpoint+
   (changed?'\n[警告] 測試期間設定已改變，請重新載入後再測一次。':'')+
   '\n'+(result.diagnostics||[]).join('\n')+'\n'+(result.note||'');
 }
@@ -1116,8 +1131,18 @@ async function start(){
     const cfg=await api('/api/settings');
     if(!matchesOrigin(origin))return;
     if(!cfg.confirmation_token)throw Error('無法確認目前 LLM 設定版本');
+    if(savedLLMFormSnapshot!==null&&llmFormSnapshot()!==savedLLMFormSnapshot){
+      notice('LLM 端點設定有尚未儲存的修改。請先在「⚙ LLM 端點設定」按儲存，再開始分析。',true);return;
+    }
+    if(savedLLMConfirmationToken&&cfg.confirmation_token!==savedLLMConfirmationToken){
+      notice('另一個視窗已修改 LLM 設定；請重新載入端點設定，確認實際 Provider 再執行。',true);return;
+    }
     const external=cfg.provider==='deepinfra';
-    if(!confirm(`將密文與情報傳送到已儲存的 ${external?'DeepInfra 外部付費 API':'本機／內網 LLM'}，共 ${rounds} 回合，動態詞庫可能增加呼叫。確定？`))return;
+    const transport=llmTransportSummary(cfg);
+    const display='傳輸模式：'+transport.label+'\n實際送往的對話 API：'+transport.endpoint;
+    if(!confirm('將研究密電與情報送往已儲存的 LLM 設定。\n'+display+
+                (transport.warning?'\n\n'+transport.warning:'')+
+                '\n預計 '+rounds+' 回合（動態候選詞庫可能額外呼叫）。確定？'))return;
     llmConfirmation={confirmed_llm_config:cfg.confirmation_token,confirmed_external_api:external};
    }catch(e){notice('LLM 端點確認失敗：'+e.message,true);return}
   }else if(!confirm('確定將研究資料傳給本機／內網 LLM？'))return;

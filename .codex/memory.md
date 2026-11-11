@@ -1,5 +1,28 @@
 # Project memory
 
+## 2026-11-11 — PR #65 later Codex P2 test-only HTTP interception fixed; re-review pending
+- Formal Codex Review at `a7399ba38d8f8eb6b2b03a899f4d6d78452bb53f` found a valid P2: the invalid-JSON subtest still patched `request.urlopen` while provider=ollama uses `_urlopen_llm` with `build_opener`, so two purportedly offline invalid-JSON tests attempted a real LAN request with *synthetic test-only data*. No real user case was sent by this test.
+- Fixed the remaining mock to intercept `han_codebook.agent._urlopen_llm`; all native synthetic API responses now use the same transport boundary. Prior CI/Review do NOT authorize merge. Fresh exact-head Hosted CI + completed formal Codex re-review, plus resolution of P1/P2 valid findings required.
+
+
+## 2026-11-11 — PR #65 Codex P1 redirect containment fixed; review pending
+- Formal Codex Review at old HEAD `0fab4defc92ba0cdb40c82c006801220db30d122` found a genuine P1: native Ollama `urllib` redirects would leave the allowlisted origin and could forward configured Authorization headers and research context to another host.
+- Fixed `_urlopen_llm` to reject all redirects when `provider=ollama` (as previously done for DeepInfra), covering both `/api/chat` and `/api/tags` probes. Added deterministic two-loopback-server regression asserting that neither POST/GET redirected traffic nor its Bearer auth reaches an unapproved receiver.
+- Old CI/Review superseded. Re-run required latest HEAD full Hosted CI and formal Codex re-review; do NOT resolve P1 or merge based on old review.
+
+
+## 2026-11-11 — PR #65 initial Hosted CI public Mock safety-string regression, fixed (gates pending)
+- Initial HEAD `0fab4defc92ba0cdb40c82c006801220db30d122`: Python 3.10 Hosted CI completed with 1 failure in existing static Mock safety test, because canonical GUI instructional text literally contained the forbidden OpenAI chat-completions path. All 6 new native Ollama Python contract cases passed; Windows and Docker passed, Python 3.12 cancelled by fail-fast. This did NOT indicate any real network traffic from Mock.
+- Edited only the on-screen help wording to avoid the literal API route in the public Mock document while preserving native/provider distinctions, and re-synchronized canonical GUI / Mock. Repeat required latest-head Hosted CI and formal Codex review before merge. No paid model and no actual LAN Qwen run.
+
+
+## 2026-11-11 — Native Ollama JSON transport to address reasoning-only failure (PR pending)
+- User's live Qwen/Ollama vocabulary run failed on round 1/3 with `empty final content (reasoning_only=True, finish_reason=stop, completion_tokens=3304)`. This is a transport/output failure, **not** verified decipherment and not a TCP failure.
+- Observed code uses OpenAI-compatible `/v1/chat/completions` even when GUI preset reads Ollama. Explicit native `llm.provider: ollama` now selects same-root `/api/chat` with `stream:false`, `format:json`, `think:false` by default. Legacy `local` OpenAI-compatible and DeepInfra remain unchanged; no automatic retry or paid fallback. Native `/api/tags` check is read-only metadata.
+- Query validation continues to reject any blank or invalid final JSON and never mines `thinking` for answers. RFC1918 exact-host allowlist, localhost policy, model settings confirmation and DeepInfra user consent remain in place. Node/GUI parity and mocked Python unit tests are expected in Hosted CI. Remote Ollama workstation acceptance not yet performed, no live ciphertext or model prompts committed.
+- Review / Hosted CI / Merge status at authoring: **PENDING**, must refresh against latest PR HEAD before any merge.
+
+
 ## 2026-11-10 — PR #63 merged; #64 rebased onto canonical observation UI
 - PR #63 observation row note editing and draft protection **MERGED** as `2b53fab4dd2b81b2b9251dbf6a2e3add590d1537` after 4/4 exact-head Hosted CI PASS and formal latest-head Codex Completed/No Findings on `c987b1b35d79d6068fe54d5e1366870528f598bd`, three previous P2 review threads resolved. Post-merge main CI separate verification not claimed.
 - PR #64 saved local Ollama test URL diagnostics has been reconciled with #63 on a two-parent merge tree from the latest main. Canonical source and Vercel browser-only Mock each retain **both** observation edit/draft guards and saved-LLM-URL/port display. Original #64 CI and Codex findings about mock numeric values and valid trailing slash fixed, but original results are superseded; fresh Hosted CI, formal latest-head Codex Review, threads and conflict-free gate required. No real LAN or paid LLM test.

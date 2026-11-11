@@ -84,7 +84,13 @@ def summarize_llm_api_metrics(attempts: list[dict[str, Any]]) -> dict[str, Any]:
 
 def llm_api_base(base_url: str, provider: str = "local") -> str:
     url = base_url.rstrip("/")
+    if provider == "ollama":
+        return url + "/api"
     return url if provider == "deepinfra" or url.endswith("/v1") else url + "/v1"
+
+
+def llm_chat_endpoint(base_url: str, provider: str = "local") -> str:
+    return llm_api_base(base_url, provider) + ("/chat" if provider == "ollama" else "/chat/completions")
 
 
 class _RejectRedirects(request.HTTPRedirectHandler):
@@ -94,7 +100,10 @@ class _RejectRedirects(request.HTTPRedirectHandler):
 
 
 def _urlopen_llm(req: request.Request, *, timeout: int, provider: str):
-    if provider == "deepinfra":
+    # A private/LAN IP allowlist is meaningless if urllib follows a 302 to
+    # another host. Reject redirects on native Ollama as well as DeepInfra,
+    # including read-only /api/tags probes that can include a Bearer header.
+    if provider in ("deepinfra", "ollama"):
         return request.build_opener(_RejectRedirects()).open(req, timeout=timeout)
     return request.urlopen(req, timeout=timeout)
 
@@ -110,8 +119,8 @@ def validate_llm_endpoint(base_url: str, *, allow_private_network: bool = False,
         if not isinstance(base_url, str) or base_url.rstrip("/") != DEEPINFRA_BASE_URL:
             raise CaseError("DeepInfra base URL must equal https://api.deepinfra.com/v1/openai")
         return
-    if provider != "local":
-        raise CaseError("Unsupported provider (local or deepinfra)")
+    if provider not in ("local", "ollama"):
+        raise CaseError("Unsupported provider (local, ollama or deepinfra)")
     parsed = parse.urlparse(base_url)
     hostname = parsed.hostname
     if (parsed.scheme not in ("http", "https") or not hostname or
@@ -122,6 +131,8 @@ def validate_llm_endpoint(base_url: str, *, allow_private_network: bool = False,
         _ = parsed.port  # catch invalid ports early
     except ValueError as exc:
         raise CaseError(f"Invalid LLM endpoint port: {exc}") from exc
+    if provider == "ollama" and parsed.path not in ("", "/"):
+        raise CaseError("Native Ollama URL must be server root (no /v1): use http://host:11434")
     if hostname in ("localhost", "127.0.0.1", "::1"):
         return
     try:
@@ -153,7 +164,7 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
                           allowed_hosts=allowed_hosts, provider=provider,
                           allow_external_api=allow_external_api)
     api = llm_api_base(base_url, provider)
-    # Intentionally minimal, HTTP POST to local Ollama/vLLM/OpenAI-compatible endpoint.
+    # Native Ollama is explicit; other local gateways keep OpenAI-compatible paths.
     vocabulary_task = evidence.get("task") == "generate_vocabulary"
     if vocabulary_task:
         system_prompt = (
@@ -233,13 +244,21 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
         "temperature": 0.2,
         "messages": messages,
     }
+    if provider == "ollama":
+        # Native Ollama's explicit thinking toggle avoids OpenAI-compatible
+        # adapters that return only reasoning with empty message.content.
+        # Do not switch a local-compatible proxy silently to a different route.
+        thinking = {"minimal": "low", "xhigh": "high"}.get(reasoning_effort, reasoning_effort)
+        body = {"model": model, "messages": messages, "stream": False,
+                "think": False if thinking in (None, "none") else thinking,
+                "format": "json", "options": {"temperature": 0.2}}
     if provider == "deepinfra":
         body["prompt_cache_key"] = "han-codebook-v1-" + digest
     # The budget only affects DeepInfra; legacy local requests stay identical.
     limit = (validate_max_output_tokens(DEEPINFRA_DEFAULT_MAX_OUTPUT_TOKENS
              if max_output_tokens is None else max_output_tokens)
              if provider == "deepinfra" else None)
-    if provider == "local" and max_output_tokens is not None:
+    if provider in ("local", "ollama") and max_output_tokens is not None:
         validate_max_output_tokens(max_output_tokens)
     if reasoning_effort is not None:
         if reasoning_effort not in ("none","minimal","low","medium","high","xhigh"):
@@ -249,7 +268,8 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
     if response_format is not None and response_format != "default":
         if response_format != "json_object":
             raise CaseError("Unsupported llm.response_format")
-        body["response_format"] = {"type":"json_object"}
+        if provider != "ollama":
+            body["response_format"] = {"type":"json_object"}
     headers = {"Content-Type": "application/json"}
     key_ref = api_key_env or ("DEEPINFRA_API_KEY" if provider == "deepinfra" else None)
     if key_ref:
@@ -287,7 +307,7 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
         if on_metrics:
             on_metrics(safe)
         if on_exchange:
-            item = {"url": api + "/chat/completions", "elapsed_ms": elapsed_ms,
+            item = {"url": llm_chat_endpoint(base_url, provider), "elapsed_ms": elapsed_ms,
                     "usage": usage or None, "finish_reason": safe["finish_reason"],
                     "json_complete": valid, "attempt": attempt, "status": status,
                     "max_output_tokens": body.get("max_tokens")}
@@ -303,7 +323,7 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
     for attempt in range(1, max_attempts + 1):
         if limit is not None:
             body["max_tokens"] = limit
-        req = request.Request(api + "/chat/completions",
+        req = request.Request(llm_chat_endpoint(base_url, provider),
                               data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
                               headers=headers)
         if on_exchange:
@@ -340,8 +360,18 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
             if raw.lstrip().startswith((b"<!DOCTYPE", b"<html", b"<HTML")):
                 raise ValueError("HTML returned instead of JSON; check proxy/API path")
             data = json.loads(raw.decode("utf-8"))
-            choice = data["choices"][0]
-            finish, usage = choice.get("finish_reason"), data.get("usage")
+            if provider == "ollama":
+                if not isinstance(data, dict) or data.get("done") is not True or not isinstance(data.get("message"), dict):
+                    raise ValueError("Native Ollama response is incomplete (expected done=true and message)")
+                choice = {"message": data["message"], "finish_reason": data.get("done_reason")}
+                p, c = data.get("prompt_eval_count"), data.get("eval_count")
+                usage = {"prompt_tokens": p if type(p) is int else None,
+                         "completion_tokens": c if type(c) is int else None,
+                         "total_tokens": p+c if type(p) is int and type(c) is int else None}
+                finish = choice["finish_reason"]
+            else:
+                choice = data["choices"][0]
+                finish, usage = choice.get("finish_reason"), data.get("usage")
         except (KeyError, IndexError, ValueError, TypeError) as exc:
             record_attempt(attempt, None, False, usage, status="invalid_envelope",
                            elapsed_ms=duration, raw=raw)
@@ -356,7 +386,7 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
                            elapsed_ms=duration, raw=raw)
             raise CaseError(
                 "LLM output not valid expected JSON: empty final content "
-                f"(reasoning_only={bool(isinstance(message, dict) and (message.get('reasoning') or message.get('reasoning_content')))}, "
+                f"(reasoning_only={bool(isinstance(message, dict) and (message.get('reasoning') or message.get('reasoning_content') or message.get('thinking')))}, "
                 "finish_reason=length); no retry without a final answer."
             )
         if finish == "length":
@@ -376,7 +406,7 @@ def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout
             content = content.strip()
             if not content:
                 raise ValueError("empty final content (reasoning_only="
-                                 +str(bool(choice["message"].get("reasoning") or choice["message"].get("reasoning_content")))
+                                 +str(bool(choice["message"].get("reasoning") or choice["message"].get("reasoning_content") or choice["message"].get("thinking")))
                                  +", finish_reason="+str(finish)
                                  +", completion_tokens="
                                  +str((usage or {}).get("completion_tokens"))+")")
@@ -420,7 +450,8 @@ def probe_llm_service(base_url: str, *, timeout: int = 6,
     except (OSError, TimeoutError) as exc:
         report(f"[ERROR] TCP connection failed: {exc}. Check network/firewall and service port.")
         return False
-    report("[OK] TCP connected. Checking /v1/models (not a chat-model inference) ...")
+    route = "/api/tags" if provider == "ollama" else "/v1/models"
+    report(f"[OK] TCP connected. Checking {route} (not a chat-model inference) ...")
     api = llm_api_base(base_url, provider)
     headers = {"Accept": "application/json"}
     key_ref = api_key_env or ("DEEPINFRA_API_KEY" if provider == "deepinfra" else None)
@@ -430,29 +461,30 @@ def probe_llm_service(base_url: str, *, timeout: int = 6,
             report(f"[ERROR] Missing authentication environment variable: {key_ref}")
             return False
         headers["Authorization"] = f"Bearer {token}"
-    req = request.Request(api + "/models", headers=headers)
+    req = request.Request(api + ("/tags" if provider == "ollama" else "/models"), headers=headers)
     try:
         with _urlopen_llm(req, timeout=timeout, provider=provider) as response:
             content = response.read(100_000)
         if content.lstrip().startswith(b"<"):
-            report("[WARN] /v1/models returned HTML, likely a web UI or reverse proxy page; chat API is unverified.")
+            report(f"[WARN] {route} returned HTML, likely a web UI or reverse proxy page; chat API is unverified.")
             return False
         data = json.loads(content.decode("utf-8"))
-        models = data.get("data") if isinstance(data, dict) else None
+        models = data.get("models" if provider == "ollama" else "data") if isinstance(data, dict) else None
         if not isinstance(models, list):
-            report("[WARN] /v1/models returned JSON but not an OpenAI-compatible model list; chat API is unverified.")
+            report(f"[WARN] {route} returned JSON without an expected model list; chat API is unverified.")
             return True
-        available = [v.get("id") for v in models if isinstance(v, dict) and isinstance(v.get("id"), str)]
-        report(f"[OK] /v1/models listed {len(available)} model(s)" + (": " + ", ".join(available[:8]) if available else ""))
+        model_key = "name" if provider == "ollama" else "id"
+        available = [v[model_key] for v in models if isinstance(v, dict) and isinstance(v.get(model_key), str)]
+        report(f"[OK] {route} listed {len(available)} model(s)" + (": " + ", ".join(available[:8]) if available else ""))
         return True
     except error.HTTPError as exc:
         if exc.code in (404, 405, 501):
-            report(f"[WARN] /v1/models HTTP {exc.code} unsupported; chat endpoint may still work.")
+            report(f"[WARN] {route} HTTP {exc.code} unsupported; chat endpoint may still work.")
             return True
-        report(f"[ERROR] /v1/models HTTP {exc.code}; check authentication or reverse proxy.")
+        report(f"[ERROR] {route} HTTP {exc.code}; check authentication or reverse proxy.")
         return False
     except (error.URLError, TimeoutError, ConnectionError, ValueError) as exc:
-        report(f"[WARN] /v1/models check inconclusive: {exc}; chat endpoint may still work.")
+        report(f"[WARN] {route} check inconclusive: {exc}; chat endpoint may still work.")
         return True
 
 
@@ -760,7 +792,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                 },
             }
             if progress:
-                progress(f"[agent] Round {num}/{rounds}: requesting {model} from {llm_api_base(llm_url, llm_provider)}/chat/completions "
+                progress(f"[agent] Round {num}/{rounds}: requesting {model} from {llm_chat_endpoint(llm_url, llm_provider)} "
                          f"(socket timeout {llm_timeout}s; {len(unresolved)} unresolved codes) ...")
             start = time.monotonic()
             done = threading.Event()

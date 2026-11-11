@@ -336,7 +336,7 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                         report=trace.append)
                     return self._json(200, {"connected":ok,"diagnostics":trace,
                            "tested_base_url":cfg.get("base_url","http://127.0.0.1:11434"),
-                           "note":"Only TCP and /v1/models checked; chat completions not verified."})
+                           "note":("Only TCP and /api/tags checked; Ollama chat not verified." if cfg.get("provider") == "ollama" else "Only TCP and /v1/models checked; chat completions not verified.")})
                 if self.path == "/api/event-links":
                     case = data.get("case")
                     if not isinstance(case, dict) or any(k in case for k in ("gold", "codebook", "ground_truth")):

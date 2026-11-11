@@ -139,7 +139,7 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
 <section id="modelSettings" class="page"><div class="panel"><h2>本機 LLM 端點設定</h2>
 <p class="guide-callout settings-help">參考 AI 模擬病人的 Provider/Model 設定概念，支援本機／內網 LLM 與明確授權的 DeepInfra 官方 HTTPS。<strong>DeepInfra 是外部付費 API：執行時會將密文、背景情報與候選傳至第三方。</strong>預設禁止外傳；金鑰只從環境變數讀取，不儲存於 config.yaml。</p>
 <div class="llm-settings-grid" role="group" aria-label="LLM Provider 與模型設定">
- <div><label for="llmPreset">LLM 供應商</label><select id="llmPreset"><option value="ollama">Ollama Local / LAN</option><option value="compatible">內網 OpenAI-compatible</option><option value="deepinfra">DeepInfra（外部付費 API）</option></select></div>
+ <div><label for="llmPreset">LLM 供應商</label><select id="llmPreset"><option value="ollama">Ollama 原生 API（/api/chat，不啟用思考）</option><option value="compatible">內網 OpenAI-compatible</option><option value="deepinfra">DeepInfra（外部付費 API）</option></select></div>
  <div><label for="llmModel">模型名稱（亦可手動輸入完整 ID）</label><input type="text" id="llmModel" maxlength="128" placeholder="qwen3:14b">
    <div id="llmModelCatalogWrap" hidden>
      <label for="llmModelChoices">DeepInfra 模型清單</label>
@@ -147,7 +147,7 @@ main>.page{grid-column:2;grid-row:2;min-width:0}
      <small id="llmModelCatalogStatus" class="muted" aria-live="polite">只查詢供應商模型名稱，不傳送密電或執行付費推論；查詢失敗時仍可手動輸入模型 ID。</small>
    </div>
  </div>
- <div><label for="llmUrl">API Base URL</label><input type="text" id="llmUrl" placeholder="http://127.0.0.1:11434"><small class="muted">Ollama 常用 Port 11434，例如 http://192.168.0.134:11434。修改後請先按「儲存設定」，再測試已儲存的端點；未指定 Port 的 HTTP 會連到 80。</small></div>
+ <div><label for="llmUrl">API Base URL</label><input type="text" id="llmUrl" placeholder="http://127.0.0.1:11434"><small class="muted">Ollama 原生模式請填伺服器根網址（例如 http://192.168.0.134:11434），會使用 /api/chat、think:false 與 JSON 輸出；不可填 /v1。一般 OpenAI-compatible 仍使用 /v1/chat/completions。修改後先儲存再測試，HTTP 未指定 Port 會連到 80。</small></div>
  <div><label for="llmKeyEnv">API Key 環境變數名稱（勿貼金鑰）</label><input type="text" id="llmKeyEnv" autocomplete="off" placeholder="HAN_CODEBOOK_LLM_API_KEY"><small class="muted">填入環境變數名稱，不是 API Key 本身。</small></div>
  <div><label for="llmTimeout">等待秒數（1～600）</label><input type="number" id="llmTimeout" min="1" max="600" step="1" value="90"></div>
  <div id="llmOutputTokenWrap" hidden><label for="llmMaxOutputTokens">DeepInfra 每次最大輸出 tokens（1,024～16,384）</label><input type="number" id="llmMaxOutputTokens" min="1024" max="16384" step="1024" value="8192"><small class="muted">預設 8,192。只限制單次輸出，不是上下文或帳戶花費上限；截斷時最多重試一次，可能增加費用。</small></div>
@@ -281,16 +281,16 @@ function updateLLMProviderUI(){
 }
 async function loadLLMSettings(){
  const cfg=await api('/api/settings');
- savedLLMProvider=cfg.provider==='deepinfra'?'deepinfra':'local';
+ savedLLMProvider=cfg.provider==='deepinfra'?'deepinfra':cfg.provider==='ollama'?'ollama':'local';
  el('llmPreset').value=savedLLMProvider==='deepinfra'?'deepinfra':
-    ((cfg.base_url||'').includes('11434')?'ollama':'compatible');
+    savedLLMProvider==='ollama'?'ollama':'compatible';
  el('llmModel').value=cfg.model||''; el('llmUrl').value=cfg.base_url||'';
  el('llmTimeout').value=cfg.timeout_seconds||90;
  el('llmMaxOutputTokens').value=cfg.max_output_tokens??8192;
  el('llmAllowLAN').checked=cfg.allow_private_network===true;
  el('llmAllowExternal').checked=cfg.allow_external_api===true;
  el('llmKeyEnv').value=cfg.api_key_env||'';
- el('modelInfo').textContent=(savedLLMProvider==='deepinfra'?'DeepInfra':'本機／區網')+' · '+cfg.model+' · '+cfg.endpoint;
+ el('modelInfo').textContent=(savedLLMProvider==='deepinfra'?'DeepInfra':savedLLMProvider==='ollama'?'Ollama 原生':'本機／區網 OpenAI-compatible')+' · '+cfg.model+' · '+cfg.endpoint;
  updateLLMProviderUI();
  savedLLMFormSnapshot=llmFormSnapshot();savedLLMConfirmationToken=cfg.confirmation_token||null;
 }
@@ -322,7 +322,7 @@ async function saveLLMSettings(){
  if(deep&&!el('llmAllowExternal').checked)throw Error('DeepInfra 必須先勾選外傳資料授權');
  if(!confirm(deep?'DeepInfra 是外部付費 API，研究資料會傳給第三方。確定儲存並授權外傳？':
                   '修改本機／區網 LLM 設定？執行中的工作仍使用舊設定。'))return;
- const setting={provider:deep?'deepinfra':'local',
+ const setting={provider:deep?'deepinfra':el('llmPreset').value==='ollama'?'ollama':'local',
     allow_external_api:deep&&el('llmAllowExternal').checked,
     base_url:el('llmUrl').value.trim(),model:el('llmModel').value.trim(),
     timeout_seconds:timeout,allow_private_network:!deep&&el('llmAllowLAN').checked,
@@ -342,7 +342,7 @@ async function testLLMSettings(){
  const fresh=await api('/api/settings');
  if(!fresh.confirmation_token||fresh.confirmation_token!==savedLLMConfirmationToken||
     String(fresh.base_url||'').replace(/\/+$/,'')!==el('llmUrl').value.trim().replace(/\/+$/,'')||
-    fresh.provider!==(savedLLMProvider==='deepinfra'?'deepinfra':'local')){
+    fresh.provider!==savedLLMProvider){
   el('llmSettingStatus').textContent='後端已儲存的 LLM 設定與目前畫面不同，不能測試舊設定。後端網址：'+
     (fresh.base_url||'未知')+'。請重新載入設定並確認。';
   return;
@@ -354,7 +354,7 @@ async function testLLMSettings(){
   const p=u.port||(u.protocol==='https:'?'443':'80');
   portHint='（TCP Port '+p+(u.port?'':'；URL 未指定 Port，使用預設值')+'）';
  }catch(_){portHint='（請檢查網址格式）'}
- const host=fresh.provider==='deepinfra'?'DeepInfra 外部 HTTPS':'本機／區網';
+ const host=fresh.provider==='deepinfra'?'DeepInfra 外部 HTTPS':fresh.provider==='ollama'?'Ollama 原生 API':'本機／區網 OpenAI-compatible';
  if(!confirm('測試已儲存的 '+host+' 端點：'+base+' '+portHint+
              '。僅 TCP 與模型清單，不傳送研究案例或執行 chat completions。確定？'))return;
  el('llmSettingStatus').textContent='正在檢查已儲存端點：'+base+' '+portHint+' ...';

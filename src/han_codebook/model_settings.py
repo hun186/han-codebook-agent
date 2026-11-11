@@ -84,9 +84,9 @@ def save_model_settings(path: Path, raw: dict) -> dict:
             DEEPINFRA_DEFAULT_MAX_OUTPUT_TOKENS if cap is None else cap)
     elif cap is not None:
         raise CaseError("max_output_tokens applies to DeepInfra only")
-    if type(provider) is not str or provider not in ("local", "deepinfra"):
-        raise CaseError("Provider must be local or deepinfra")
-    if type(external) is not bool or (provider == "local" and external):
+    if type(provider) is not str or provider not in ("local", "ollama", "deepinfra"):
+        raise CaseError("Provider must be local, ollama or deepinfra")
+    if type(external) is not bool or (provider != "deepinfra" and external):
         raise CaseError("External API consent only applies to DeepInfra")
     if provider == "deepinfra":
         if not external or lan:

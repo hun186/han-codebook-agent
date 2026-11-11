@@ -60,16 +60,16 @@ function updateLLMProviderUI(){
 }
 async function loadLLMSettings(){
  const cfg=await api('/api/settings');
- savedLLMProvider=cfg.provider==='deepinfra'?'deepinfra':'local';
+ savedLLMProvider=cfg.provider==='deepinfra'?'deepinfra':cfg.provider==='ollama'?'ollama':'local';
  el('llmPreset').value=savedLLMProvider==='deepinfra'?'deepinfra':
-    ((cfg.base_url||'').includes('11434')?'ollama':'compatible');
+    savedLLMProvider==='ollama'?'ollama':'compatible';
  el('llmModel').value=cfg.model||''; el('llmUrl').value=cfg.base_url||'';
  el('llmTimeout').value=cfg.timeout_seconds||90;
  el('llmMaxOutputTokens').value=cfg.max_output_tokens??8192;
  el('llmAllowLAN').checked=cfg.allow_private_network===true;
  el('llmAllowExternal').checked=cfg.allow_external_api===true;
  el('llmKeyEnv').value=cfg.api_key_env||'';
- el('modelInfo').textContent=(savedLLMProvider==='deepinfra'?'DeepInfra':'本機／區網')+' · '+cfg.model+' · '+cfg.endpoint;
+ el('modelInfo').textContent=(savedLLMProvider==='deepinfra'?'DeepInfra':savedLLMProvider==='ollama'?'Ollama 原生':'本機／區網 OpenAI-compatible')+' · '+cfg.model+' · '+cfg.endpoint;
  updateLLMProviderUI();
  savedLLMFormSnapshot=llmFormSnapshot();savedLLMConfirmationToken=cfg.confirmation_token||null;
 }
@@ -101,7 +101,7 @@ async function saveLLMSettings(){
  if(deep&&!el('llmAllowExternal').checked)throw Error('DeepInfra 必須先勾選外傳資料授權');
  if(!confirm(deep?'DeepInfra 是外部付費 API，研究資料會傳給第三方。確定儲存並授權外傳？':
                   '修改本機／區網 LLM 設定？執行中的工作仍使用舊設定。'))return;
- const setting={provider:deep?'deepinfra':'local',
+ const setting={provider:deep?'deepinfra':el('llmPreset').value==='ollama'?'ollama':'local',
     allow_external_api:deep&&el('llmAllowExternal').checked,
     base_url:el('llmUrl').value.trim(),model:el('llmModel').value.trim(),
     timeout_seconds:timeout,allow_private_network:!deep&&el('llmAllowLAN').checked,
@@ -121,7 +121,7 @@ async function testLLMSettings(){
  const fresh=await api('/api/settings');
  if(!fresh.confirmation_token||fresh.confirmation_token!==savedLLMConfirmationToken||
     String(fresh.base_url||'').replace(/\/+$/,'')!==el('llmUrl').value.trim().replace(/\/+$/,'')||
-    fresh.provider!==(savedLLMProvider==='deepinfra'?'deepinfra':'local')){
+    fresh.provider!==savedLLMProvider){
   el('llmSettingStatus').textContent='後端已儲存的 LLM 設定與目前畫面不同，不能測試舊設定。後端網址：'+
     (fresh.base_url||'未知')+'。請重新載入設定並確認。';
   return;
@@ -133,7 +133,7 @@ async function testLLMSettings(){
   const p=u.port||(u.protocol==='https:'?'443':'80');
   portHint='（TCP Port '+p+(u.port?'':'；URL 未指定 Port，使用預設值')+'）';
  }catch(_){portHint='（請檢查網址格式）'}
- const host=fresh.provider==='deepinfra'?'DeepInfra 外部 HTTPS':'本機／區網';
+ const host=fresh.provider==='deepinfra'?'DeepInfra 外部 HTTPS':fresh.provider==='ollama'?'Ollama 原生 API':'本機／區網 OpenAI-compatible';
  if(!confirm('測試已儲存的 '+host+' 端點：'+base+' '+portHint+
              '。僅 TCP 與模型清單，不傳送研究案例或執行 chat completions。確定？'))return;
  el('llmSettingStatus').textContent='正在檢查已儲存端點：'+base+' '+portHint+' ...';

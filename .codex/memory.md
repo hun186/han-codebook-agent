@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-11 — Native Ollama JSON transport to address reasoning-only failure (PR pending)
+- User's live Qwen/Ollama vocabulary run failed on round 1/3 with `empty final content (reasoning_only=True, finish_reason=stop, completion_tokens=3304)`. This is a transport/output failure, **not** verified decipherment and not a TCP failure.
+- Observed code uses OpenAI-compatible `/v1/chat/completions` even when GUI preset reads Ollama. Explicit native `llm.provider: ollama` now selects same-root `/api/chat` with `stream:false`, `format:json`, `think:false` by default. Legacy `local` OpenAI-compatible and DeepInfra remain unchanged; no automatic retry or paid fallback. Native `/api/tags` check is read-only metadata.
+- Query validation continues to reject any blank or invalid final JSON and never mines `thinking` for answers. RFC1918 exact-host allowlist, localhost policy, model settings confirmation and DeepInfra user consent remain in place. Node/GUI parity and mocked Python unit tests are expected in Hosted CI. Remote Ollama workstation acceptance not yet performed, no live ciphertext or model prompts committed.
+- Review / Hosted CI / Merge status at authoring: **PENDING**, must refresh against latest PR HEAD before any merge.
+
+
 ## 2026-11-10 — PR #63 merged; #64 rebased onto canonical observation UI
 - PR #63 observation row note editing and draft protection **MERGED** as `2b53fab4dd2b81b2b9251dbf6a2e3add590d1537` after 4/4 exact-head Hosted CI PASS and formal latest-head Codex Completed/No Findings on `c987b1b35d79d6068fe54d5e1366870528f598bd`, three previous P2 review threads resolved. Post-merge main CI separate verification not claimed.
 - PR #64 saved local Ollama test URL diagnostics has been reconciled with #63 on a two-parent merge tree from the latest main. Canonical source and Vercel browser-only Mock each retain **both** observation edit/draft guards and saved-LLM-URL/port display. Original #64 CI and Codex findings about mock numeric values and valid trailing slash fixed, but original results are superseded; fresh Hosted CI, formal latest-head Codex Review, threads and conflict-free gate required. No real LAN or paid LLM test.

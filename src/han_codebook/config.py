@@ -57,8 +57,8 @@ def load_settings(path: str | Path) -> dict[str, Any]:
         raise CaseError("Config 'analysis.rounds' must be in 0..20")
     if not 1 <= result["llm"].get("timeout_seconds", 90) <= 600:
         raise CaseError("Config 'llm.timeout_seconds' must be in 1..600")
-    if result["llm"].get("provider", "local") not in ("local", "deepinfra"):
-        raise CaseError("llm.provider must be local or deepinfra")
+    if result["llm"].get("provider", "local") not in ("local", "ollama", "deepinfra"):
+        raise CaseError("llm.provider must be local, ollama or deepinfra")
     cap=result["llm"].get("max_output_tokens")
     if cap is not None:
         from .agent import validate_max_output_tokens

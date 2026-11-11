@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
-from .agent import run_agent, probe_llm_service, llm_api_base, DEEPINFRA_BASE_URL
+from .agent import run_agent, probe_llm_service, llm_api_base, llm_chat_endpoint, DEEPINFRA_BASE_URL
 from .config import load_settings
 from .core import load_case, evaluate_demo, CaseError
 
@@ -25,8 +25,8 @@ def main(argv=None) -> int:
                         help="0=disabled; 2..20 consecutive stagnant rounds before early stop")
     parser.add_argument("--ollama-url", default=None, help="OpenAI-compatible base endpoint")
     parser.add_argument("--model", default=None, help="LLM model name")
-    parser.add_argument("--provider", choices=("local", "deepinfra"), default=None,
-                        help="Provider (DeepInfra requires explicit external consent)")
+    parser.add_argument("--provider", choices=("local", "ollama", "deepinfra"), default=None,
+                        help="Provider: local=OpenAI-compatible, ollama=native /api/chat, deepinfra=external consent")
     parser.add_argument("--max-output-tokens", type=int, default=None,
                         help="DeepInfra per-request output cap 1024..16384 (default 8192)")
     parser.add_argument("--allow-external-api", action="store_true",
@@ -82,7 +82,7 @@ def main(argv=None) -> int:
             return 0 if ok else 2
         print(f"[start] Case: {case_path} | rounds: {rounds} | model: {model}", flush=True)
         if rounds:
-            print(f"[start] Chat endpoint: {llm_api_base(url, provider)}/chat/completions", flush=True)
+            print(f"[start] Chat endpoint: {llm_chat_endpoint(url, provider)}", flush=True)
             print("[start] Waiting for LLM can take longer than an offline run. Ctrl+C cancels.", flush=True)
         case = load_case(case_path)
         result = run_agent(case, rounds=rounds, llm_url=url, model=model, db_path=db,

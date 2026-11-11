@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-11 — PR for recoverable optional vocabulary JSON failure (status: pending)
+- Private user-provided diagnostic ZIP records **three vocabulary calls** on OpenAI-compatible provider=`local` via `/v1/chat/completions`: rounds 1/2 valid JSON, each yielded 8 automatically adopted **unverified** candidate words, plus 15 valid code hypotheses each. Round 3 vocabulary failed (prompt=2186, completion=2799, `finish_reason=stop`, `content` length 0, `reasoning` length 6206). This run's new `run_started.llm_provider` is `local`, NOT native Ollama; no proof that native `think:false` has been tried. No raw ZIP/user case data committed.
+- Scope: **automatic** adaptive vocabulary only, when a valid previous statistical baseline exists: catch specifically invalid final-JSON LLM response, preserve prior vocabulary/hypotheses, emit `vocabulary_generation_failed` audit with controlled fixed fields (no prompt/reply), and continue code-round analysis without retry. All network, permission, policy, cancellation and human-review errors remain fatal. Result marks `partial_vocabulary_failure` and failed round numbers, preserving honest accounting; never label guesses as verified.
+- Synthetic offline unit tests cover round-3 failure after two good rounds, three completed code inferences, exact-once optional failure, no loss of earlier candidates, and fail-closed network/human errors.
+- Hosted CI / Codex Review / Merge **PENDING** at authoring; no remote Ollama or DeepInfra was contacted.
+
+
 ## 2026-11-11 — Mixed GUI/Python backend versions blocked native Ollama save (new PR, gates pending)
 - User screenshot shows GUI has `Ollama 原生 API`, but backend rejects POST with exact older error `Provider must be local or deepinfra`. Latest main `model_settings.py` instead accepts `local, ollama, deepinfra`, proving the **running Python backend module is stale** relative to displayed HTML (potential old process / different installed folder). Do not assume the user's file updates restarted the old server.
 - Add a read-only `supported_providers` backend capability in model-settings receipt; GUI detects absent Ollama capability on page load and before save, warns to stop `run_web_windows.bat`, update main, restart Python. Never fall back silently to `local`. Browser-only Mock accurately advertises only `local` and stays unable to mutate real endpoints.

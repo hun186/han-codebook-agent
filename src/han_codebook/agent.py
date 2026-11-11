@@ -627,6 +627,7 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
         checkpoint_reviews: list[dict[str, Any]] = []
         vocab_zero_streak = 0
         vocabulary_calls = 0
+        vocabulary_failed_rounds: list[int] = []
         targeted_vocabulary_hint_pairs = 0
         vocabulary_skip_rounds: list[int] = []
         stalled_streak = 0
@@ -698,47 +699,79 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
                     "max_output_tokens": llm_max_output_tokens,
                 }
                 exchange = (lambda stage, payload: log_event(conn, num, "vocabulary_" + stage, payload)) if capture_llm_io else None
-                active_case, record = refresh_vocabulary(
-                    active_case, round_number=num, metadata=metadata, current=current,
-                    llm_settings=settings, review=vocabulary_reviewer,
-                    query=vocabulary_query or query_local_llm, on_exchange=exchange,
-                    on_metrics=lambda item: record_api_metrics("vocabulary", num, item))
-                if cancel_check:
-                    cancel_check()
-                vocab.update(record["approved"])
-                from .adaptive_vocabulary import link_adopted_targeted_hints
-                linked_count = link_adopted_targeted_hints(
-                    record, trusted_anchors=anchors, hints=hints,
-                    seen_pairs=seen_hint_pairs)
-                targeted_vocabulary_hint_pairs += linked_count
-                record["targeted_code_hint_count"] = linked_count
-                log_event(conn, num, "vocabulary_candidates_unverified", record)
-                vocabulary_calls += 1
-                accepted_vocab_this_round = len(record["approved"])
-                vocab_zero_streak = (0 if record["approved"]
-                                     else vocab_zero_streak + 1)
-                if progress:
-                    progress(f"[vocab] Round {num}/{rounds}: {len(record['proposed'])} new proposed, "
-                             f"{len(record['approved'])} accepted ({record['review_mode']}); "
-                             "all remain unverified.")
-                # Expand the solver's candidate space before asking for code-level hints.
-                current = analyze(active_case, use_metadata=metadata,
-                                  llm_hints=hints,
-                                  iterations=solver_iterations, restarts=solver_restarts)
-                if cancel_check:
-                    cancel_check()  # Never send another LLM call after a canceled solve.
-                after_vocab_mapping = {c: p["term"] for c, p in current["proposals"].items()}
-                vocab_changes = {c: {"before": prior, "after": after_vocab_mapping[c]}
-                                 for c, prior in round_start_mapping.items()
-                                 if after_vocab_mapping[c] != prior}
-                log_event(conn, num, "vocabulary_rescore", {
-                    "score": current["objective_score"],
-                    "mapping": after_vocab_mapping,
-                    "changes": vocab_changes,
-                    "changed_count": len(vocab_changes),
-                    "candidate_count": len(vocab),
-                    "round": num,
-                })
+                # This round's vocabulary expansion is optional once the solver
+                # has a valid statistical baseline. A malformed *final LLM JSON*
+                # must not discard earlier evidence or force a costly full rerun.
+                # Authentication, network, policy, cancellation and manual-review
+                # errors remain fatal; there is no implicit retry or fallback.
+                record = None
+                try:
+                    new_case, record = refresh_vocabulary(
+                        active_case, round_number=num, metadata=metadata, current=current,
+                        llm_settings=settings, review=vocabulary_reviewer,
+                        query=vocabulary_query or query_local_llm, on_exchange=exchange,
+                        on_metrics=lambda item: record_api_metrics("vocabulary", num, item))
+                except CaseError as exc:
+                    output_error = (
+                        str(exc).startswith("LLM output not valid expected JSON:")
+                        or str(exc) == "Adaptive LLM vocabulary response must contain vocabulary array"
+                    )
+                    if not output_error or current is None or vocabulary_reviewer is not None:
+                        raise
+                    if cancel_check:
+                        cancel_check()
+                    vocabulary_failed_rounds.append(num)
+                    log_event(conn, num, "vocabulary_generation_failed", {
+                        "reason": "unusable_final_json",
+                        "failure_type": "llm_output_format",
+                        "no_candidates_adopted": True,
+                        "retained_previous_vocabulary": True,
+                        "code_inference_continues": True,
+                        "no_automatic_retry": True,
+                    })
+                    if progress:
+                        progress(f"[vocab] Round {num}/{rounds}: LLM returned unusable final JSON; "
+                                 "kept prior unverified vocabulary; proceeding to code analysis "
+                                 "without retry (see vocabulary_generation_failed audit).")
+                else:
+                    active_case = new_case
+                if record is not None:
+                    if cancel_check:
+                        cancel_check()
+                    vocab.update(record["approved"])
+                    from .adaptive_vocabulary import link_adopted_targeted_hints
+                    linked_count = link_adopted_targeted_hints(
+                        record, trusted_anchors=anchors, hints=hints,
+                        seen_pairs=seen_hint_pairs)
+                    targeted_vocabulary_hint_pairs += linked_count
+                    record["targeted_code_hint_count"] = linked_count
+                    log_event(conn, num, "vocabulary_candidates_unverified", record)
+                    vocabulary_calls += 1
+                    accepted_vocab_this_round = len(record["approved"])
+                    vocab_zero_streak = (0 if record["approved"]
+                                         else vocab_zero_streak + 1)
+                    if progress:
+                        progress(f"[vocab] Round {num}/{rounds}: {len(record['proposed'])} new proposed, "
+                                 f"{len(record['approved'])} accepted ({record['review_mode']}); "
+                                 "all remain unverified.")
+                    # Expand the solver's candidate space before asking for code-level hints.
+                    current = analyze(active_case, use_metadata=metadata,
+                                      llm_hints=hints,
+                                      iterations=solver_iterations, restarts=solver_restarts)
+                    if cancel_check:
+                        cancel_check()  # Never send another LLM call after a canceled solve.
+                    after_vocab_mapping = {c: p["term"] for c, p in current["proposals"].items()}
+                    vocab_changes = {c: {"before": prior, "after": after_vocab_mapping[c]}
+                                     for c, prior in round_start_mapping.items()
+                                     if after_vocab_mapping[c] != prior}
+                    log_event(conn, num, "vocabulary_rescore", {
+                        "score": current["objective_score"],
+                        "mapping": after_vocab_mapping,
+                        "changes": vocab_changes,
+                        "changed_count": len(vocab_changes),
+                        "candidate_count": len(vocab),
+                        "round": num,
+                    })
             all_unresolved = {
                 c: p for c, p in current["proposals"].items()
                 if p["status"] == "hypothesis_unverified"
@@ -1011,6 +1044,9 @@ def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://1
             "human_review_never_auto_skipped": vocabulary_reviewer is not None,
             "vocabulary_llm_calls": vocabulary_calls,
             "vocabulary_skipped_rounds": vocabulary_skip_rounds,
+            "vocabulary_failed_rounds": vocabulary_failed_rounds,
+            "vocabulary_attempted_calls": vocabulary_calls + len(vocabulary_failed_rounds),
+            "partial_vocabulary_failure": bool(vocabulary_failed_rounds),
             "code_research_continues_when_vocab_skipped": True,
             "no_oracle_used_to_skip": True,
         }

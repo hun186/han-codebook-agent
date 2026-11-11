@@ -113,6 +113,108 @@ class AdaptiveVocabularyTest(unittest.TestCase):
             self.assertEqual(hypotheses[1]["accepted"][0]["candidates"],["第2輪新詞"])
             self.assertNotEqual(output["proposals"]["999"]["status"],"verified_alignment")
 
+    def test_reasoning_only_third_vocabulary_preserves_previous_rounds(self):
+        """Malformed optional vocab JSON is audited; code inference still runs."""
+        case = sample()
+        original = deepcopy(case)
+        attempted_vocab_rounds, code_rounds, progress = [], [], []
+
+        def vocabulary(url, model, packet, **kw):
+            round_number = packet["round"]
+            attempted_vocab_rounds.append(round_number)
+            if round_number == 3:
+                if kw.get("on_metrics"):
+                    kw["on_metrics"]({
+                        "provider": "local", "status": "invalid_json",
+                        "json_complete": False, "finish_reason": "stop",
+                        "prompt_tokens": 2186, "completion_tokens": 2799,
+                        "total_tokens": 4985,
+                    })
+                raise CaseError(
+                    "LLM output not valid expected JSON: empty final content "
+                    "(reasoning_only=True, finish_reason=stop, completion_tokens=2799)"
+                )
+            prior = next(x["candidate"] for x in packet["current_hypotheses_unverified"]
+                         if x["code"] == "999")
+            return {"vocabulary": [{
+                "term": f"第{round_number}輪新詞",
+                "reason": "虛構測試資料，未驗證",
+                "evidence_message_ids": ["X-new"], "target_code": "999",
+                "contrasted_candidate": prior,
+                "contrast_reason": "用於離線測試候選詞"
+            }], "patterns": []}
+
+        def code(url, model, packet, **kw):
+            round_no = packet["round_context"]["round"]
+            code_rounds.append(round_no)
+            return {"hypotheses": [{
+                "code": "999", "candidates": ["第1輪新詞"],
+                "reason": "僅供測試，未驗證"
+            }]}
+
+        with TemporaryDirectory() as tmp, \
+             patch("han_codebook.agent.query_local_llm", side_effect=code):
+            db = Path(tmp) / "audit.sqlite"
+            result = run_agent(
+                case, rounds=3, llm_url=self.config()["base_url"],
+                model="mock-private", db_path=str(db), metadata=True,
+                vocabulary_query=vocabulary, adaptive_vocabulary=True,
+                capture_llm_io=False, solver_iterations=1, solver_restarts=1,
+                progress=progress.append)
+            with sqlite3.connect(db) as conn:
+                failures = [json.loads(item[0]) for item in conn.execute(
+                    "SELECT payload_json FROM events WHERE stage='vocabulary_generation_failed'")]
+                proposals = [json.loads(item[0]) for item in conn.execute(
+                    "SELECT payload_json FROM events WHERE stage='llm_proposals_unverified'")]
+                success_terms = [json.loads(item[0]) for item in conn.execute(
+                    "SELECT payload_json FROM events WHERE stage='vocabulary_candidates_unverified'")]
+
+        self.assertEqual(attempted_vocab_rounds, [1, 2, 3])
+        self.assertEqual(code_rounds, [1, 2, 3])
+        self.assertEqual(len(success_terms), 2)
+        self.assertEqual(len(proposals), 3)
+        self.assertEqual(result["agent_rounds_completed"], 3)
+        self.assertEqual(result["dynamic_vocabulary_terms"], ["第1輪新詞", "第2輪新詞"])
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0]["reason"], "unusable_final_json")
+        self.assertTrue(failures[0]["no_automatic_retry"])
+        self.assertTrue(failures[0]["code_inference_continues"])
+        self.assertNotIn("content", failures[0])
+        policy = result["vocabulary_generation_policy"]
+        self.assertEqual(policy["vocabulary_failed_rounds"], [3])
+        self.assertEqual(policy["vocabulary_llm_calls"], 2)
+        self.assertEqual(policy["vocabulary_attempted_calls"], 3)
+        self.assertTrue(policy["partial_vocabulary_failure"])
+        self.assertTrue(any("proceeding to code analysis" in line for line in progress))
+        self.assertEqual(case, original)
+
+    def test_vocab_network_error_never_silently_skips(self):
+        def network_failure(*args, **kwargs):
+            raise CaseError("LLM network error: disconnected")
+        with TemporaryDirectory() as tmp, \
+             patch("han_codebook.agent.query_local_llm") as code:
+            with self.assertRaisesRegex(CaseError, "LLM network error"):
+                run_agent(sample(), rounds=1, llm_url=self.config()["base_url"],
+                          model="mock-private", db_path=str(Path(tmp)/"audit.sqlite"),
+                          vocabulary_query=network_failure, adaptive_vocabulary=True,
+                          solver_iterations=1, solver_restarts=1,
+                          progress=lambda _: None)
+            code.assert_not_called()
+
+    def test_human_review_vocab_format_error_remains_fatal(self):
+        def output_failure(*args, **kwargs):
+            raise CaseError("LLM output not valid expected JSON: empty final content")
+        with TemporaryDirectory() as tmp, \
+             patch("han_codebook.agent.query_local_llm") as code:
+            with self.assertRaisesRegex(CaseError, "empty final content"):
+                run_agent(sample(), rounds=1, llm_url=self.config()["base_url"],
+                          model="mock-private", db_path=str(Path(tmp)/"audit.sqlite"),
+                          vocabulary_query=output_failure, adaptive_vocabulary=True,
+                          vocabulary_reviewer=lambda _round, proposals: [],
+                          solver_iterations=1, solver_restarts=1,
+                          progress=lambda _: None)
+            code.assert_not_called()
+
     def test_researcher_custom_terms_enter_next_round_and_are_audited(self):
         case=sample()
         original=deepcopy(case)

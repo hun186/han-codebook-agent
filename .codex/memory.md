@@ -1,5 +1,10 @@
 # Project memory
 
+## 2026-11-11 — PR #65 later Codex P2 test-only HTTP interception fixed; re-review pending
+- Formal Codex Review at `a7399ba38d8f8eb6b2b03a899f4d6d78452bb53f` found a valid P2: the invalid-JSON subtest still patched `request.urlopen` while provider=ollama uses `_urlopen_llm` with `build_opener`, so two purportedly offline invalid-JSON tests attempted a real LAN request with *synthetic test-only data*. No real user case was sent by this test.
+- Fixed the remaining mock to intercept `han_codebook.agent._urlopen_llm`; all native synthetic API responses now use the same transport boundary. Prior CI/Review do NOT authorize merge. Fresh exact-head Hosted CI + completed formal Codex re-review, plus resolution of P1/P2 valid findings required.
+
+
 ## 2026-11-11 — PR #65 Codex P1 redirect containment fixed; review pending
 - Formal Codex Review at old HEAD `0fab4defc92ba0cdb40c82c006801220db30d122` found a genuine P1: native Ollama `urllib` redirects would leave the allowlisted origin and could forward configured Authorization headers and research context to another host.
 - Fixed `_urlopen_llm` to reject all redirects when `provider=ollama` (as previously done for DeepInfra), covering both `/api/chat` and `/api/tags` probes. Added deterministic two-loopback-server regression asserting that neither POST/GET redirected traffic nor its Bearer auth reaches an unapproved receiver.

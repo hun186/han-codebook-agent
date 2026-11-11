@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-11 — Mixed GUI/Python backend versions blocked native Ollama save (new PR, gates pending)
+- User screenshot shows GUI has `Ollama 原生 API`, but backend rejects POST with exact older error `Provider must be local or deepinfra`. Latest main `model_settings.py` instead accepts `local, ollama, deepinfra`, proving the **running Python backend module is stale** relative to displayed HTML (potential old process / different installed folder). Do not assume the user's file updates restarted the old server.
+- Add a read-only `supported_providers` backend capability in model-settings receipt; GUI detects absent Ollama capability on page load and before save, warns to stop `run_web_windows.bat`, update main, restart Python. Never fall back silently to `local`. Browser-only Mock accurately advertises only `local` and stays unable to mutate real endpoints.
+- Windows web launcher checks TCP 8765 before opening browser: refuses ambiguous already-running server; prints imported Python backend module path and supported providers and fails if only legacy code loaded. No auto-kill or process termination, no secrets or live LLM traffic.
+- Offline Node/Python tests cover legacy no-write rejection and new capability. At authoring Hosted CI, formal review and merge are **PENDING**. Real user workstation restart/acceptance unverified.
+
+
 ## 2026-11-11 — Model-transport preflight prevents repeated wrong API mode (new PR; gates pending)
 - An actual private diagnostic ZIP for a 2026-11-11 failed Case09 round-1 vocabulary run contains `vocabulary_llm_request.url=http://192.168.0.134:11434/v1/chat/completions` and `llm_api_metrics.provider=local`, despite #65 native Ollama code already merged. `content=""`, `reasoning` repeated and 2018 completion tokens; no valid final JSON. This confirms **the run used local/OpenAI-compatible, not native**, but does not prove whether local config was unsaved or local executable was out of date. User case data and full raw LLM contents remain private; do not commit them.
 - Add a nonsecret transport summary in the LLM settings header, saved/test receipts, and **before any analysis sends case material**: actual provider label and computed chat API URL. Explicit warning when `provider=local` is used on port 11434; do not change or auto-switch valid compatible gateways. Block analysis if the on-screen provider settings are unsaved or local confirmation token is stale; continue to require consent and same-origin admission token.

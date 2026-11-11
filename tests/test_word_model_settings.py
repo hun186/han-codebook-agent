@@ -39,6 +39,7 @@ class ModelSettingsTests(unittest.TestCase):
             "timeout_seconds":120,"allow_private_network":False,
             "api_key_env":"HAN_CODEBOOK_LLM_API_KEY"})
         self.assertEqual(result["model"],"qwen3:14b")
+        self.assertIn("ollama", result["supported_providers"])
         self.assertEqual(result["api_key_env"],"HAN_CODEBOOK_LLM_API_KEY")
         self.assertFalse(result["secret_value_exposed"])
         self.assertNotIn("password",self.cfg.read_text(encoding="utf-8").lower())

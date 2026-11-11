@@ -73,6 +73,12 @@ function updateLLMProviderUI(){
 }
 async function loadLLMSettings(){
  const cfg=await api('/api/settings');
+ // A new HTML file can be served by a still-running old Python interpreter.
+ // Advertise the mismatch without attempting a save or changing configuration.
+ if(cfg.capture_io_available===true &&
+    !(Array.isArray(cfg.supported_providers)&&cfg.supported_providers.includes('ollama'))){
+  el('llmSettingStatus').textContent='⚠ 目前正在執行的 Python 後端版本不支援 Ollama 原生 API。請先在原先的 run_web_windows.bat 視窗按 Ctrl+C 完整停止，更新 main 後重新啟動；僅重整瀏覽器不會更新後端。';
+ }
  savedLLMProvider=cfg.provider==='deepinfra'?'deepinfra':cfg.provider==='ollama'?'ollama':'local';
  el('llmPreset').value=savedLLMProvider==='deepinfra'?'deepinfra':
     savedLLMProvider==='ollama'?'ollama':'compatible';
@@ -113,6 +119,16 @@ async function saveLLMSettings(){
  if(deep&&(!Number.isInteger(budget)||budget<1024||budget>16384))
    throw Error('DeepInfra 最大輸出 tokens 必須是 1,024～16,384 的整數');
  if(deep&&!el('llmAllowExternal').checked)throw Error('DeepInfra 必須先勾選外傳資料授權');
+ if(el('llmPreset').value==='ollama'){
+  const backend=await api('/api/settings');
+  if(!(Array.isArray(backend.supported_providers)&&backend.supported_providers.includes('ollama'))){
+   const message=backend.capture_io_available===false?
+    '公開展示版不支援修改或連接真實 Ollama 端點，請使用本機工作台。':
+    '目前 Python 後端不支援 Ollama 原生 API（舊版本仍只接受 local / deepinfra）。請停止原本的 run_web_windows.bat（Ctrl+C）、更新 main 並重新啟動 Python Server。不要只重新整理瀏覽器。';
+   el('llmSettingStatus').textContent='⚠ '+message;
+   throw Error(message);
+  }
+ }
  if(!confirm(deep?'DeepInfra 是外部付費 API，研究資料會傳給第三方。確定儲存並授權外傳？':
                   '修改本機／區網 LLM 設定？執行中的工作仍使用舊設定。'))return;
  const setting={provider:deep?'deepinfra':el('llmPreset').value==='ollama'?'ollama':'local',

@@ -33,6 +33,25 @@ class AdaptiveVocabularyTest(unittest.TestCase):
         return {"base_url":"http://127.0.0.1:11434",
                 "model":"mock-private","timeout_seconds":30}
 
+    def test_missing_timeout_defaults_to_600_for_dynamic_vocabulary(self):
+        case = sample()
+        for configured, expected in ((None, 600), (180, 180)):
+            llm_settings = dict(self.config())
+            llm_settings.pop('timeout_seconds')
+            if configured is not None:
+                llm_settings['timeout_seconds'] = configured
+            captured = []
+            def fake(url, model, packet, **kw):
+                captured.append(kw['timeout'])
+                return {'vocabulary': [], 'patterns': []}
+            with self.subTest(configured=configured):
+                fresh, record = refresh_vocabulary(
+                    case, round_number=1, metadata=False, current=None,
+                    llm_settings=llm_settings, query=fake)
+                self.assertEqual(captured, [expected])
+                self.assertEqual(record['approved'], [])
+                self.assertEqual(fresh, case)
+
     def test_evidence_packet_is_bounded_unverified_and_metadata_ablatable(self):
         case=sample()
         unverified={"proposals":{"999":{"term":"推測詞","status":"hypothesis_unverified"},

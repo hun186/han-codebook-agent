@@ -1,5 +1,9 @@
 # Project memory
 
+## 2026-11-12 — PR #70 Codex P2 cold-start/dynamic vocabulary timeout default (fix pending)
+- Codex review of `4edd4d411fe5177759935d56cc386d9494ad6f9b` identified P2: cold-start vocabulary and adaptive vocabulary independently defaulted to 90s when `llm.timeout_seconds` is omitted, inconsistent with GUI and main model-run default 600. Fixed both via shared constant and added offline tests verifying missing => 600 and explicit 180 stays 180. Re-review exact new HEAD before merging; old reviewed SHA cannot authorize merge.
+
+
 ## 2026-11-12 — PR #70 initial Hosted CI explicit-override regression test adjustment
 - First CI on `4edd4d411fe5177759935d56cc386d9494ad6f9b`: Python 3.10 failed solely because a DeepInfra mock test asserted implicit `query_local_llm` default 90. Since the common default is now 600, the test is updated to **explicitly pass timeout=90**, keeping the existing redirect/credential safety assertions and separately asserting that an explicit shorter call is honored. This is not an attempt to increase the paid DeepInfra template (still explicit 180).
 - Old CI/review receipts superseded by this commit. Latest-head CI / completed formal review must be obtained before merge.

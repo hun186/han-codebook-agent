@@ -1,5 +1,10 @@
 # Project memory
 
+## 2026-11-12 — PR #70 initial Hosted CI explicit-override regression test adjustment
+- First CI on `4edd4d411fe5177759935d56cc386d9494ad6f9b`: Python 3.10 failed solely because a DeepInfra mock test asserted implicit `query_local_llm` default 90. Since the common default is now 600, the test is updated to **explicitly pass timeout=90**, keeping the existing redirect/credential safety assertions and separately asserting that an explicit shorter call is honored. This is not an attempt to increase the paid DeepInfra template (still explicit 180).
+- Old CI/review receipts superseded by this commit. Latest-head CI / completed formal review must be obtained before merge.
+
+
 ## 2026-11-12 — Local/LAN cipher LLM default I/O timeout 600s (CI/review pending)
 - User observed a real 180s timeout after earlier 116s/152s Qwen calls and requested a 600s default for slow cipher work. This is a per-request socket I/O timeout, not a fixed ten-minute delay, hard round deadline, retry policy or solution-quality guarantee.
 - Unified omitted/local defaults to 600 in Python core, CLI, Web, GUI, tracked local config.yaml, README and browser-only Mock display; keep the existing maximum 600 and manual shorter choices. Explicitly configured per-user 180s remains 180 until user chooses to save 600. The explicit 180s DeepInfra paid external template stays unchanged.

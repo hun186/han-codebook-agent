@@ -60,6 +60,21 @@ class ColdStartTest(unittest.TestCase):
         replay=case_from_vocabulary_record(case,record)
         self.assertEqual(replay['profiles'],generated['profiles'])
 
+    def test_missing_timeout_uses_600_and_explicit_shorter_value_is_kept(self):
+        case = {**CASE, 'messages': CASE['messages'][:10]}
+        for configured, expected in ((None, 600), (180, 180)):
+            settings = self.settings()
+            if configured is not None:
+                settings['timeout_seconds'] = configured
+            captured = []
+            def fake(url, model, packet, **kw):
+                captured.append(kw['timeout'])
+                return self.fake(url, model, packet, **kw)
+            with self.subTest(configured=configured):
+                generate_vocabulary(case, metadata=False, llm_settings=settings,
+                                    query=fake, progress=lambda _: None)
+                self.assertEqual(captured, [expected])
+
     def test_llm_cold_start_and_old_mode_both_work(self):
         result=run_llm_comparison(sizes=(10,),seeds=(101,),metadata=True,auto_vocabulary=True,
                                   llm_config=CFG,iterations=1,restarts=1,query=self.fake,

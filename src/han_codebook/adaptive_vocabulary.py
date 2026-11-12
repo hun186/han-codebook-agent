@@ -10,6 +10,7 @@ from collections import Counter
 from copy import deepcopy
 from typing import Any, Callable
 
+from .config import DEFAULT_LLM_TIMEOUT_SECONDS
 from .agent import query_local_llm
 from .core import CaseError, validate_case
 from .event_links import suggest_event_links
@@ -171,7 +172,7 @@ def refresh_vocabulary(case: dict, *, round_number: int, metadata: bool,
                                current=current, vocabulary=current_terms)
     response = query(
         llm_settings["base_url"], llm_settings["model"], packet,
-        timeout=llm_settings.get("timeout_seconds", 90),
+        timeout=llm_settings.get("timeout_seconds", DEFAULT_LLM_TIMEOUT_SECONDS),
         allow_private_network=llm_settings.get("allow_private_network", False),
         allowed_hosts=llm_settings.get("allowed_hosts", []),
         api_key_env=llm_settings.get("api_key_env"),

@@ -33,6 +33,27 @@ class ModelSettingsTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_timeout_default_600_respects_saved_value_and_maximum(self):
+        from inspect import signature
+        from han_codebook.agent import query_local_llm, run_agent
+        from han_codebook.config import DEFAULT_LLM_TIMEOUT_SECONDS, load_settings
+        self.assertEqual(DEFAULT_LLM_TIMEOUT_SECONDS, 600)
+        self.assertEqual(model_settings(self.cfg)["timeout_seconds"], 600)
+        self.assertEqual(signature(query_local_llm).parameters["timeout"].default, 600)
+        self.assertEqual(signature(run_agent).parameters["llm_timeout"].default, 600)
+        config = {"base_url": "http://127.0.0.1:11434", "model": "local-model",
+                  "timeout_seconds": 180, "allow_private_network": False,
+                  "api_key_env": ""}
+        self.assertEqual(save_model_settings(self.cfg, config)["timeout_seconds"], 180)
+        self.assertEqual(model_settings(self.cfg)["timeout_seconds"], 180)
+        self.assertEqual(load_settings(self.cfg)["llm"]["timeout_seconds"], 180)
+        config["timeout_seconds"] = 600
+        self.assertEqual(save_model_settings(self.cfg, config)["timeout_seconds"], 600)
+        config["timeout_seconds"] = 601
+        with self.assertRaisesRegex(CaseError, "Timeout must be integer 1..600"):
+            save_model_settings(self.cfg, config)
+        self.assertEqual(model_settings(self.cfg)["timeout_seconds"], 600)
+
     def test_safe_local_and_lan_settings_persist(self):
         result=save_model_settings(self.cfg, {
             "base_url":"http://127.0.0.1:11434","model":"qwen3:14b",

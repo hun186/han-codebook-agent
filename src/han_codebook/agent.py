@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib import request, error, parse
 from .core import analyze, anchors_and_review, CaseError
+from .config import DEFAULT_LLM_TIMEOUT_SECONDS
 
 
 def create_audit(path: str | Path) -> sqlite3.Connection:
@@ -148,7 +149,7 @@ def validate_llm_endpoint(base_url: str, *, allow_private_network: bool = False,
         raise CaseError("LAN access requires llm.allow_private_network=true AND exact llm.allowed_hosts entry")
 
 
-def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout: int = 90,
+def query_local_llm(base_url: str, model: str, evidence: dict[str, Any], timeout: int = DEFAULT_LLM_TIMEOUT_SECONDS,
                     *, allow_private_network: bool = False,
                     allowed_hosts: tuple[str, ...] | list[str] = (),
                     api_key_env: str | None = None,
@@ -535,7 +536,7 @@ def _hypothesis_snapshot(result: dict[str, Any], *, round_number: int,
 
 def run_agent(case: dict[str, Any], *, rounds: int = 0, llm_url: str = "http://127.0.0.1:11434/v1",
               model: str = "qwen3:14b", db_path: str = "artifacts/audit.sqlite",
-              metadata: bool = True, llm_timeout: int = 90,
+              metadata: bool = True, llm_timeout: int = DEFAULT_LLM_TIMEOUT_SECONDS,
               allow_private_network: bool = False,
               llm_allowed_hosts: tuple[str, ...] | list[str] = (),
               llm_api_key_env: str | None = None,

@@ -14,7 +14,7 @@ llm:
   base_url: "http://192.168.0.134:18080"
   # The client appends /v1/chat/completions. Confirm your proxy exposes this route.
   model: "qwen3.8:latest-128k"
-  timeout_seconds: 180
+  timeout_seconds: 600  # local/LAN cipher research; explicit shorter values allowed
   # Ollama OpenAI-compatible JSON response and optional no-thinking mode.
   # Remove these two keys if your proxy/model does not accept them.
   reasoning_effort: "none"

@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlsplit
 from typing import Any
 
 from .agent import run_agent
-from .config import load_settings
+from .config import load_settings, DEFAULT_LLM_TIMEOUT_SECONDS
 from .core import CaseError, load_case, validate_case
 
 MAX_BODY = 1_500_000
@@ -327,7 +327,7 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                     cfg = load_settings(settings_path)["llm"]
                     trace = []
                     ok = probe_llm_service(cfg.get("base_url","http://127.0.0.1:11434"),
-                        timeout=min(cfg.get("timeout_seconds",90),8),
+                        timeout=min(cfg.get("timeout_seconds", DEFAULT_LLM_TIMEOUT_SECONDS),8),
                         allow_private_network=cfg.get("allow_private_network",False),
                         allowed_hosts=cfg.get("allowed_hosts",[]),
                         api_key_env=cfg.get("api_key_env"),
@@ -548,7 +548,7 @@ def create_handler(root: Path, settings_path: Path, jobs: dict[str, dict[str, An
                                 llm_url=llm.get("base_url", "http://127.0.0.1:11434/v1"),
                                 model=llm.get("model", "qwen3:14b"),
                                 db_path=str(target / "audit.sqlite"), metadata=metadata,
-                                llm_timeout=llm.get("timeout_seconds", 90),
+                                llm_timeout=llm.get("timeout_seconds", DEFAULT_LLM_TIMEOUT_SECONDS),
                                 allow_private_network=llm.get("allow_private_network", False),
                                 llm_allowed_hosts=llm.get("allowed_hosts", []),
                                 llm_api_key_env=llm.get("api_key_env"),

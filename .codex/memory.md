@@ -1,5 +1,12 @@
 # Project memory
 
+## 2026-11-12 — Local/LAN cipher LLM default I/O timeout 600s (CI/review pending)
+- User observed a real 180s timeout after earlier 116s/152s Qwen calls and requested a 600s default for slow cipher work. This is a per-request socket I/O timeout, not a fixed ten-minute delay, hard round deadline, retry policy or solution-quality guarantee.
+- Unified omitted/local defaults to 600 in Python core, CLI, Web, GUI, tracked local config.yaml, README and browser-only Mock display; keep the existing maximum 600 and manual shorter choices. Explicitly configured per-user 180s remains 180 until user chooses to save 600. The explicit 180s DeepInfra paid external template stays unchanged.
+- Added regression tests for repo YAML=600, omitted=600, manual=180 preserved, allowed 600/rejected 601, and the direct query/agent default. No paid model, LAN call, secrets or cipher records.
+- Hosted CI, exact-head formal Codex Review and Merge **PENDING** at authoring; subsequent verifiable PR state overrides this entry.
+
+
 ## 2026-11-11 — PR for recoverable optional vocabulary JSON failure (status: pending)
 - Private user-provided diagnostic ZIP records **three vocabulary calls** on OpenAI-compatible provider=`local` via `/v1/chat/completions`: rounds 1/2 valid JSON, each yielded 8 automatically adopted **unverified** candidate words, plus 15 valid code hypotheses each. Round 3 vocabulary failed (prompt=2186, completion=2799, `finish_reason=stop`, `content` length 0, `reasoning` length 6206). This run's new `run_started.llm_provider` is `local`, NOT native Ollama; no proof that native `think:false` has been tried. No raw ZIP/user case data committed.
 - Scope: **automatic** adaptive vocabulary only, when a valid previous statistical baseline exists: catch specifically invalid final-JSON LLM response, preserve prior vocabulary/hypotheses, emit `vocabulary_generation_failed` audit with controlled fixed fields (no prompt/reply), and continue code-round analysis without retry. All network, permission, policy, cancellation and human-review errors remain fatal. Result marks `partial_vocabulary_failure` and failed round numbers, preserving honest accounting; never label guesses as verified.

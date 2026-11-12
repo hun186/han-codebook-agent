@@ -12,7 +12,7 @@ import sys
 from typing import Any, Callable
 
 from .agent import run_agent
-from .config import load_settings
+from .config import load_settings, DEFAULT_LLM_TIMEOUT_SECONDS
 from .core import CaseError, analyze, load_case
 
 
@@ -102,7 +102,7 @@ def run_suite(suite_path: str | Path, *, variants: tuple[bool,...]=(True,False),
                 audit=Path(audit_dir)/f"{entry['id']}_{'meta' if use_metadata else 'no_meta'}.sqlite"
                 prediction=run_agent(case,rounds=rounds,metadata=use_metadata,
                       llm_url=llm['base_url'],model=llm['model'],db_path=str(audit),
-                      llm_timeout=llm.get('timeout_seconds',90),
+                      llm_timeout=llm.get('timeout_seconds', DEFAULT_LLM_TIMEOUT_SECONDS),
                       allow_private_network=llm.get('allow_private_network',False),
                       llm_allowed_hosts=llm.get('allowed_hosts',[]),
                       llm_api_key_env=llm.get('api_key_env'),

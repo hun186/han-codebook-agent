@@ -6,6 +6,9 @@ from typing import Any
 
 from .core import CaseError
 
+# Research LLM requests may take many minutes on local hardware.
+DEFAULT_LLM_TIMEOUT_SECONDS = 600
+
 _SCHEMAS = {
     "project": {"case": str, "output": str, "audit_db": str},
     "analysis": {"use_metadata": bool, "rounds": int, "evaluate_demo": bool,
@@ -55,7 +58,7 @@ def load_settings(path: str | Path) -> dict[str, Any]:
             result["project"][key] = str((cfg_path.parent / result["project"][key]).resolve())
     if not 0 <= result["analysis"].get("rounds", 0) <= 20:
         raise CaseError("Config 'analysis.rounds' must be in 0..20")
-    if not 1 <= result["llm"].get("timeout_seconds", 90) <= 600:
+    if not 1 <= result["llm"].get("timeout_seconds", DEFAULT_LLM_TIMEOUT_SECONDS) <= 600:
         raise CaseError("Config 'llm.timeout_seconds' must be in 1..600")
     if result["llm"].get("provider", "local") not in ("local", "ollama", "deepinfra"):
         raise CaseError("llm.provider must be local, ollama or deepinfra")

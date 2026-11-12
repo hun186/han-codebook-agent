@@ -522,7 +522,7 @@
   const MOCK_SETTINGS_RECEIPT='PUBLIC_MOCK_SETTINGS_V1_NO_NETWORK';
   const settings=()=>({base_url:'MOCK (no network)',endpoint:'MOCK (no network)',
     confirmation_token:MOCK_SETTINGS_RECEIPT,
-    model:'PUBLIC MOCK LLM',timeout_seconds:90,provider:'local',supported_providers:['local'],
+    model:'PUBLIC MOCK LLM',timeout_seconds:600,provider:'local',supported_providers:['local'],
     allow_external_api:false,allow_private_network:false,
     allowed_hosts:[],api_key_env:null,capture_io_available:false,
     note:'Vercel static demo is disconnected from all model endpoints.'});

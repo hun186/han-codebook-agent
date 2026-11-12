@@ -10,6 +10,7 @@ import time
 from typing import Any, Callable
 
 from .agent import query_local_llm, validate_llm_endpoint, summarize_llm_api_metrics
+from .config import DEFAULT_LLM_TIMEOUT_SECONDS
 from .core import CaseError, validate_case
 from .llm_evidence import safe_message_metadata
 
@@ -79,7 +80,7 @@ def generate_vocabulary(case: dict, *, metadata: bool, llm_settings: dict,
     progress(f'[vocab] LLM generating candidate terms from {len(case["messages"])} ciphertexts '
              f'and {len(packet["side_information_samples"])} contextual records ...')
     try:
-        reply = query(url,model,packet,timeout=llm_settings.get('timeout_seconds',90),
+        reply = query(url,model,packet,timeout=llm_settings.get('timeout_seconds', DEFAULT_LLM_TIMEOUT_SECONDS),
                       allow_private_network=llm_settings.get('allow_private_network',False),
                       allowed_hosts=llm_settings.get('allowed_hosts', []),
                       api_key_env=llm_settings.get('api_key_env'),on_exchange=capture,

@@ -21,6 +21,25 @@ class LocalLLMVolumeTests(unittest.TestCase):
         return {'base_url': 'http://192.168.0.134:18080', 'model': 'mock-not-real',
                 'allow_private_network':True, 'allowed_hosts':['192.168.0.134'], 'timeout_seconds':12}
 
+    def test_volume_rescore_timeout_default_600_and_explicit_180(self):
+        case=json.loads(CASE.read_text(encoding='utf-8'))
+        case['messages']=case['messages'][:10]
+        baseline=analyze(case,iterations=1,restarts=1)
+        for configured, expected in ((None, 600), (180, 180)):
+            settings=self._settings()
+            settings.pop('timeout_seconds')
+            if configured is not None:
+                settings['timeout_seconds']=configured
+            captured=[]
+            def fake_llm(url,model,packet,**kw):
+                captured.append(kw['timeout'])
+                return {'hypotheses':[]}
+            with self.subTest(configured=configured):
+                llm_rescore(case,baseline,metadata=False,llm_settings=settings,
+                            rounds=1,batch_size=25,iterations=1,restarts=1,
+                            query=fake_llm,progress=lambda _:None)
+                self.assertEqual(captured,[expected])
+
     def test_every_one_of_100_messages_sent_exactly_once_per_round(self):
         case=json.loads(CASE.read_text(encoding='utf-8'))
         baseline=analyze(case,iterations=1,restarts=1)

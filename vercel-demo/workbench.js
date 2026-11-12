@@ -83,7 +83,7 @@ async function loadLLMSettings(){
  el('llmPreset').value=savedLLMProvider==='deepinfra'?'deepinfra':
     savedLLMProvider==='ollama'?'ollama':'compatible';
  el('llmModel').value=cfg.model||''; el('llmUrl').value=cfg.base_url||'';
- el('llmTimeout').value=cfg.timeout_seconds||90;
+ el('llmTimeout').value=cfg.timeout_seconds??600;
  el('llmMaxOutputTokens').value=cfg.max_output_tokens??8192;
  el('llmAllowLAN').checked=cfg.allow_private_network===true;
  el('llmAllowExternal').checked=cfg.allow_external_api===true;

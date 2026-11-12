@@ -54,7 +54,7 @@ analysis:
 llm:
   base_url: "http://192.168.0.134:18080"
   model: "qwen3.6:latest-128k"
-  timeout_seconds: 90
+  timeout_seconds: 600
   allow_private_network: true
   allowed_hosts:
     - "192.168.0.134"
@@ -235,7 +235,7 @@ set PYTHONPATH=src
 curl.exe --max-time 10 -i http://192.168.0.134:18080/v1/models
 ```
 
-開始真正執行時，程式會顯示目前輪次、呼叫的 API URL、模型名稱，每 10 秒提示仍在等待，並在返回後顯示成功接受幾個未驗證候選。`llm.timeout_seconds` 是底層 socket I/O 逾時而不是整輪 LLM 生成的硬性總時間上限；慢速模型生成仍可能超過此時間。可以用 Ctrl+C 中止。若端點是 nginx/Open WebUI 的一般網頁，而非 OpenAI-compatible API，請調整反向代理或改成實際提供 `/v1/chat/completions` 的端點。若 HTTP 401/403，檢查 Bearer token；404，檢查路由或模型；502/504，檢查代理與上游服務。
+開始真正執行時，程式會顯示目前輪次、呼叫的 API URL、模型名稱，每 10 秒提示仍在等待，並在返回後顯示成功接受幾個未驗證候選。`llm.timeout_seconds` 的本機／區網破密預設為 **600 秒（10 分鐘）**。這是每次請求的底層 socket I/O 逾時，而不是整輪 LLM 生成的硬性總時間上限；已有的 180 秒等自訂值仍會使用，若想改成 600，請至 GUI 設定並按儲存；慢速模型生成仍可能超過此時間。可以用 Ctrl+C 中止。若端點是 nginx/Open WebUI 的一般網頁，而非 OpenAI-compatible API，請調整反向代理或改成實際提供 `/v1/chat/completions` 的端點。若 HTTP 401/403，檢查 Bearer token；404，檢查路由或模型；502/504，檢查代理與上游服務。
 
 不要把 API token、真實密文或敏感情報貼到公共 GitHub Issue。尚未在使用者的區網端點實測。
 

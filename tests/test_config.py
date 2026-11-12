@@ -20,6 +20,7 @@ class YAMLConfigTests(unittest.TestCase):
     def test_repo_config_uses_supplied_endpoint(self):
         cfg = load_settings(BASE / "config.yaml")
         self.assertEqual(cfg["llm"]["base_url"], "http://192.168.0.134:18080")
+        self.assertEqual(cfg["llm"]["timeout_seconds"], 600)
         self.assertEqual(cfg["llm"]["allowed_hosts"], ["192.168.0.134"])
         self.assertTrue(cfg["llm"]["allow_private_network"])
         self.assertEqual(cfg["project"]["case"], str((BASE / "examples/demo_case.json").resolve()))
@@ -94,7 +95,7 @@ class LLMSecurityTests(unittest.TestCase):
         seen = []
         def mock_open(req, timeout):
             seen.append(req)
-            self.assertEqual(timeout, 90)
+            self.assertEqual(timeout, 600)
             return Response()
 
         with patch("han_codebook.agent.request.urlopen", side_effect=mock_open):

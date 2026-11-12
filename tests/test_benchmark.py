@@ -96,6 +96,31 @@ class BenchmarkTests(unittest.TestCase):
             with self.assertRaises(CaseError):
                 score_result(analyze(case,iterations=2,restarts=1),fake,case)
 
+    def test_benchmark_timeout_default_600_and_explicit_180(self):
+        case = load_case(BENCH/'cases/01_known_and_metadata.json')
+        gold = json.loads((BENCH/'gold/01_known_and_metadata.json').read_text(encoding='utf-8'))
+        with tempfile.TemporaryDirectory() as td:
+            folder=Path(td)
+            (folder/'case.json').write_text(json.dumps(case, ensure_ascii=False), encoding='utf-8')
+            (folder/'gold.json').write_text(json.dumps(gold, ensure_ascii=False), encoding='utf-8')
+            manifest={'version':1,'cases':[{'id':case['case_id'],
+                'case':'case.json','gold':'gold.json','description':'timeout-only'}]}
+            (folder/'suite.json').write_text(json.dumps(manifest),encoding='utf-8')
+            captured=[]
+            def synthetic_agent(case_input, **kw):
+                captured.append(kw['llm_timeout'])
+                return analyze(case_input,use_metadata=kw['metadata'],iterations=1,restarts=1)
+            with patch('han_codebook.benchmark.run_agent',side_effect=synthetic_agent):
+                for configured, expected in ((None, 600), (180, 180)):
+                    settings={'base_url':'http://127.0.0.1:11434','model':'mock'}
+                    if configured is not None:
+                        settings['timeout_seconds']=configured
+                    report=run_suite(folder/'suite.json',variants=(True,),
+                                     llm_settings=settings,rounds=1,audit_dir=folder)
+                    self.assertEqual(report['case_count'],1)
+                    self.assertEqual(captured[-1],expected)
+                self.assertEqual(captured,[600,180])
+
     def test_benchmark_one_llm_round_mock_local_http_never_receives_gold(self):
         from http.server import BaseHTTPRequestHandler, HTTPServer
         from threading import Thread

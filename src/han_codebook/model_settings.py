@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 from .agent import (DEEPINFRA_DEFAULT_MAX_OUTPUT_TOKENS,
                     validate_llm_endpoint, validate_max_output_tokens)
-from .config import load_settings
+from .config import load_settings, DEFAULT_LLM_TIMEOUT_SECONDS
 from .core import CaseError
 
 MAX_LLM_ROUNDS = 20
@@ -61,7 +61,7 @@ def model_settings(path: Path) -> dict:
         "allow_external_api": llm.get("allow_external_api", False),
         "model": llm.get("model", "qwen3:14b"),
         "max_output_tokens": llm.get("max_output_tokens", DEEPINFRA_DEFAULT_MAX_OUTPUT_TOKENS),
-        "timeout_seconds": llm.get("timeout_seconds", 90),
+        "timeout_seconds": llm.get("timeout_seconds", DEFAULT_LLM_TIMEOUT_SECONDS),
         "allow_private_network": llm.get("allow_private_network", False),
         "allowed_hosts": list(llm.get("allowed_hosts", [])),
         "api_key_env": llm.get("api_key_env", ""),

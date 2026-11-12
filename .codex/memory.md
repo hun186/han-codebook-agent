@@ -1,5 +1,26 @@
 # Project memory
 
+## 2026-11-12 — PR #70 latest Codex P2 benchmark/volume LLM timeout mismatch (fix pending)
+- Formal Codex review on `4f31aade44a983861a4b257d3777801f848c62e6` found remaining P2: synthetic benchmark `run_suite` and volume-comparison `llm_rescore` both used 90 when timeout omitted. Fixed both via the shared 600-second constant. New offline tests verify missing => 600 and explicitly configured 180 => 180 for benchmark and volume calls; no live LLM.
+- Latest HEAD CI and completed Codex review MUST be rerun before resolving this and earlier P2 threads and merging.
+
+
+## 2026-11-12 — PR #70 Codex P2 cold-start/dynamic vocabulary timeout default (fix pending)
+- Codex review of `4edd4d411fe5177759935d56cc386d9494ad6f9b` identified P2: cold-start vocabulary and adaptive vocabulary independently defaulted to 90s when `llm.timeout_seconds` is omitted, inconsistent with GUI and main model-run default 600. Fixed both via shared constant and added offline tests verifying missing => 600 and explicit 180 stays 180. Re-review exact new HEAD before merging; old reviewed SHA cannot authorize merge.
+
+
+## 2026-11-12 — PR #70 initial Hosted CI explicit-override regression test adjustment
+- First CI on `4edd4d411fe5177759935d56cc386d9494ad6f9b`: Python 3.10 failed solely because a DeepInfra mock test asserted implicit `query_local_llm` default 90. Since the common default is now 600, the test is updated to **explicitly pass timeout=90**, keeping the existing redirect/credential safety assertions and separately asserting that an explicit shorter call is honored. This is not an attempt to increase the paid DeepInfra template (still explicit 180).
+- Old CI/review receipts superseded by this commit. Latest-head CI / completed formal review must be obtained before merge.
+
+
+## 2026-11-12 — Local/LAN cipher LLM default I/O timeout 600s (CI/review pending)
+- User observed a real 180s timeout after earlier 116s/152s Qwen calls and requested a 600s default for slow cipher work. This is a per-request socket I/O timeout, not a fixed ten-minute delay, hard round deadline, retry policy or solution-quality guarantee.
+- Unified omitted/local defaults to 600 in Python core, CLI, Web, GUI, tracked local config.yaml, README and browser-only Mock display; keep the existing maximum 600 and manual shorter choices. Explicitly configured per-user 180s remains 180 until user chooses to save 600. The explicit 180s DeepInfra paid external template stays unchanged.
+- Added regression tests for repo YAML=600, omitted=600, manual=180 preserved, allowed 600/rejected 601, and the direct query/agent default. No paid model, LAN call, secrets or cipher records.
+- Hosted CI, exact-head formal Codex Review and Merge **PENDING** at authoring; subsequent verifiable PR state overrides this entry.
+
+
 ## 2026-11-11 — PR for recoverable optional vocabulary JSON failure (status: pending)
 - Private user-provided diagnostic ZIP records **three vocabulary calls** on OpenAI-compatible provider=`local` via `/v1/chat/completions`: rounds 1/2 valid JSON, each yielded 8 automatically adopted **unverified** candidate words, plus 15 valid code hypotheses each. Round 3 vocabulary failed (prompt=2186, completion=2799, `finish_reason=stop`, `content` length 0, `reasoning` length 6206). This run's new `run_started.llm_provider` is `local`, NOT native Ollama; no proof that native `think:false` has been tried. No raw ZIP/user case data committed.
 - Scope: **automatic** adaptive vocabulary only, when a valid previous statistical baseline exists: catch specifically invalid final-JSON LLM response, preserve prior vocabulary/hypotheses, emit `vocabulary_generation_failed` audit with controlled fixed fields (no prompt/reply), and continue code-round analysis without retry. All network, permission, policy, cancellation and human-review errors remain fatal. Result marks `partial_vocabulary_failure` and failed round numbers, preserving honest accounting; never label guesses as verified.

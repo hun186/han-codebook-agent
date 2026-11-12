@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import sys
 from .agent import run_agent, probe_llm_service, llm_api_base, llm_chat_endpoint, DEEPINFRA_BASE_URL
-from .config import load_settings
+from .config import load_settings, DEFAULT_LLM_TIMEOUT_SECONDS
 from .core import load_case, evaluate_demo, CaseError
 
 
@@ -53,7 +53,7 @@ def main(argv=None) -> int:
             parser.error("--vocab-zero-patience must be 0..20")
         if not 0 <= args.postrun_holdout_folds <= 10:
             parser.error("--postrun-holdout-folds must be 0..10")
-        timeout = llm.get("timeout_seconds", 90)
+        timeout = llm.get("timeout_seconds", DEFAULT_LLM_TIMEOUT_SECONDS)
         metadata = not args.no_metadata if args.no_metadata is not None else analysis.get("use_metadata", True)
         evaluate = args.evaluate_demo if args.evaluate_demo is not None else analysis.get("evaluate_demo", False)
         provider = args.provider or llm.get("provider", "local")

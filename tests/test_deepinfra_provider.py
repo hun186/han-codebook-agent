@@ -104,7 +104,7 @@ class DeepInfraTests(unittest.TestCase):
                  patch("han_codebook.agent.request.urlopen") as local:
                 result = query_local_llm(
                     DEEPINFRA_BASE_URL, MODEL, {"task": "code", "codes": ["001"]},
-                    provider="deepinfra", allow_external_api=True,
+                    provider="deepinfra", allow_external_api=True, timeout=90,
                     reasoning_effort="none", response_format="json_object")
                 local.assert_not_called()
         self.assertEqual(result, {"hypotheses": []})

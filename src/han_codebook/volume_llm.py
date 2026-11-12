@@ -19,7 +19,7 @@ from typing import Any, Callable
 
 from .agent import query_local_llm, validate_llm_endpoint, summarize_llm_api_metrics
 from .benchmark import score_result
-from .config import load_settings
+from .config import load_settings, DEFAULT_LLM_TIMEOUT_SECONDS
 from .core import CaseError, analyze, anchors_and_review, validate_case
 from .volume import MANIFEST, load_manifest, probe_metrics
 from .volume_decode_view import build_decoding_view, attach_evaluation_gold, explorer_html
@@ -115,7 +115,7 @@ def llm_rescore(case: dict, baseline: dict, *, metadata: bool, llm_settings: dic
             worker.start()
             try:
                 # query_local_llm's request/response capture never includes authorization headers.
-                reply = query(url, model, packet, timeout=llm_settings.get('timeout_seconds', 90),
+                reply = query(url, model, packet, timeout=llm_settings.get('timeout_seconds', DEFAULT_LLM_TIMEOUT_SECONDS),
                               allow_private_network=llm_settings.get('allow_private_network', False),
                               allowed_hosts=llm_settings.get('allowed_hosts', []),
                               api_key_env=llm_settings.get('api_key_env'), on_exchange=on_exchange,

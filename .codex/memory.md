@@ -1,5 +1,10 @@
 # Project memory
 
+## 2026-11-12 — PR #70 latest Codex P2 benchmark/volume LLM timeout mismatch (fix pending)
+- Formal Codex review on `4f31aade44a983861a4b257d3777801f848c62e6` found remaining P2: synthetic benchmark `run_suite` and volume-comparison `llm_rescore` both used 90 when timeout omitted. Fixed both via the shared 600-second constant. New offline tests verify missing => 600 and explicitly configured 180 => 180 for benchmark and volume calls; no live LLM.
+- Latest HEAD CI and completed Codex review MUST be rerun before resolving this and earlier P2 threads and merging.
+
+
 ## 2026-11-12 — PR #70 Codex P2 cold-start/dynamic vocabulary timeout default (fix pending)
 - Codex review of `4edd4d411fe5177759935d56cc386d9494ad6f9b` identified P2: cold-start vocabulary and adaptive vocabulary independently defaulted to 90s when `llm.timeout_seconds` is omitted, inconsistent with GUI and main model-run default 600. Fixed both via shared constant and added offline tests verifying missing => 600 and explicit 180 stays 180. Re-review exact new HEAD before merging; old reviewed SHA cannot authorize merge.
 
